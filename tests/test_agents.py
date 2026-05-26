@@ -11,7 +11,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.runtime = build_demo_runtime()
 
     def test_knowledge_agent_returns_citations(self) -> None:
-        response = self.runtime.execute(
+        _, response = self.runtime.execute(
             "knowledge",
             AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
         )
@@ -21,7 +21,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("营销套利", response.summary)
 
     def test_metric_investigation_returns_expected_findings(self) -> None:
-        response = self.runtime.execute(
+        _, response = self.runtime.execute(
             "investigation",
             AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
         )
@@ -31,7 +31,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "metric_snapshot" for trace in response.tool_traces))
 
     def test_order_investigation_uses_order_context(self) -> None:
-        response = self.runtime.execute(
+        _, response = self.runtime.execute(
             "investigation",
             AgentRequest(
                 query="请分析这个订单为什么被判高风险",
@@ -46,6 +46,23 @@ class AgentPlatformTests(unittest.TestCase):
     def test_unknown_agent_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):
             self.runtime.execute("unknown", AgentRequest(query="test"))
+
+    def test_runtime_persists_session_history(self) -> None:
+        session_id, _ = self.runtime.execute(
+            "knowledge",
+            AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
+        )
+        self.runtime.execute(
+            "investigation",
+            AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
+            session_id=session_id,
+        )
+
+        session = self.runtime.get_session(session_id)
+        self.assertIsNotNone(session)
+        self.assertEqual(len(session.turns), 2)
+        self.assertEqual(session.turns[0].agent_name, "knowledge")
+        self.assertEqual(session.turns[1].agent_name, "investigation")
 
 
 if __name__ == "__main__":

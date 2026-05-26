@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
 from core.runtime import AgentRuntime
+from core.session_store import InMemorySessionStore
 from retrieval.knowledge_base import RetrievalService
 from sample_data import (
     build_case_records,
@@ -24,7 +25,7 @@ def build_demo_runtime() -> AgentRuntime:
     tools.register("case_lookup", build_case_records())
     tools.register("order_profile", build_order_profiles())
 
-    runtime = AgentRuntime()
+    runtime = AgentRuntime(session_store=InMemorySessionStore())
     runtime.register_agent(KnowledgeAgent(retrieval))
     runtime.register_agent(InvestigationAgent(tools, retrieval))
     return runtime

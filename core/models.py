@@ -79,3 +79,18 @@ class AgentResponse:
         )
         self.tool_traces.append(trace)
         return trace
+
+
+@dataclass
+class SessionTurn:
+    agent_name: str
+    query: str
+    context: dict[str, Any]
+    summary: str
+    confidence: float
+
+
+@dataclass
+class SessionRecord:
+    session_id: str
+    turns: list[SessionTurn] = field(default_factory=list)

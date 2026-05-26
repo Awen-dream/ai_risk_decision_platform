@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -9,7 +11,11 @@ from core.models import AgentRequest, AgentResponse
 
 class AgentInvokeRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query for the agent")
-    context: dict[str, object] = Field(
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Optional existing session ID for multi-turn interaction",
+    )
+    context: Dict[str, Any] = Field(
         default_factory=dict,
         description="Optional structured context such as country, channel, order_id",
     )
@@ -30,13 +36,27 @@ class ToolTracePayload(BaseModel):
 
 
 class AgentInvokeResponse(BaseModel):
+    session_id: str
     agent_name: str
     summary: str
-    findings: list[str]
-    suggested_actions: list[str]
-    citations: list[CitationPayload]
-    tool_traces: list[ToolTracePayload]
+    findings: List[str]
+    suggested_actions: List[str]
+    citations: List[CitationPayload]
+    tool_traces: List[ToolTracePayload]
     confidence: float
+
+
+class SessionTurnPayload(BaseModel):
+    agent_name: str
+    query: str
+    context: Dict[str, Any]
+    summary: str
+    confidence: float
+
+
+class SessionResponse(BaseModel):
+    session_id: str
+    turns: List[SessionTurnPayload]
 
 
 def create_app() -> FastAPI:
@@ -48,33 +68,48 @@ def create_app() -> FastAPI:
     )
 
     @fastapi_app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    def healthz() -> Dict[str, str]:
         return {"status": "ok"}
 
     @fastapi_app.get("/agents")
-    def list_agents() -> dict[str, list[str]]:
-        return {"agents": ["knowledge", "investigation"]}
+    def list_agents() -> Dict[str, List[str]]:
+        return {"agents": runtime.list_agents()}
+
+    @fastapi_app.post("/sessions", response_model=SessionResponse)
+    def create_session() -> SessionResponse:
+        session_id = runtime.create_session()
+        session = runtime.get_session(session_id)
+        return _to_session_response(session)
+
+    @fastapi_app.get("/sessions/{session_id}", response_model=SessionResponse)
+    def get_session(session_id: str) -> SessionResponse:
+        session = runtime.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return _to_session_response(session)
 
     @fastapi_app.post("/agents/{agent_name}", response_model=AgentInvokeResponse)
     def invoke_agent(agent_name: str, payload: AgentInvokeRequest) -> AgentInvokeResponse:
         try:
-            response = runtime.execute(
+            session_id, response = runtime.execute(
                 agent_name,
                 AgentRequest(
                     query=payload.query,
                     context=payload.context,
                     user_role=payload.user_role,
                 ),
+                session_id=payload.session_id,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return _to_response_model(response)
+        return _to_response_model(session_id, response)
 
     return fastapi_app
 
 
-def _to_response_model(response: AgentResponse) -> AgentInvokeResponse:
+def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeResponse:
     return AgentInvokeResponse(
+        session_id=session_id,
         agent_name=response.agent_name,
         summary=response.summary,
         findings=response.findings,
@@ -97,6 +132,22 @@ def _to_response_model(response: AgentResponse) -> AgentInvokeResponse:
             for trace in response.tool_traces
         ],
         confidence=response.confidence,
+    )
+
+
+def _to_session_response(session) -> SessionResponse:
+    return SessionResponse(
+        session_id=session.session_id,
+        turns=[
+            SessionTurnPayload(
+                agent_name=turn.agent_name,
+                query=turn.query,
+                context=turn.context,
+                summary=turn.summary,
+                confidence=turn.confidence,
+            )
+            for turn in session.turns
+        ],
     )
 
 

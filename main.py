@@ -25,17 +25,19 @@ def render_response(title: str, response) -> None:
 if __name__ == "__main__":
     runtime = build_demo_runtime()
 
-    knowledge_response = runtime.execute(
+    session_id, knowledge_response = runtime.execute(
         "knowledge",
         AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
     )
     render_response("Knowledge Agent Demo", knowledge_response)
 
-    investigation_response = runtime.execute(
+    _, investigation_response = runtime.execute(
         "investigation",
         AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
+        session_id=session_id,
     )
     render_response("Investigation Agent Demo", investigation_response)
+    print(f"\nShared session ID: {session_id}")
 
     print("\nAPI server hint:")
     print("  uvicorn api:fastapi_app --reload")
