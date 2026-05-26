@@ -36,3 +36,6 @@ if __name__ == "__main__":
         AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
     )
     render_response("Investigation Agent Demo", investigation_response)
+
+    print("\nAPI server hint:")
+    print("  uvicorn api:fastapi_app --reload")
