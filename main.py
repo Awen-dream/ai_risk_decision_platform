@@ -1,16 +1,38 @@
-# 这是一个示例 Python 脚本。
+from __future__ import annotations
 
-# 按 ⌃R 执行或将其替换为您的代码。
-# 按 双击 ⇧ 在所有地方搜索类、文件、工具窗口、操作和设置。
-
-
-def print_hi(name):
-    # 在下面的代码行中使用断点来调试脚本。
-    print(f'Hi, {name}')  # 按 ⌘F8 切换断点。
+from app import build_demo_runtime
+from core.models import AgentRequest
 
 
-# 按装订区域中的绿色按钮以运行脚本。
-if __name__ == '__main__':
-    print_hi('PyCharm')
+def render_response(title: str, response) -> None:
+    print(f"\n=== {title} ===")
+    print(f"Agent: {response.agent_name}")
+    print(f"Summary: {response.summary}")
+    print("Findings:")
+    for finding in response.findings:
+        print(f"  - {finding}")
+    print("Suggested actions:")
+    for action in response.suggested_actions:
+        print(f"  - {action}")
+    print("Citations:")
+    for citation in response.citations:
+        print(f"  - [{citation.source_type}] {citation.title}: {citation.snippet}")
+    print("Tool traces:")
+    for trace in response.tool_traces:
+        print(f"  - {trace.name} ({trace.status}): {trace.summary}")
 
-# 访问 https://www.jetbrains.com/help/pycharm/ 获取 PyCharm 帮助
+
+if __name__ == "__main__":
+    runtime = build_demo_runtime()
+
+    knowledge_response = runtime.execute(
+        "knowledge",
+        AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
+    )
+    render_response("Knowledge Agent Demo", knowledge_response)
+
+    investigation_response = runtime.execute(
+        "investigation",
+        AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
+    )
+    render_response("Investigation Agent Demo", investigation_response)
