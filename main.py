@@ -41,3 +41,4 @@ if __name__ == "__main__":
 
     print("\nAPI server hint:")
     print("  uvicorn api:fastapi_app --reload")
+    print("  uvicorn risk_service:risk_service_app --port 8090 --reload")
