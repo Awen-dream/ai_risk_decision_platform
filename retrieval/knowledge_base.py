@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Iterable
 
+from adapters.base import KnowledgeSource
 from core.models import KnowledgeDocument
 
 
@@ -23,6 +25,9 @@ class RetrievalService:
 
     def add_documents(self, documents: list[KnowledgeDocument]) -> None:
         self._documents.extend(documents)
+
+    def add_source(self, source: KnowledgeSource) -> None:
+        self.add_documents(list(source.load()))
 
     def search(self, query: str, top_k: int = 3) -> list[KnowledgeDocument]:
         query_terms = self._tokenize(query)
