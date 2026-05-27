@@ -5,8 +5,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from app import build_demo_runtime
+from app import build_app_container
 from core.models import AgentRequest, AgentResponse
+from settings import AppConfig
 
 
 class AgentInvokeRequest(BaseModel):
@@ -59,8 +60,15 @@ class SessionResponse(BaseModel):
     turns: List[SessionTurnPayload]
 
 
-def create_app() -> FastAPI:
-    runtime = build_demo_runtime()
+class KnowledgeReloadResponse(BaseModel):
+    documents_loaded: int
+    source_count: int
+    total_documents: int
+
+
+def create_app(config: Optional[AppConfig] = None) -> FastAPI:
+    container = build_app_container(config)
+    runtime = container.runtime
     fastapi_app = FastAPI(
         title="AI Risk Decision Platform API",
         version="0.1.0",
@@ -87,6 +95,15 @@ def create_app() -> FastAPI:
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return _to_session_response(session)
+
+    @fastapi_app.post("/admin/knowledge/reload", response_model=KnowledgeReloadResponse)
+    def reload_knowledge() -> KnowledgeReloadResponse:
+        result = container.knowledge_sync_service.reload()
+        return KnowledgeReloadResponse(
+            documents_loaded=result.documents_loaded,
+            source_count=result.source_count,
+            total_documents=container.retrieval.document_count(),
+        )
 
     @fastapi_app.post("/agents/{agent_name}", response_model=AgentInvokeResponse)
     def invoke_agent(agent_name: str, payload: AgentInvokeRequest) -> AgentInvokeResponse:

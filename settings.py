@@ -13,6 +13,7 @@ class AppConfig:
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
     order_profile_path: Path = Path("data/risk/order_profiles.json")
+    tool_http_base_url: str = "http://127.0.0.1:8090"
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -29,5 +30,8 @@ class AppConfig:
             order_profile_path=Path(
                 os.getenv("AI_RISK_ORDER_PROFILE_PATH", "data/risk/order_profiles.json")
             ),
+            tool_http_base_url=os.getenv(
+                "AI_RISK_TOOL_HTTP_BASE_URL",
+                "http://127.0.0.1:8090",
+            ),
         )
-

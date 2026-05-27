@@ -26,8 +26,14 @@ class RetrievalService:
     def add_documents(self, documents: list[KnowledgeDocument]) -> None:
         self._documents.extend(documents)
 
+    def replace_documents(self, documents: list[KnowledgeDocument]) -> None:
+        self._documents = list(documents)
+
     def add_source(self, source: KnowledgeSource) -> None:
         self.add_documents(list(source.load()))
+
+    def document_count(self) -> int:
+        return len(self._documents)
 
     def search(self, query: str, top_k: int = 3) -> list[KnowledgeDocument]:
         query_terms = self._tokenize(query)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from api import fastapi_app
+from api import create_app, fastapi_app
+from settings import AppConfig
 
 
 class AgentApiTests(unittest.TestCase):
@@ -78,6 +80,26 @@ class AgentApiTests(unittest.TestCase):
         response = self.client.get("/sessions/missing-session")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_reload_knowledge_for_file_backend(self) -> None:
+        app = create_app(
+            AppConfig(
+                knowledge_backend="file",
+                tool_backend="file",
+                knowledge_dir=Path("data/knowledge"),
+                metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
+                case_record_path=Path("data/risk/case_records.json"),
+                order_profile_path=Path("data/risk/order_profiles.json"),
+            )
+        )
+        client = TestClient(app)
+
+        response = client.post("/admin/knowledge/reload")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["documents_loaded"], 4)
+        self.assertEqual(payload["documents_loaded"], payload["total_documents"])
 
 
 if __name__ == "__main__":

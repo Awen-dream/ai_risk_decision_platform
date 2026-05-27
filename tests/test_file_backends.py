@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from app import build_knowledge_sources, build_runtime, build_tool_adapters
+from core.models import AgentRequest
 from retrieval.file_source import DirectoryKnowledgeSource
 from settings import AppConfig
 
@@ -32,9 +33,7 @@ class FileBackendTests(unittest.TestCase):
 
         session_id, response = runtime.execute(
             "knowledge",
-            __import__("core.models", fromlist=["AgentRequest"]).AgentRequest(
-                query="营销套利案件的标准排查 SOP 是什么？"
-            ),
+            AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
         )
 
         self.assertTrue(session_id)
