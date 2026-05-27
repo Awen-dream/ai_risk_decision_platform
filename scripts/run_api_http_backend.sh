@@ -9,6 +9,18 @@ else
   PYTHON_BIN="python3"
 fi
 
+if [[ -f "$ROOT_DIR/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.local"
+  set +a
+elif [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 export AI_RISK_KNOWLEDGE_BACKEND="${AI_RISK_KNOWLEDGE_BACKEND:-file}"
 export AI_RISK_TOOL_BACKEND="${AI_RISK_TOOL_BACKEND:-http}"
 export AI_RISK_TOOL_HTTP_BASE_URL="${AI_RISK_TOOL_HTTP_BASE_URL:-http://127.0.0.1:8090}"

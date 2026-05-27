@@ -19,6 +19,10 @@ env/
 # OS files
 .DS_Store
 
+# Local env files
+.env
+.env.local
+
 # Build and packaging
 build/
 dist/

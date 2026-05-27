@@ -20,6 +20,12 @@ The agent API expects the risk service to provide:
 
 ## Environment variables
 
+Start by copying the example file:
+
+```bash
+cp .env.example .env.local
+```
+
 Use these variables to point the agent API to a real risk service:
 
 ```bash
@@ -62,9 +68,16 @@ export AI_RISK_TOOL_HTTP_AUTH_HEADER=X-API-Key
 Use these commands to inspect the running configuration:
 
 ```bash
+make run-api-http
 python3 cli.py runtime
 python3 cli.py agents
 python3 cli.py ask knowledge "营销套利案件的标准排查 SOP 是什么？"
 ```
 
 The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode, and registered tools.
+
+For rollout readiness, use:
+
+```bash
+docs/real-risk-service-integration-checklist.md
+```

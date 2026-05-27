@@ -9,6 +9,18 @@ else
   PYTHON_BIN="python3"
 fi
 
+if [[ -f "$ROOT_DIR/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env.local"
+  set +a
+elif [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 API_HOST="${AI_RISK_API_HOST:-127.0.0.1}"
 API_PORT="${AI_RISK_API_PORT:-8000}"
 RISK_HOST="${AI_RISK_RISK_SERVICE_HOST:-127.0.0.1}"
