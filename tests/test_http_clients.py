@@ -5,6 +5,7 @@ import json
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.request import Request
 
 from clients.http import HttpCaseRecordClient, HttpMetricSnapshotClient, HttpOrderProfileClient
 
@@ -38,7 +39,9 @@ class HttpClientTests(unittest.TestCase):
 
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
-        self.assertIn("metric-snapshots?country=BR&channel=credit_card", mocked.call_args[0][0])
+        request = mocked.call_args[0][0]
+        self.assertIsInstance(request, Request)
+        self.assertIn("metric-snapshots?country=BR&channel=credit_card", request.full_url)
 
     def test_case_record_http_client(self) -> None:
         client = HttpCaseRecordClient("http://risk-service.local")
@@ -51,7 +54,8 @@ class HttpClientTests(unittest.TestCase):
 
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["case_id"], "BR-1")
-        self.assertIn("case-records?country=BR&channel=credit_card", mocked.call_args[0][0])
+        request = mocked.call_args[0][0]
+        self.assertIn("case-records?country=BR&channel=credit_card", request.full_url)
 
     def test_order_profile_http_client(self) -> None:
         client = HttpOrderProfileClient("http://risk-service.local")
@@ -64,7 +68,8 @@ class HttpClientTests(unittest.TestCase):
 
         self.assertIsNotNone(order)
         self.assertEqual(order["country"], "BR")
-        self.assertIn("order-profiles/O10001", mocked.call_args[0][0])
+        request = mocked.call_args[0][0]
+        self.assertIn("order-profiles/O10001", request.full_url)
 
     def test_http_clients_handle_404(self) -> None:
         metric_client = HttpMetricSnapshotClient("http://risk-service.local")
@@ -80,6 +85,57 @@ class HttpClientTests(unittest.TestCase):
         with patch("clients.http.urlopen", side_effect=http_error):
             self.assertIsNone(metric_client.fetch_metric_snapshot("BR", "wallet"))
             self.assertIsNone(order_client.fetch_order_profile("missing"))
+
+    def test_http_clients_support_custom_paths_and_headers(self) -> None:
+        metric_client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            path="/v2/metrics",
+            country_param="market",
+            channel_param="payment_channel",
+            headers={"X-API-Key": "secret"},
+            timeout_sec=9.0,
+        )
+        case_client = HttpCaseRecordClient(
+            "http://risk-service.local",
+            path="/v2/cases/search",
+            country_param="market",
+            channel_param="payment_channel",
+            headers={"X-API-Key": "secret"},
+            timeout_sec=9.0,
+        )
+        order_client = HttpOrderProfileClient(
+            "http://risk-service.local",
+            path_template="/v2/orders/{order_id}/profile",
+            headers={"X-API-Key": "secret"},
+            timeout_sec=9.0,
+        )
+
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"country": "BR", "channel": "credit_card"}),
+        ) as mocked_metric:
+            metric_client.fetch_metric_snapshot("BR", "credit_card")
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse([{"case_id": "BR-1", "title": "巴西案例"}]),
+        ) as mocked_case:
+            case_client.fetch_case_records("BR", "credit_card")
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"order_id": "O10001", "country": "BR"}),
+        ) as mocked_order:
+            order_client.fetch_order_profile("O10001")
+
+        metric_request = mocked_metric.call_args[0][0]
+        metric_timeout = mocked_metric.call_args[1]["timeout"]
+        case_request = mocked_case.call_args[0][0]
+        order_request = mocked_order.call_args[0][0]
+
+        self.assertIn("/v2/metrics?market=BR&payment_channel=credit_card", metric_request.full_url)
+        self.assertEqual(metric_request.headers["X-api-key"], "secret")
+        self.assertEqual(metric_timeout, 9.0)
+        self.assertIn("/v2/cases/search?market=BR&payment_channel=credit_card", case_request.full_url)
+        self.assertIn("/v2/orders/O10001/profile", order_request.full_url)
 
 
 if __name__ == "__main__":

@@ -59,14 +59,34 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
             InMemoryOrderProfileAdapter(provider=order_provider),
         ]
     if config.tool_backend == "http":
+        http_headers = config.tool_http_headers()
         metric_provider = InMemoryMetricSnapshotProvider(
-            client=HttpMetricSnapshotClient(config.tool_http_base_url)
+            client=HttpMetricSnapshotClient(
+                config.tool_http_base_url,
+                path=config.tool_http_metric_path,
+                country_param=config.tool_http_country_param,
+                channel_param=config.tool_http_channel_param,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
         )
         case_provider = InMemoryCaseRecordProvider(
-            client=HttpCaseRecordClient(config.tool_http_base_url)
+            client=HttpCaseRecordClient(
+                config.tool_http_base_url,
+                path=config.tool_http_case_path,
+                country_param=config.tool_http_country_param,
+                channel_param=config.tool_http_channel_param,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
         )
         order_provider = InMemoryOrderProfileProvider(
-            client=HttpOrderProfileClient(config.tool_http_base_url)
+            client=HttpOrderProfileClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_order_path_template,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
         )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),

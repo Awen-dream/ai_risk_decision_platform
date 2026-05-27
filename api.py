@@ -71,6 +71,10 @@ class RuntimeInfoResponse(BaseModel):
     tool_backend: str
     knowledge_dir: str
     tool_http_base_url: str
+    tool_http_auth_mode: str
+    tool_http_metric_path: str
+    tool_http_case_path: str
+    tool_http_order_path_template: str
     registered_agents: List[str]
     registered_tools: List[str]
     indexed_documents: int
@@ -100,6 +104,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_backend=container.config.tool_backend,
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
+            tool_http_auth_mode=container.config.tool_http_auth_mode,
+            tool_http_metric_path=container.config.tool_http_metric_path,
+            tool_http_case_path=container.config.tool_http_case_path,
+            tool_http_order_path_template=container.config.tool_http_order_path_template,
             registered_agents=runtime.list_agents(),
             registered_tools=container.tools.list_tools(),
             indexed_documents=container.retrieval.document_count(),

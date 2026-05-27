@@ -4,67 +4,121 @@ import json
 from typing import Any, Dict, List, Optional
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from clients.base import CaseRecordClient, MetricSnapshotClient, OrderProfileClient
 
 
-class HttpMetricSnapshotClient(MetricSnapshotClient):
-    def __init__(self, base_url: str) -> None:
+class BaseHttpJsonClient:
+    """Small configurable JSON-over-HTTP client."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._headers = headers or {}
+        self._timeout_sec = timeout_sec
+
+    def _join_url(self, path: str) -> str:
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        return f"{self._base_url}{path}"
+
+    def _get_json(self, path: str) -> Any:
+        request = Request(
+            self._join_url(path),
+            headers=self._headers,
+            method="GET",
+        )
+        with urlopen(request, timeout=self._timeout_sec) as response:
+            return json.load(response)
+
+
+class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path: str = "/metric-snapshots",
+        country_param: str = "country",
+        channel_param: str = "channel",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+    ) -> None:
+        super().__init__(base_url, headers=headers, timeout_sec=timeout_sec)
+        self._path = path
+        self._country_param = country_param
+        self._channel_param = channel_param
 
     def fetch_metric_snapshot(
         self,
         country: str,
         channel: str,
     ) -> Optional[Dict[str, Any]]:
-        query = urlencode({"country": country.upper(), "channel": channel.lower()})
+        query = urlencode(
+            {
+                self._country_param: country.upper(),
+                self._channel_param: channel.lower(),
+            }
+        )
         try:
-            return self._get_json(f"{self._base_url}/metric-snapshots?{query}")
+            return self._get_json(f"{self._path}?{query}")
         except HTTPError as exc:
             if exc.code == 404:
                 return None
             raise
 
-    @staticmethod
-    def _get_json(url: str) -> Dict[str, Any]:
-        with urlopen(url) as response:
-            return json.load(response)
-
-
-class HttpCaseRecordClient(CaseRecordClient):
-    def __init__(self, base_url: str) -> None:
-        self._base_url = base_url.rstrip("/")
+class HttpCaseRecordClient(BaseHttpJsonClient, CaseRecordClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path: str = "/case-records",
+        country_param: str = "country",
+        channel_param: str = "channel",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+    ) -> None:
+        super().__init__(base_url, headers=headers, timeout_sec=timeout_sec)
+        self._path = path
+        self._country_param = country_param
+        self._channel_param = channel_param
 
     def fetch_case_records(self, country: str, channel: str) -> List[Dict[str, Any]]:
-        query = urlencode({"country": country.upper(), "channel": channel.lower()})
+        query = urlencode(
+            {
+                self._country_param: country.upper(),
+                self._channel_param: channel.lower(),
+            }
+        )
         try:
-            payload = self._get_json(f"{self._base_url}/case-records?{query}")
+            payload = self._get_json(f"{self._path}?{query}")
         except HTTPError as exc:
             if exc.code == 404:
                 return []
             raise
         return list(payload)
 
-    @staticmethod
-    def _get_json(url: str) -> List[Dict[str, Any]]:
-        with urlopen(url) as response:
-            return json.load(response)
-
-
-class HttpOrderProfileClient(OrderProfileClient):
-    def __init__(self, base_url: str) -> None:
-        self._base_url = base_url.rstrip("/")
+class HttpOrderProfileClient(BaseHttpJsonClient, OrderProfileClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path_template: str = "/order-profiles/{order_id}",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+    ) -> None:
+        super().__init__(base_url, headers=headers, timeout_sec=timeout_sec)
+        self._path_template = path_template
 
     def fetch_order_profile(self, order_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self._get_json(f"{self._base_url}/order-profiles/{order_id}")
+            return self._get_json(self._path_template.format(order_id=order_id))
         except HTTPError as exc:
             if exc.code == 404:
                 return None
             raise
-
-    @staticmethod
-    def _get_json(url: str) -> Dict[str, Any]:
-        with urlopen(url) as response:
-            return json.load(response)

@@ -120,6 +120,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["knowledge_backend"], "file")
         self.assertEqual(payload["tool_backend"], "file")
+        self.assertEqual(payload["tool_http_auth_mode"], "none")
+        self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["registered_agents"], ["knowledge", "investigation"])
         self.assertEqual(payload["registered_tools"], ["metric_snapshot", "case_lookup", "order_profile"])
 
