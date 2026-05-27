@@ -26,6 +26,18 @@ Start by copying the example file:
 cp .env.example .env.local
 ```
 
+If the external service already has a fixed auth style, you can also start from:
+
+```bash
+cp .env.local.bearer.example .env.local
+```
+
+or:
+
+```bash
+cp .env.local.api-key.example .env.local
+```
+
 Use these variables to point the agent API to a real risk service:
 
 ```bash
@@ -62,6 +74,15 @@ export AI_RISK_TOOL_HTTP_AUTH_MODE=api_key
 export AI_RISK_TOOL_HTTP_AUTH_TOKEN=your-api-key
 export AI_RISK_TOOL_HTTP_AUTH_HEADER=X-API-Key
 ```
+
+## Recommended rollout flow
+
+1. Copy the closest env template into `.env.local`
+2. Fill real base URL, endpoint paths, parameter names, and auth token
+3. Start the API with `make run-api-http`
+4. Verify config with `python3 cli.py runtime`
+5. Run one `knowledge` query and one `investigation` query
+6. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
 ## Local verification
 
