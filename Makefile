@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UVICORN ?= $(PYTHON) -m uvicorn
 
-.PHONY: test run-api run-risk-service run-local-stack run-api-http
+.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli
 
 test:
 	$(PYTHON) -m unittest discover -v
@@ -20,3 +20,6 @@ run-api-http:
 
 run-local-stack:
 	bash scripts/run_local_stack.sh
+
+run-cli:
+	$(PYTHON) cli.py --help

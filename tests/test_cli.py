@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import io
+import json
+import unittest
+from unittest.mock import patch
+from urllib.error import URLError
+from urllib.request import Request
+
+from cli import ApiClient, main
+
+
+class _FakeResponse:
+    def __init__(self, payload) -> None:
+        self._buffer = io.BytesIO(json.dumps(payload).encode("utf-8"))
+
+    def __enter__(self):
+        return self._buffer
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._buffer.close()
+
+
+class CliTests(unittest.TestCase):
+    def test_api_client_invokes_agent(self) -> None:
+        client = ApiClient("http://127.0.0.1:8000")
+        payload = {"session_id": "s1", "agent_name": "knowledge"}
+
+        with patch("cli.urlopen", return_value=_FakeResponse(payload)) as mocked:
+            result = client.invoke_agent(
+                "knowledge",
+                "营销套利案件的标准排查 SOP 是什么？",
+                session_id="s1",
+                context={"country": "BR"},
+            )
+
+        self.assertEqual(result["agent_name"], "knowledge")
+        request = mocked.call_args[0][0]
+        self.assertIsInstance(request, Request)
+        self.assertIn("/agents/knowledge", request.full_url)
+
+    def test_main_healthz_prints_json(self) -> None:
+        with patch("cli.urlopen", return_value=_FakeResponse({"status": "ok"})):
+            with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                exit_code = main(["--base-url", "http://127.0.0.1:8000", "healthz"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"status": "ok"', stdout.getvalue())
+
+    def test_main_ask_builds_context(self) -> None:
+        response_payload = {"session_id": "s1", "agent_name": "investigation"}
+
+        with patch("cli.urlopen", return_value=_FakeResponse(response_payload)) as mocked:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                exit_code = main(
+                    [
+                        "--base-url",
+                        "http://127.0.0.1:8000",
+                        "ask",
+                        "investigation",
+                        "请分析这个订单为什么被判高风险",
+                        "--order-id",
+                        "O10001",
+                        "--country",
+                        "BR",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        request = mocked.call_args[0][0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["context"]["order_id"], "O10001")
+        self.assertEqual(body["context"]["country"], "BR")
+
+    def test_main_handles_connection_error(self) -> None:
+        with patch("cli.urlopen", side_effect=URLError("connection refused")):
+            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                exit_code = main(["--base-url", "http://127.0.0.1:8000", "runtime"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("make run-local-stack", stderr.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
