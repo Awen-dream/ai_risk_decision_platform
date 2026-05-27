@@ -1,0 +1,21 @@
+{
+  "O10001": {
+    "order_id": "O10001",
+    "country": "BR",
+    "channel": "credit_card",
+    "recent_attempts": 4,
+    "triggered_rules": ["device_velocity_spike", "high_risk_bin"],
+    "risk_labels": ["device_risk", "payment_risk"],
+    "recommended_action": "manual_review"
+  },
+  "O20001": {
+    "order_id": "O20001",
+    "country": "US",
+    "channel": "credit_card",
+    "recent_attempts": 1,
+    "triggered_rules": ["chargeback_history"],
+    "risk_labels": ["account_risk"],
+    "recommended_action": "reject"
+  }
+}
+

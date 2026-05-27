@@ -1,0 +1,33 @@
+[
+  {
+    "country": "BR",
+    "channel": "credit_card",
+    "metric_name": "payment_failure_rate",
+    "anomaly_started_at": "2026-05-20 22:00",
+    "current_value": "12.4%",
+    "baseline_value": "5.1%",
+    "recent_change": "新支付风控阈值于 2026-05-20 21:40 上线",
+    "suspected_driver": "阈值过严导致正常用户挑战和拒绝增加"
+  },
+  {
+    "country": "ID",
+    "channel": "wallet",
+    "metric_name": "payment_pass_rate",
+    "anomaly_started_at": "2026-05-21 09:10",
+    "current_value": "81.3%",
+    "baseline_value": "89.6%",
+    "recent_change": "钱包通道风险路由规则更新",
+    "suspected_driver": "新路由规则放大了挑战比例"
+  },
+  {
+    "country": "US",
+    "channel": "credit_card",
+    "metric_name": "chargeback_rate",
+    "anomaly_started_at": "2026-05-18 00:00",
+    "current_value": "1.9%",
+    "baseline_value": "1.1%",
+    "recent_change": "风控策略未变更，需优先排查渠道和外部流量结构",
+    "suspected_driver": "高风险流量结构变化"
+  }
+]
+

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
+from clients.file import JsonCaseRecordClient, JsonMetricSnapshotSqlClient, JsonOrderProfileClient
 from clients.mock import (
     MockCaseRecordClient,
     MockMetricSnapshotClient,
@@ -32,6 +34,33 @@ class MockClientTests(unittest.TestCase):
         order = client.fetch_order_profile("missing")
 
         self.assertIsNone(order)
+
+    def test_json_metric_snapshot_sql_client_filters_rows(self) -> None:
+        client = JsonMetricSnapshotSqlClient(Path("data/risk/metric_snapshots.json"))
+
+        rows = client.query(
+            table="metric_snapshots",
+            filters={"country": "BR", "channel": "credit_card"},
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["metric_name"], "payment_failure_rate")
+
+    def test_json_case_record_client_loads_cases(self) -> None:
+        client = JsonCaseRecordClient(Path("data/risk/case_records.json"))
+
+        rows = client.fetch_case_records("ID", "wallet")
+
+        self.assertEqual(len(rows), 1)
+        self.assertIn("印尼钱包", rows[0]["title"])
+
+    def test_json_order_profile_client_loads_order(self) -> None:
+        client = JsonOrderProfileClient(Path("data/risk/order_profiles.json"))
+
+        row = client.fetch_order_profile("O20001")
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["country"], "US")
 
 
 if __name__ == "__main__":
