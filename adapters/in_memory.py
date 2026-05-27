@@ -4,11 +4,14 @@ from typing import Any, Iterable
 
 from adapters.base import KnowledgeSource, ToolAdapter
 from core.models import KnowledgeDocument, ToolResult
+from providers.base import CaseRecordProvider, MetricSnapshotProvider, OrderProfileProvider
+from providers.in_memory import (
+    InMemoryCaseRecordProvider,
+    InMemoryMetricSnapshotProvider,
+    InMemoryOrderProfileProvider,
+)
 from sample_data import (
-    build_case_records,
     build_knowledge_documents,
-    build_metric_snapshots,
-    build_order_profiles,
 )
 
 
@@ -22,36 +25,70 @@ class InMemoryKnowledgeSource(KnowledgeSource):
 class InMemoryMetricSnapshotAdapter(ToolAdapter):
     name = "metric_snapshot"
 
-    def __init__(self) -> None:
-        self._records = build_metric_snapshots()
+    def __init__(self, provider: MetricSnapshotProvider | None = None) -> None:
+        self._provider = provider or InMemoryMetricSnapshotProvider()
 
     def invoke(self, **kwargs: Any) -> ToolResult:
-        return self._records(
-            country=str(kwargs["country"]),
-            channel=str(kwargs["channel"]),
-            time_range=str(kwargs["time_range"]),
+        country = str(kwargs["country"])
+        channel = str(kwargs["channel"])
+        time_range = str(kwargs["time_range"])
+        payload = self._provider.get_snapshot(
+            country=country,
+            channel=channel,
+            time_range=time_range,
+        )
+        if payload is None:
+            return ToolResult(
+                name=self.name,
+                payload={},
+                summary="未找到对应指标快照",
+                success=False,
+                error=f"No snapshot for {country}/{channel} in {time_range}",
+            )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回 {payload['country']} {payload['channel']} 的指标快照",
         )
 
 
 class InMemoryCaseLookupAdapter(ToolAdapter):
     name = "case_lookup"
 
-    def __init__(self) -> None:
-        self._records = build_case_records()
+    def __init__(self, provider: CaseRecordProvider | None = None) -> None:
+        self._provider = provider or InMemoryCaseRecordProvider()
 
     def invoke(self, **kwargs: Any) -> ToolResult:
-        return self._records(
+        payload = self._provider.get_cases(
             country=str(kwargs["country"]),
             channel=str(kwargs["channel"]),
+        )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"返回 {len(payload)} 条历史相似案例",
         )
 
 
 class InMemoryOrderProfileAdapter(ToolAdapter):
     name = "order_profile"
 
-    def __init__(self) -> None:
-        self._records = build_order_profiles()
+    def __init__(self, provider: OrderProfileProvider | None = None) -> None:
+        self._provider = provider or InMemoryOrderProfileProvider()
 
     def invoke(self, **kwargs: Any) -> ToolResult:
-        return self._records(order_id=str(kwargs["order_id"]))
-
+        order_id = str(kwargs["order_id"])
+        payload = self._provider.get_order(order_id)
+        if payload is None:
+            return ToolResult(
+                name=self.name,
+                payload={},
+                summary="未找到订单画像",
+                success=False,
+                error=f"Unknown order: {order_id}",
+            )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回订单 {order_id} 的风险画像",
+        )

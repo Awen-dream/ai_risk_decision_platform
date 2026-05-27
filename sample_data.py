@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from core.models import KnowledgeDocument, ToolResult
+from typing import Any, Dict, List, Tuple
+
+from core.models import KnowledgeDocument
 
 
 def build_knowledge_documents() -> list[KnowledgeDocument]:
@@ -49,8 +51,8 @@ def build_knowledge_documents() -> list[KnowledgeDocument]:
     ]
 
 
-def build_metric_snapshots():
-    snapshots = {
+def build_metric_snapshots() -> Dict[Tuple[str, str], Dict[str, Any]]:
+    return {
         ("BR", "credit_card"): {
             "country": "BR",
             "channel": "credit_card",
@@ -83,28 +85,9 @@ def build_metric_snapshots():
         },
     }
 
-    def execute(country: str, channel: str, time_range: str) -> ToolResult:
-        key = (country.upper(), channel.lower())
-        payload = snapshots.get(key)
-        if payload is None:
-            return ToolResult(
-                name="metric_snapshot",
-                payload={},
-                summary="未找到对应指标快照",
-                success=False,
-                error=f"No snapshot for {country}/{channel} in {time_range}",
-            )
-        return ToolResult(
-            name="metric_snapshot",
-            payload=payload,
-            summary=f"已返回 {payload['country']} {payload['channel']} 的指标快照",
-        )
 
-    return execute
-
-
-def build_case_records():
-    records = {
+def build_case_records() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
+    return {
         ("BR", "credit_card"): [
             {
                 "case_id": "BR-2025-112",
@@ -119,19 +102,9 @@ def build_case_records():
         ],
     }
 
-    def execute(country: str, channel: str) -> ToolResult:
-        payload = records.get((country.upper(), channel.lower()), [])
-        return ToolResult(
-            name="case_lookup",
-            payload=payload,
-            summary=f"返回 {len(payload)} 条历史相似案例",
-        )
 
-    return execute
-
-
-def build_order_profiles():
-    orders = {
+def build_order_profiles() -> Dict[str, Dict[str, Any]]:
+    return {
         "O10001": {
             "order_id": "O10001",
             "country": "BR",
@@ -151,21 +124,3 @@ def build_order_profiles():
             "recommended_action": "reject",
         },
     }
-
-    def execute(order_id: str) -> ToolResult:
-        payload = orders.get(order_id)
-        if payload is None:
-            return ToolResult(
-                name="order_profile",
-                payload={},
-                summary="未找到订单画像",
-                success=False,
-                error=f"Unknown order: {order_id}",
-            )
-        return ToolResult(
-            name="order_profile",
-            payload=payload,
-            summary=f"已返回订单 {order_id} 的风险画像",
-        )
-
-    return execute
