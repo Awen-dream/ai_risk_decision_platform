@@ -101,6 +101,28 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(payload["documents_loaded"], 4)
         self.assertEqual(payload["documents_loaded"], payload["total_documents"])
 
+    def test_runtime_info_endpoint(self) -> None:
+        app = create_app(
+            AppConfig(
+                knowledge_backend="file",
+                tool_backend="file",
+                knowledge_dir=Path("data/knowledge"),
+                metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
+                case_record_path=Path("data/risk/case_records.json"),
+                order_profile_path=Path("data/risk/order_profiles.json"),
+            )
+        )
+        client = TestClient(app)
+
+        response = client.get("/admin/runtime")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["knowledge_backend"], "file")
+        self.assertEqual(payload["tool_backend"], "file")
+        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation"])
+        self.assertEqual(payload["registered_tools"], ["metric_snapshot", "case_lookup", "order_profile"])
+
 
 if __name__ == "__main__":
     unittest.main()

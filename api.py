@@ -66,6 +66,16 @@ class KnowledgeReloadResponse(BaseModel):
     total_documents: int
 
 
+class RuntimeInfoResponse(BaseModel):
+    knowledge_backend: str
+    tool_backend: str
+    knowledge_dir: str
+    tool_http_base_url: str
+    registered_agents: List[str]
+    registered_tools: List[str]
+    indexed_documents: int
+
+
 def create_app(config: Optional[AppConfig] = None) -> FastAPI:
     container = build_app_container(config)
     runtime = container.runtime
@@ -82,6 +92,18 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
     @fastapi_app.get("/agents")
     def list_agents() -> Dict[str, List[str]]:
         return {"agents": runtime.list_agents()}
+
+    @fastapi_app.get("/admin/runtime", response_model=RuntimeInfoResponse)
+    def runtime_info() -> RuntimeInfoResponse:
+        return RuntimeInfoResponse(
+            knowledge_backend=container.config.knowledge_backend,
+            tool_backend=container.config.tool_backend,
+            knowledge_dir=str(container.config.knowledge_dir),
+            tool_http_base_url=container.config.tool_http_base_url,
+            registered_agents=runtime.list_agents(),
+            registered_tools=container.tools.list_tools(),
+            indexed_documents=container.retrieval.document_count(),
+        )
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
     def create_session() -> SessionResponse:
