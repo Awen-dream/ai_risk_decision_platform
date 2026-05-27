@@ -1,0 +1,62 @@
+Risk Service Integration Form
+
+1. Service owner
+- Team name:
+- Owner name:
+- Owner contact:
+- Service name:
+- Environment:
+
+2. Base access
+- Base URL:
+- Network restriction:
+- Timeout recommendation:
+- Expected rate limit:
+
+3. Authentication
+- Auth mode (none / bearer / api_key):
+- Auth header name:
+- Token / key delivery method:
+- Token rotation rule:
+
+4. Metric snapshot endpoint
+- Endpoint path:
+- Country param name:
+- Channel param name:
+- Sample request:
+- 404 behavior:
+- Response fields: country, channel, metric_name, anomaly_started_at, current_value, baseline_value, recent_change, suspected_driver
+
+5. Case record endpoint
+- Endpoint path:
+- Country param name:
+- Channel param name:
+- Sample request:
+- 404 behavior:
+- Response fields: case_id, country, channel, title
+
+6. Order profile endpoint
+- Endpoint path template:
+- Sample request:
+- 404 behavior:
+- Response fields: order_id, country, channel, recent_attempts, triggered_rules, risk_labels, recommended_action
+
+7. Error and compatibility notes
+- 4xx error schema:
+- 5xx error schema:
+- Empty result handling:
+- Encoding / locale notes:
+- Any field mapping differences:
+
+8. Config mapping
+AI_RISK_TOOL_HTTP_BASE_URL=
+AI_RISK_TOOL_HTTP_TIMEOUT_SEC=
+AI_RISK_TOOL_HTTP_AUTH_MODE=
+AI_RISK_TOOL_HTTP_AUTH_HEADER=
+AI_RISK_TOOL_HTTP_AUTH_TOKEN=
+AI_RISK_TOOL_HTTP_METRIC_PATH=
+AI_RISK_TOOL_HTTP_CASE_PATH=
+AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE=
+AI_RISK_TOOL_HTTP_COUNTRY_PARAM=
+AI_RISK_TOOL_HTTP_CHANNEL_PARAM=
+

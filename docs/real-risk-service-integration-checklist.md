@@ -4,6 +4,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 
 ## 1. Service contract
 
+- [ ] Send `docs/risk-service-integration-form.md` to the service owner
 - [ ] Confirm the real service exposes metric snapshot lookup.
 - [ ] Confirm the real service exposes historical case lookup.
 - [ ] Confirm the real service exposes order profile lookup.
