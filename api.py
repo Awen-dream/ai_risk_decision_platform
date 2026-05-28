@@ -75,6 +75,8 @@ class RuntimeInfoResponse(BaseModel):
     tool_http_metric_path: str
     tool_http_case_path: str
     tool_http_order_path_template: str
+    tool_http_strategy_profile_path_template: str
+    tool_http_strategy_simulation_path_template: str
     registered_agents: List[str]
     registered_tools: List[str]
     indexed_documents: int
@@ -108,6 +110,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_http_metric_path=container.config.tool_http_metric_path,
             tool_http_case_path=container.config.tool_http_case_path,
             tool_http_order_path_template=container.config.tool_http_order_path_template,
+            tool_http_strategy_profile_path_template=container.config.tool_http_strategy_profile_path_template,
+            tool_http_strategy_simulation_path_template=container.config.tool_http_strategy_simulation_path_template,
             registered_agents=runtime.list_agents(),
             registered_tools=container.tools.list_tools(),
             indexed_documents=container.retrieval.document_count(),

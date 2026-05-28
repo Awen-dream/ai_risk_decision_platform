@@ -2,9 +2,27 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from clients.base import CaseRecordClient, MetricSnapshotClient, OrderProfileClient
-from clients.mock import MockCaseRecordClient, MockMetricSnapshotClient, MockOrderProfileClient
-from providers.base import CaseRecordProvider, MetricSnapshotProvider, OrderProfileProvider
+from clients.base import (
+    CaseRecordClient,
+    MetricSnapshotClient,
+    OrderProfileClient,
+    StrategyProfileClient,
+    StrategySimulationClient,
+)
+from clients.mock import (
+    MockCaseRecordClient,
+    MockMetricSnapshotClient,
+    MockOrderProfileClient,
+    MockStrategyProfileClient,
+    MockStrategySimulationClient,
+)
+from providers.base import (
+    CaseRecordProvider,
+    MetricSnapshotProvider,
+    OrderProfileProvider,
+    StrategyProfileProvider,
+    StrategySimulationProvider,
+)
 
 
 class InMemoryMetricSnapshotProvider(MetricSnapshotProvider):
@@ -36,3 +54,18 @@ class InMemoryOrderProfileProvider(OrderProfileProvider):
     def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
         return self._client.fetch_order_profile(order_id=order_id)
 
+
+class InMemoryStrategyProfileProvider(StrategyProfileProvider):
+    def __init__(self, client: StrategyProfileClient | None = None) -> None:
+        self._client = client or MockStrategyProfileClient()
+
+    def get_strategy(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_strategy_profile(strategy_id=strategy_id)
+
+
+class InMemoryStrategySimulationProvider(StrategySimulationProvider):
+    def __init__(self, client: StrategySimulationClient | None = None) -> None:
+        self._client = client or MockStrategySimulationClient()
+
+    def get_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_strategy_simulation(strategy_id=strategy_id)

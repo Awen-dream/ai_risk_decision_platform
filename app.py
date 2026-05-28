@@ -8,17 +8,34 @@ from adapters.in_memory import (
     InMemoryKnowledgeSource,
     InMemoryMetricSnapshotAdapter,
     InMemoryOrderProfileAdapter,
+    InMemoryStrategyProfileAdapter,
+    InMemoryStrategySimulationAdapter,
 )
-from clients.http import HttpCaseRecordClient, HttpMetricSnapshotClient, HttpOrderProfileClient
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
-from clients.file import JsonCaseRecordClient, JsonMetricSnapshotSqlClient, JsonOrderProfileClient
+from agents.strategy import StrategyAgent
+from clients.file import (
+    JsonCaseRecordClient,
+    JsonMetricSnapshotSqlClient,
+    JsonOrderProfileClient,
+    JsonStrategyProfileClient,
+    JsonStrategySimulationClient,
+)
+from clients.http import (
+    HttpCaseRecordClient,
+    HttpMetricSnapshotClient,
+    HttpOrderProfileClient,
+    HttpStrategyProfileClient,
+    HttpStrategySimulationClient,
+)
 from core.runtime import AgentRuntime
 from core.session_store import InMemorySessionStore
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
+    InMemoryStrategyProfileProvider,
+    InMemoryStrategySimulationProvider,
 )
 from retrieval.knowledge_base import RetrievalService
 from retrieval.file_source import DirectoryKnowledgeSource
@@ -53,10 +70,18 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
         order_provider = InMemoryOrderProfileProvider(
             client=JsonOrderProfileClient(config.order_profile_path)
         )
+        strategy_provider = InMemoryStrategyProfileProvider(
+            client=JsonStrategyProfileClient(config.strategy_profile_path)
+        )
+        simulation_provider = InMemoryStrategySimulationProvider(
+            client=JsonStrategySimulationClient(config.strategy_simulation_path)
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
             InMemoryOrderProfileAdapter(provider=order_provider),
+            InMemoryStrategyProfileAdapter(provider=strategy_provider),
+            InMemoryStrategySimulationAdapter(provider=simulation_provider),
         ]
     if config.tool_backend == "http":
         http_headers = config.tool_http_headers()
@@ -88,15 +113,35 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 timeout_sec=config.tool_http_timeout_sec,
             )
         )
+        strategy_provider = InMemoryStrategyProfileProvider(
+            client=HttpStrategyProfileClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_strategy_profile_path_template,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
+        )
+        simulation_provider = InMemoryStrategySimulationProvider(
+            client=HttpStrategySimulationClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_strategy_simulation_path_template,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
             InMemoryOrderProfileAdapter(provider=order_provider),
+            InMemoryStrategyProfileAdapter(provider=strategy_provider),
+            InMemoryStrategySimulationAdapter(provider=simulation_provider),
         ]
     return [
         InMemoryMetricSnapshotAdapter(),
         InMemoryCaseLookupAdapter(),
         InMemoryOrderProfileAdapter(),
+        InMemoryStrategyProfileAdapter(),
+        InMemoryStrategySimulationAdapter(),
     ]
 
 
@@ -116,6 +161,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     runtime = AgentRuntime(session_store=InMemorySessionStore())
     runtime.register_agent(KnowledgeAgent(retrieval))
     runtime.register_agent(InvestigationAgent(tools, retrieval))
+    runtime.register_agent(StrategyAgent(tools, retrieval))
     return AppContainer(
         config=config,
         runtime=runtime,

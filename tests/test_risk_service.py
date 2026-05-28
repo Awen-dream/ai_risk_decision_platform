@@ -54,6 +54,15 @@ class RiskServiceApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["country"], "BR")
 
+    def test_strategy_endpoints(self) -> None:
+        profile_response = self.client.get("/strategy-profiles/STRAT-001")
+        simulation_response = self.client.get("/strategy-simulations/STRAT-001")
+
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(simulation_response.status_code, 200)
+        self.assertEqual(profile_response.json()["name"], "Brazil Credit Card Velocity Guard")
+        self.assertEqual(simulation_response.json()["recommended_threshold"], 0.66)
+
     def test_not_found_cases(self) -> None:
         metric_response = self.client.get(
             "/metric-snapshots",

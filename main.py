@@ -37,6 +37,16 @@ if __name__ == "__main__":
         session_id=session_id,
     )
     render_response("Investigation Agent Demo", investigation_response)
+
+    _, strategy_response = runtime.execute(
+        "strategy",
+        AgentRequest(
+            query="请评估策略 STRAT-001 是否应该调整阈值",
+            context={"strategy_id": "STRAT-001"},
+        ),
+        session_id=session_id,
+    )
+    render_response("Strategy Agent Demo", strategy_response)
     print(f"\nShared session ID: {session_id}")
 
     print("\nAPI server hint:")

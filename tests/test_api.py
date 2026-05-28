@@ -23,7 +23,7 @@ class AgentApiTests(unittest.TestCase):
         response = self.client.get("/agents")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation"]})
+        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy"]})
 
     def test_create_and_get_session(self) -> None:
         created = self.client.post("/sessions")
@@ -122,8 +122,26 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_backend"], "file")
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
-        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation"])
-        self.assertEqual(payload["registered_tools"], ["metric_snapshot", "case_lookup", "order_profile"])
+        self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
+        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy"])
+        self.assertEqual(
+            payload["registered_tools"],
+            ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation"],
+        )
+
+    def test_invoke_strategy_agent(self) -> None:
+        response = self.client.post(
+            "/agents/strategy",
+            json={
+                "query": "请评估策略 STRAT-001 是否应该调整阈值",
+                "context": {"strategy_id": "STRAT-001"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["agent_name"], "strategy")
+        self.assertTrue(any(trace["name"] == "strategy_profile" for trace in payload["tool_traces"]))
 
 
 if __name__ == "__main__":

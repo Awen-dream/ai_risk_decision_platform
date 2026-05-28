@@ -4,10 +4,13 @@ import unittest
 from pathlib import Path
 
 from clients.file import JsonCaseRecordClient, JsonMetricSnapshotSqlClient, JsonOrderProfileClient
+from clients.file import JsonStrategyProfileClient, JsonStrategySimulationClient
 from clients.mock import (
     MockCaseRecordClient,
     MockMetricSnapshotClient,
     MockOrderProfileClient,
+    MockStrategyProfileClient,
+    MockStrategySimulationClient,
 )
 
 
@@ -61,6 +64,30 @@ class MockClientTests(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["country"], "US")
+
+    def test_mock_strategy_clients_return_payloads(self) -> None:
+        profile_client = MockStrategyProfileClient()
+        simulation_client = MockStrategySimulationClient()
+
+        profile = profile_client.fetch_strategy_profile("STRAT-001")
+        simulation = simulation_client.fetch_strategy_simulation("STRAT-001")
+
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile["country"], "BR")
+        self.assertIsNotNone(simulation)
+        self.assertEqual(simulation["recommended_threshold"], 0.66)
+
+    def test_json_strategy_clients_load_strategy_data(self) -> None:
+        profile_client = JsonStrategyProfileClient(Path("data/risk/strategy_profiles.json"))
+        simulation_client = JsonStrategySimulationClient(Path("data/risk/strategy_simulations.json"))
+
+        profile = profile_client.fetch_strategy_profile("STRAT-002")
+        simulation = simulation_client.fetch_strategy_simulation("STRAT-002")
+
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile["channel"], "wallet")
+        self.assertIsNotNone(simulation)
+        self.assertEqual(simulation["strategy_id"], "STRAT-002")
 
 
 if __name__ == "__main__":

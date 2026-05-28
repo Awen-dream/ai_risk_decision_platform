@@ -14,6 +14,8 @@ class AppConfig:
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
     order_profile_path: Path = Path("data/risk/order_profiles.json")
+    strategy_profile_path: Path = Path("data/risk/strategy_profiles.json")
+    strategy_simulation_path: Path = Path("data/risk/strategy_simulations.json")
     tool_http_base_url: str = "http://127.0.0.1:8090"
     tool_http_timeout_sec: float = 5.0
     tool_http_auth_mode: str = "none"
@@ -22,6 +24,8 @@ class AppConfig:
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
+    tool_http_strategy_profile_path_template: str = "/strategy-profiles/{strategy_id}"
+    tool_http_strategy_simulation_path_template: str = "/strategy-simulations/{strategy_id}"
     tool_http_country_param: str = "country"
     tool_http_channel_param: str = "channel"
     api_host: str = "127.0.0.1"
@@ -43,6 +47,15 @@ class AppConfig:
             ),
             order_profile_path=Path(
                 os.getenv("AI_RISK_ORDER_PROFILE_PATH", "data/risk/order_profiles.json")
+            ),
+            strategy_profile_path=Path(
+                os.getenv("AI_RISK_STRATEGY_PROFILE_PATH", "data/risk/strategy_profiles.json")
+            ),
+            strategy_simulation_path=Path(
+                os.getenv(
+                    "AI_RISK_STRATEGY_SIMULATION_PATH",
+                    "data/risk/strategy_simulations.json",
+                )
             ),
             tool_http_base_url=os.getenv(
                 "AI_RISK_TOOL_HTTP_BASE_URL",
@@ -69,6 +82,14 @@ class AppConfig:
                 "AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE",
                 "/order-profiles/{order_id}",
             ),
+            tool_http_strategy_profile_path_template=os.getenv(
+                "AI_RISK_TOOL_HTTP_STRATEGY_PROFILE_PATH_TEMPLATE",
+                "/strategy-profiles/{strategy_id}",
+            ),
+            tool_http_strategy_simulation_path_template=os.getenv(
+                "AI_RISK_TOOL_HTTP_STRATEGY_SIMULATION_PATH_TEMPLATE",
+                "/strategy-simulations/{strategy_id}",
+            ),
             tool_http_country_param=os.getenv(
                 "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
                 "country",
@@ -92,6 +113,8 @@ class AppConfig:
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
             order_profile_path=Path("data/risk/order_profiles.json"),
+            strategy_profile_path=Path("data/risk/strategy_profiles.json"),
+            strategy_simulation_path=Path("data/risk/strategy_simulations.json"),
             tool_http_base_url="http://127.0.0.1:8090",
             tool_http_timeout_sec=5.0,
             tool_http_auth_mode="none",
@@ -100,6 +123,8 @@ class AppConfig:
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",
+            tool_http_strategy_profile_path_template="/strategy-profiles/{strategy_id}",
+            tool_http_strategy_simulation_path_template="/strategy-simulations/{strategy_id}",
             tool_http_country_param="country",
             tool_http_channel_param="channel",
             api_host="127.0.0.1",

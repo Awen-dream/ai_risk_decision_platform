@@ -1,0 +1,26 @@
+{
+  "STRAT-001": {
+    "strategy_id": "STRAT-001",
+    "name": "Brazil Credit Card Velocity Guard",
+    "country": "BR",
+    "channel": "credit_card",
+    "status": "active",
+    "current_threshold": 0.7,
+    "hit_rate": "8.4%",
+    "risk_capture_rate": "67%",
+    "false_positive_rate": "2.1%",
+    "recent_issue": "通过率下降且误杀投诉上升"
+  },
+  "STRAT-002": {
+    "strategy_id": "STRAT-002",
+    "name": "Indonesia Wallet Routing Control",
+    "country": "ID",
+    "channel": "wallet",
+    "status": "active",
+    "current_threshold": 0.64,
+    "hit_rate": "6.1%",
+    "risk_capture_rate": "58%",
+    "false_positive_rate": "1.4%",
+    "recent_issue": "挑战率波动放大，需重新评估阈值"
+  }
+}

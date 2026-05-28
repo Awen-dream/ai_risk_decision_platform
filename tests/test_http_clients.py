@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 from clients.http import HttpCaseRecordClient, HttpMetricSnapshotClient, HttpOrderProfileClient
+from clients.http import HttpStrategyProfileClient, HttpStrategySimulationClient
 
 
 class _FakeResponse:
@@ -74,6 +75,7 @@ class HttpClientTests(unittest.TestCase):
     def test_http_clients_handle_404(self) -> None:
         metric_client = HttpMetricSnapshotClient("http://risk-service.local")
         order_client = HttpOrderProfileClient("http://risk-service.local")
+        strategy_client = HttpStrategyProfileClient("http://risk-service.local")
 
         http_error = HTTPError(
             url="http://risk-service.local/order-profiles/missing",
@@ -85,6 +87,7 @@ class HttpClientTests(unittest.TestCase):
         with patch("clients.http.urlopen", side_effect=http_error):
             self.assertIsNone(metric_client.fetch_metric_snapshot("BR", "wallet"))
             self.assertIsNone(order_client.fetch_order_profile("missing"))
+            self.assertIsNone(strategy_client.fetch_strategy_profile("missing"))
 
     def test_http_clients_support_custom_paths_and_headers(self) -> None:
         metric_client = HttpMetricSnapshotClient(
@@ -136,6 +139,33 @@ class HttpClientTests(unittest.TestCase):
         self.assertEqual(metric_timeout, 9.0)
         self.assertIn("/v2/cases/search?market=BR&payment_channel=credit_card", case_request.full_url)
         self.assertIn("/v2/orders/O10001/profile", order_request.full_url)
+
+    def test_strategy_http_clients_support_custom_paths(self) -> None:
+        profile_client = HttpStrategyProfileClient(
+            "http://risk-service.local",
+            path_template="/v3/strategies/{strategy_id}",
+            headers={"X-API-Key": "secret"},
+        )
+        simulation_client = HttpStrategySimulationClient(
+            "http://risk-service.local",
+            path_template="/v3/strategies/{strategy_id}/simulation",
+        )
+
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"strategy_id": "STRAT-001", "status": "active"}),
+        ) as mocked_profile:
+            profile = profile_client.fetch_strategy_profile("STRAT-001")
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"strategy_id": "STRAT-001", "recommended_threshold": 0.66}),
+        ) as mocked_simulation:
+            simulation = simulation_client.fetch_strategy_simulation("STRAT-001")
+
+        self.assertEqual(profile["strategy_id"], "STRAT-001")
+        self.assertEqual(simulation["recommended_threshold"], 0.66)
+        self.assertIn("/v3/strategies/STRAT-001", mocked_profile.call_args[0][0].full_url)
+        self.assertIn("/v3/strategies/STRAT-001/simulation", mocked_simulation.call_args[0][0].full_url)
 
 
 if __name__ == "__main__":

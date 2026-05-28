@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TextIO
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -13,8 +13,15 @@ from settings import AppConfig
 class ApiClient:
     """Small zero-dependency client for the local agent API."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        debug: bool = False,
+        debug_stream: Optional[TextIO] = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._debug = debug
+        self._debug_stream = debug_stream or sys.stderr
 
     def healthz(self) -> Dict[str, Any]:
         return self._get("/healthz")
@@ -53,8 +60,11 @@ class ApiClient:
 
     def _get(self, path: str) -> Dict[str, Any]:
         request = Request(f"{self._base_url}{path}", method="GET")
+        self._log_request(request)
         with urlopen(request) as response:
-            return json.load(response)
+            payload = json.load(response)
+            self._log_response(getattr(response, "status", 200), payload)
+            return payload
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
@@ -64,8 +74,30 @@ class ApiClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        self._log_request(request, payload)
         with urlopen(request) as response:
-            return json.load(response)
+            response_payload = json.load(response)
+            self._log_response(getattr(response, "status", 200), response_payload)
+            return response_payload
+
+    def _log_request(self, request: Request, payload: Optional[Dict[str, Any]] = None) -> None:
+        if not self._debug:
+            return
+        print(f"[debug] {request.get_method()} {request.full_url}", file=self._debug_stream)
+        if payload is not None:
+            print(
+                f"[debug] request body: {json.dumps(payload, ensure_ascii=False)}",
+                file=self._debug_stream,
+            )
+
+    def _log_response(self, status: int, payload: Dict[str, Any]) -> None:
+        if not self._debug:
+            return
+        print(f"[debug] response status: {status}", file=self._debug_stream)
+        print(
+            f"[debug] response body: {json.dumps(payload, ensure_ascii=False)}",
+            file=self._debug_stream,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,6 +107,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--base-url",
         default=f"http://{config.api_host}:{config.api_port}",
         help="Base URL of the agent API.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print HTTP request and response details to stderr.",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -88,13 +125,14 @@ def build_parser() -> argparse.ArgumentParser:
     session_parser.add_argument("session_id")
 
     ask_parser = subparsers.add_parser("ask", help="Invoke an agent")
-    ask_parser.add_argument("agent", choices=["knowledge", "investigation"])
+    ask_parser.add_argument("agent", choices=["knowledge", "investigation", "strategy"])
     ask_parser.add_argument("query", help="Natural language query")
     ask_parser.add_argument("--session-id", default=None)
     ask_parser.add_argument("--user-role", default="risk_analyst")
     ask_parser.add_argument("--country", default=None)
     ask_parser.add_argument("--channel", default=None)
     ask_parser.add_argument("--order-id", default=None)
+    ask_parser.add_argument("--strategy-id", default=None)
     ask_parser.add_argument("--time-range", default=None)
 
     return parser
@@ -103,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    client = ApiClient(args.base_url)
+    client = ApiClient(args.base_url, debug=args.debug)
 
     try:
         if args.command == "healthz":
@@ -131,6 +169,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "country": args.country,
                     "channel": args.channel,
                     "order_id": args.order_id,
+                    "strategy_id": args.strategy_id,
                     "time_range": args.time_range,
                 }.items()
                 if value
@@ -150,6 +189,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"HTTP error from {args.base_url}: {exc.code} {exc.reason}",
             file=sys.stderr,
         )
+        if args.debug:
+            response_body = exc.read().decode("utf-8", errors="replace")
+            print(f"[debug] error body: {response_body}", file=sys.stderr)
         return 1
     except URLError as exc:
         print(
@@ -157,6 +199,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "Start the local stack first with `make run-local-stack`.",
             file=sys.stderr,
         )
+        if args.debug:
+            print(f"[debug] url error: {exc!r}", file=sys.stderr)
         return 1
 
     parser.error(f"Unknown command: {args.command}")

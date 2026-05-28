@@ -4,7 +4,13 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from clients.base import CaseRecordClient, MetricSnapshotClient, OrderProfileClient
+from clients.base import (
+    CaseRecordClient,
+    MetricSnapshotClient,
+    OrderProfileClient,
+    StrategyProfileClient,
+    StrategySimulationClient,
+)
 
 
 class JsonMetricSnapshotSqlClient(MetricSnapshotClient):
@@ -72,3 +78,30 @@ class JsonOrderProfileClient(OrderProfileClient):
             data = json.load(handle)
         return dict(data)
 
+
+class JsonStrategyProfileClient(StrategyProfileClient):
+    def __init__(self, file_path: Path) -> None:
+        self._file_path = file_path
+
+    def fetch_strategy_profile(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        rows = self._load_rows()
+        return rows.get(strategy_id)
+
+    def _load_rows(self) -> Dict[str, Dict[str, Any]]:
+        with self._file_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return dict(data)
+
+
+class JsonStrategySimulationClient(StrategySimulationClient):
+    def __init__(self, file_path: Path) -> None:
+        self._file_path = file_path
+
+    def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        rows = self._load_rows()
+        return rows.get(strategy_id)
+
+    def _load_rows(self) -> Dict[str, Dict[str, Any]]:
+        with self._file_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return dict(data)

@@ -5,7 +5,13 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from clients.file import JsonCaseRecordClient, JsonMetricSnapshotSqlClient, JsonOrderProfileClient
+from clients.file import (
+    JsonCaseRecordClient,
+    JsonMetricSnapshotSqlClient,
+    JsonOrderProfileClient,
+    JsonStrategyProfileClient,
+    JsonStrategySimulationClient,
+)
 from settings import AppConfig
 
 
@@ -37,11 +43,37 @@ class OrderProfileResponse(BaseModel):
     recommended_action: str
 
 
+class StrategyProfileResponse(BaseModel):
+    strategy_id: str
+    name: str
+    country: str
+    channel: str
+    status: str
+    current_threshold: float
+    hit_rate: str
+    risk_capture_rate: str
+    false_positive_rate: str
+    recent_issue: str
+
+
+class StrategySimulationResponse(BaseModel):
+    strategy_id: str
+    recommended_threshold: float
+    delta_intercepts: str
+    delta_false_positives: str
+    estimated_risk_reduction: str
+    estimated_revenue_impact: str
+    simulation_window: str
+    recommendation_reason: str
+
+
 def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     config = config or AppConfig.from_env()
     metric_client = JsonMetricSnapshotSqlClient(config.metric_snapshot_path)
     case_client = JsonCaseRecordClient(config.case_record_path)
     order_client = JsonOrderProfileClient(config.order_profile_path)
+    strategy_client = JsonStrategyProfileClient(config.strategy_profile_path)
+    simulation_client = JsonStrategySimulationClient(config.strategy_simulation_path)
 
     fastapi_app = FastAPI(
         title="AI Risk Mock Service",
@@ -79,6 +111,23 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
         if profile is None:
             raise HTTPException(status_code=404, detail="Order profile not found")
         return OrderProfileResponse(**profile)
+
+    @fastapi_app.get("/strategy-profiles/{strategy_id}", response_model=StrategyProfileResponse)
+    def get_strategy_profile(strategy_id: str) -> StrategyProfileResponse:
+        profile = strategy_client.fetch_strategy_profile(strategy_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Strategy profile not found")
+        return StrategyProfileResponse(**profile)
+
+    @fastapi_app.get(
+        "/strategy-simulations/{strategy_id}",
+        response_model=StrategySimulationResponse,
+    )
+    def get_strategy_simulation(strategy_id: str) -> StrategySimulationResponse:
+        simulation = simulation_client.fetch_strategy_simulation(strategy_id)
+        if simulation is None:
+            raise HTTPException(status_code=404, detail="Strategy simulation not found")
+        return StrategySimulationResponse(**simulation)
 
     return fastapi_app
 

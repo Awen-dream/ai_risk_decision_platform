@@ -6,6 +6,8 @@ from providers.in_memory import (
     InMemoryCaseRecordProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
+    InMemoryStrategyProfileProvider,
+    InMemoryStrategySimulationProvider,
 )
 
 
@@ -32,6 +34,18 @@ class ProviderTests(unittest.TestCase):
         order = provider.get_order("MISSING")
 
         self.assertIsNone(order)
+
+    def test_strategy_providers_return_strategy_data(self) -> None:
+        profile_provider = InMemoryStrategyProfileProvider()
+        simulation_provider = InMemoryStrategySimulationProvider()
+
+        profile = profile_provider.get_strategy("STRAT-001")
+        simulation = simulation_provider.get_simulation("STRAT-001")
+
+        self.assertIsNotNone(profile)
+        self.assertEqual(profile["status"], "active")
+        self.assertIsNotNone(simulation)
+        self.assertEqual(simulation["simulation_window"], "recent_14d")
 
 
 if __name__ == "__main__":

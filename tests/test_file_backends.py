@@ -42,7 +42,7 @@ class FileBackendTests(unittest.TestCase):
     def test_build_tool_adapters_uses_file_backends(self) -> None:
         adapters = build_tool_adapters(self.config)
 
-        self.assertEqual(len(adapters), 3)
+        self.assertEqual(len(adapters), 5)
         result = adapters[0].invoke(
             country="BR",
             channel="credit_card",
@@ -50,6 +50,9 @@ class FileBackendTests(unittest.TestCase):
         )
         self.assertTrue(result.success)
         self.assertEqual(result.payload["country"], "BR")
+        strategy_result = adapters[3].invoke(strategy_id="STRAT-001")
+        self.assertTrue(strategy_result.success)
+        self.assertEqual(strategy_result.payload["strategy_id"], "STRAT-001")
 
     def test_build_knowledge_sources_uses_file_backend(self) -> None:
         sources = build_knowledge_sources(self.config)

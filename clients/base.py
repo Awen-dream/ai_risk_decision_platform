@@ -31,3 +31,18 @@ class OrderProfileClient(ABC):
     def fetch_order_profile(self, order_id: str) -> Optional[Dict[str, Any]]:
         """Return the order profile for the given identifier."""
 
+
+class StrategyProfileClient(ABC):
+    """Client for fetching strategy profile data."""
+
+    @abstractmethod
+    def fetch_strategy_profile(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Return the strategy profile for the given identifier."""
+
+
+class StrategySimulationClient(ABC):
+    """Client for fetching strategy simulation results."""
+
+    @abstractmethod
+    def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Return the simulation output for the given strategy."""

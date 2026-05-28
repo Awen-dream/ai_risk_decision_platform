@@ -64,6 +64,20 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(session.turns[0].agent_name, "knowledge")
         self.assertEqual(session.turns[1].agent_name, "investigation")
 
+    def test_strategy_agent_returns_simulation_guidance(self) -> None:
+        _, response = self.runtime.execute(
+            "strategy",
+            AgentRequest(
+                query="请评估策略 STRAT-001 是否应该调整阈值",
+                context={"strategy_id": "STRAT-001"},
+            ),
+        )
+
+        self.assertIn("STRAT-001", response.summary)
+        self.assertTrue(any("仿真结果" in finding for finding in response.findings))
+        self.assertTrue(any(trace.name == "strategy_profile" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "strategy_simulation" for trace in response.tool_traces))
+
 
 if __name__ == "__main__":
     unittest.main()

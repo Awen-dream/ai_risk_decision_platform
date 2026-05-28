@@ -4,11 +4,19 @@ from typing import Any, Iterable
 
 from adapters.base import KnowledgeSource, ToolAdapter
 from core.models import KnowledgeDocument, ToolResult
-from providers.base import CaseRecordProvider, MetricSnapshotProvider, OrderProfileProvider
+from providers.base import (
+    CaseRecordProvider,
+    MetricSnapshotProvider,
+    OrderProfileProvider,
+    StrategyProfileProvider,
+    StrategySimulationProvider,
+)
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
+    InMemoryStrategyProfileProvider,
+    InMemoryStrategySimulationProvider,
 )
 from sample_data import (
     build_knowledge_documents,
@@ -91,4 +99,52 @@ class InMemoryOrderProfileAdapter(ToolAdapter):
             name=self.name,
             payload=payload,
             summary=f"已返回订单 {order_id} 的风险画像",
+        )
+
+
+class InMemoryStrategyProfileAdapter(ToolAdapter):
+    name = "strategy_profile"
+
+    def __init__(self, provider: StrategyProfileProvider | None = None) -> None:
+        self._provider = provider or InMemoryStrategyProfileProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        strategy_id = str(kwargs["strategy_id"])
+        payload = self._provider.get_strategy(strategy_id)
+        if payload is None:
+            return ToolResult(
+                name=self.name,
+                payload={},
+                summary="未找到策略画像",
+                success=False,
+                error=f"Unknown strategy: {strategy_id}",
+            )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回策略 {strategy_id} 的画像",
+        )
+
+
+class InMemoryStrategySimulationAdapter(ToolAdapter):
+    name = "strategy_simulation"
+
+    def __init__(self, provider: StrategySimulationProvider | None = None) -> None:
+        self._provider = provider or InMemoryStrategySimulationProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        strategy_id = str(kwargs["strategy_id"])
+        payload = self._provider.get_simulation(strategy_id)
+        if payload is None:
+            return ToolResult(
+                name=self.name,
+                payload={},
+                summary="未找到策略仿真结果",
+                success=False,
+                error=f"Unknown strategy simulation: {strategy_id}",
+            )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回策略 {strategy_id} 的仿真结果",
         )

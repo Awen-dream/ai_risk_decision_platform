@@ -32,3 +32,18 @@ class OrderProfileProvider(ABC):
     def get_order(self, order_id: str) -> Optional[Dict[str, Any]]:
         """Return the order profile for the given identifier."""
 
+
+class StrategyProfileProvider(ABC):
+    """Provides raw strategy profile data."""
+
+    @abstractmethod
+    def get_strategy(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Return the strategy profile for the given identifier."""
+
+
+class StrategySimulationProvider(ABC):
+    """Provides strategy simulation outputs."""
+
+    @abstractmethod
+    def get_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        """Return the simulation output for the given strategy."""

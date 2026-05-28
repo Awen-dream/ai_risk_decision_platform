@@ -13,12 +13,16 @@ from cli import ApiClient, main
 class _FakeResponse:
     def __init__(self, payload) -> None:
         self._buffer = io.BytesIO(json.dumps(payload).encode("utf-8"))
+        self.status = 200
 
     def __enter__(self):
-        return self._buffer
+        return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self._buffer.close()
+
+    def read(self, *args, **kwargs):
+        return self._buffer.read(*args, **kwargs)
 
 
 class CliTests(unittest.TestCase):
@@ -79,6 +83,31 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("make run-local-stack", stderr.getvalue())
+
+    def test_main_debug_logs_request_and_response(self) -> None:
+        response_payload = {"session_id": "s1", "agent_name": "strategy"}
+
+        with patch("cli.urlopen", return_value=_FakeResponse(response_payload)):
+            with patch("sys.stdout", new_callable=io.StringIO):
+                with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                    exit_code = main(
+                        [
+                            "--base-url",
+                            "http://127.0.0.1:8000",
+                            "--debug",
+                            "ask",
+                            "strategy",
+                            "请评估策略 STRAT-001 是否应该调整阈值",
+                            "--strategy-id",
+                            "STRAT-001",
+                        ]
+                    )
+
+        self.assertEqual(exit_code, 0)
+        debug_output = stderr.getvalue()
+        self.assertIn("[debug] POST http://127.0.0.1:8000/agents/strategy", debug_output)
+        self.assertIn('"strategy_id": "STRAT-001"', debug_output)
+        self.assertIn('[debug] response status: 200', debug_output)
 
 
 if __name__ == "__main__":

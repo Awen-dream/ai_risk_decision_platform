@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from clients.base import CaseRecordClient, MetricSnapshotClient, OrderProfileClient
+from clients.base import (
+    CaseRecordClient,
+    MetricSnapshotClient,
+    OrderProfileClient,
+    StrategyProfileClient,
+    StrategySimulationClient,
+)
 from sample_data import (
     build_case_records,
     build_metric_snapshots,
     build_order_profiles,
+    build_strategy_profiles,
+    build_strategy_simulations,
 )
 
 
@@ -43,3 +51,22 @@ class MockOrderProfileClient(OrderProfileClient):
     def fetch_order_profile(self, order_id: str) -> Optional[Dict[str, Any]]:
         return self._orders.get(order_id)
 
+
+class MockStrategyProfileClient(StrategyProfileClient):
+    """Mock client backed by local sample data."""
+
+    def __init__(self) -> None:
+        self._strategies = build_strategy_profiles()
+
+    def fetch_strategy_profile(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        return self._strategies.get(strategy_id)
+
+
+class MockStrategySimulationClient(StrategySimulationClient):
+    """Mock client backed by local sample data."""
+
+    def __init__(self) -> None:
+        self._simulations = build_strategy_simulations()
+
+    def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
+        return self._simulations.get(strategy_id)

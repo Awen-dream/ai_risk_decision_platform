@@ -124,3 +124,57 @@ def build_order_profiles() -> Dict[str, Dict[str, Any]]:
             "recommended_action": "reject",
         },
     }
+
+
+def build_strategy_profiles() -> Dict[str, Dict[str, Any]]:
+    return {
+        "STRAT-001": {
+            "strategy_id": "STRAT-001",
+            "name": "Brazil Credit Card Velocity Guard",
+            "country": "BR",
+            "channel": "credit_card",
+            "status": "active",
+            "current_threshold": 0.70,
+            "hit_rate": "8.4%",
+            "risk_capture_rate": "67%",
+            "false_positive_rate": "2.1%",
+            "recent_issue": "通过率下降且误杀投诉上升",
+        },
+        "STRAT-002": {
+            "strategy_id": "STRAT-002",
+            "name": "Indonesia Wallet Routing Control",
+            "country": "ID",
+            "channel": "wallet",
+            "status": "active",
+            "current_threshold": 0.64,
+            "hit_rate": "6.1%",
+            "risk_capture_rate": "58%",
+            "false_positive_rate": "1.4%",
+            "recent_issue": "挑战率波动放大，需重新评估阈值",
+        },
+    }
+
+
+def build_strategy_simulations() -> Dict[str, Dict[str, Any]]:
+    return {
+        "STRAT-001": {
+            "strategy_id": "STRAT-001",
+            "recommended_threshold": 0.66,
+            "delta_intercepts": "+4.2%",
+            "delta_false_positives": "+0.5%",
+            "estimated_risk_reduction": "8.7%",
+            "estimated_revenue_impact": "-0.9%",
+            "simulation_window": "recent_14d",
+            "recommendation_reason": "当前阈值偏严，适合小幅下调后先做 shadow evaluation。",
+        },
+        "STRAT-002": {
+            "strategy_id": "STRAT-002",
+            "recommended_threshold": 0.60,
+            "delta_intercepts": "+3.1%",
+            "delta_false_positives": "+0.3%",
+            "estimated_risk_reduction": "5.4%",
+            "estimated_revenue_impact": "-0.4%",
+            "simulation_window": "recent_14d",
+            "recommendation_reason": "通过率波动较大，建议小步调整并结合国家分层观察。",
+        },
+    }
