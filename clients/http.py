@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 
 from clients.base import (
     CaseRecordClient,
+    GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
     StrategyProfileClient,
@@ -166,6 +167,27 @@ class HttpStrategySimulationClient(BaseHttpJsonClient, StrategySimulationClient)
     def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         try:
             return self._get_json(self._path_template.format(strategy_id=strategy_id))
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+
+class HttpGraphRelationClient(BaseHttpJsonClient, GraphRelationClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path_template: str = "/graph-relations/{entity_id}",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+    ) -> None:
+        super().__init__(base_url, headers=headers, timeout_sec=timeout_sec)
+        self._path_template = path_template
+
+    def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return self._get_json(self._path_template.format(entity_id=entity_id))
         except HTTPError as exc:
             if exc.code == 404:
                 return None

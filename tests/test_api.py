@@ -23,7 +23,7 @@ class AgentApiTests(unittest.TestCase):
         response = self.client.get("/agents")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy"]})
+        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy", "graph"]})
 
     def test_create_and_get_session(self) -> None:
         created = self.client.post("/sessions")
@@ -123,10 +123,11 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
-        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy"])
+        self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
+        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph"])
         self.assertEqual(
             payload["registered_tools"],
-            ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation"],
+            ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation", "graph_relation"],
         )
 
     def test_invoke_strategy_agent(self) -> None:
@@ -142,6 +143,20 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "strategy")
         self.assertTrue(any(trace["name"] == "strategy_profile" for trace in payload["tool_traces"]))
+
+    def test_invoke_graph_agent(self) -> None:
+        response = self.client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析订单 O10001 是否属于团伙网络",
+                "context": {"entity_id": "O10001"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["agent_name"], "graph")
+        self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
 
 
 if __name__ == "__main__":

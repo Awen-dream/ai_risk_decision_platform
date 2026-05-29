@@ -18,6 +18,9 @@ class FileBackendTests(unittest.TestCase):
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
             order_profile_path=Path("data/risk/order_profiles.json"),
+            strategy_profile_path=Path("data/risk/strategy_profiles.json"),
+            strategy_simulation_path=Path("data/risk/strategy_simulations.json"),
+            graph_relation_path=Path("data/risk/graph_relations.json"),
         )
 
     def test_directory_knowledge_source_loads_markdown_documents(self) -> None:
@@ -42,7 +45,7 @@ class FileBackendTests(unittest.TestCase):
     def test_build_tool_adapters_uses_file_backends(self) -> None:
         adapters = build_tool_adapters(self.config)
 
-        self.assertEqual(len(adapters), 5)
+        self.assertEqual(len(adapters), 6)
         result = adapters[0].invoke(
             country="BR",
             channel="credit_card",
@@ -53,6 +56,9 @@ class FileBackendTests(unittest.TestCase):
         strategy_result = adapters[3].invoke(strategy_id="STRAT-001")
         self.assertTrue(strategy_result.success)
         self.assertEqual(strategy_result.payload["strategy_id"], "STRAT-001")
+        graph_result = adapters[5].invoke(entity_id="U10001")
+        self.assertTrue(graph_result.success)
+        self.assertEqual(graph_result.payload["entity_type"], "user")
 
     def test_build_knowledge_sources_uses_file_backend(self) -> None:
         sources = build_knowledge_sources(self.config)

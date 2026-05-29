@@ -16,6 +16,9 @@ class RiskServiceApiTests(unittest.TestCase):
                 metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
                 case_record_path=Path("data/risk/case_records.json"),
                 order_profile_path=Path("data/risk/order_profiles.json"),
+                strategy_profile_path=Path("data/risk/strategy_profiles.json"),
+                strategy_simulation_path=Path("data/risk/strategy_simulations.json"),
+                graph_relation_path=Path("data/risk/graph_relations.json"),
             )
         )
         self.client = TestClient(app)
@@ -63,6 +66,14 @@ class RiskServiceApiTests(unittest.TestCase):
         self.assertEqual(profile_response.json()["name"], "Brazil Credit Card Velocity Guard")
         self.assertEqual(simulation_response.json()["recommended_threshold"], 0.66)
 
+    def test_graph_relation_endpoint(self) -> None:
+        response = self.client.get("/graph-relations/U10001")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["risk_level"], "high")
+        self.assertEqual(payload["community_size"], 5)
+
     def test_not_found_cases(self) -> None:
         metric_response = self.client.get(
             "/metric-snapshots",
@@ -73,10 +84,12 @@ class RiskServiceApiTests(unittest.TestCase):
             params={"country": "JP", "channel": "wallet"},
         )
         order_response = self.client.get("/order-profiles/MISSING")
+        graph_response = self.client.get("/graph-relations/MISSING")
 
         self.assertEqual(metric_response.status_code, 404)
         self.assertEqual(case_response.status_code, 404)
         self.assertEqual(order_response.status_code, 404)
+        self.assertEqual(graph_response.status_code, 404)
 
 
 if __name__ == "__main__":

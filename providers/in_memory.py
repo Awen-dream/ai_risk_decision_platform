@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from clients.base import (
     CaseRecordClient,
+    GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
     StrategyProfileClient,
@@ -11,6 +12,7 @@ from clients.base import (
 )
 from clients.mock import (
     MockCaseRecordClient,
+    MockGraphRelationClient,
     MockMetricSnapshotClient,
     MockOrderProfileClient,
     MockStrategyProfileClient,
@@ -18,6 +20,7 @@ from clients.mock import (
 )
 from providers.base import (
     CaseRecordProvider,
+    GraphRelationProvider,
     MetricSnapshotProvider,
     OrderProfileProvider,
     StrategyProfileProvider,
@@ -69,3 +72,11 @@ class InMemoryStrategySimulationProvider(StrategySimulationProvider):
 
     def get_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         return self._client.fetch_strategy_simulation(strategy_id=strategy_id)
+
+
+class InMemoryGraphRelationProvider(GraphRelationProvider):
+    def __init__(self, client: GraphRelationClient | None = None) -> None:
+        self._client = client or MockGraphRelationClient()
+
+    def get_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_graph_relation(entity_id=entity_id)

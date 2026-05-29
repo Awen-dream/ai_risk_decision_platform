@@ -7,8 +7,14 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request
 
-from clients.http import HttpCaseRecordClient, HttpMetricSnapshotClient, HttpOrderProfileClient
-from clients.http import HttpStrategyProfileClient, HttpStrategySimulationClient
+from clients.http import (
+    HttpCaseRecordClient,
+    HttpGraphRelationClient,
+    HttpMetricSnapshotClient,
+    HttpOrderProfileClient,
+    HttpStrategyProfileClient,
+    HttpStrategySimulationClient,
+)
 
 
 class _FakeResponse:
@@ -166,6 +172,35 @@ class HttpClientTests(unittest.TestCase):
         self.assertEqual(simulation["recommended_threshold"], 0.66)
         self.assertIn("/v3/strategies/STRAT-001", mocked_profile.call_args[0][0].full_url)
         self.assertIn("/v3/strategies/STRAT-001/simulation", mocked_simulation.call_args[0][0].full_url)
+
+    def test_graph_http_client_supports_custom_path(self) -> None:
+        client = HttpGraphRelationClient(
+            "http://risk-service.local",
+            path_template="/v3/graph/{entity_id}",
+            headers={"Authorization": "Bearer token"},
+        )
+
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"entity_id": "U10001", "risk_level": "high"}),
+        ) as mocked:
+            relation = client.fetch_graph_relation("U10001")
+
+        self.assertEqual(relation["entity_id"], "U10001")
+        self.assertIn("/v3/graph/U10001", mocked.call_args[0][0].full_url)
+
+    def test_graph_http_client_handles_404(self) -> None:
+        client = HttpGraphRelationClient("http://risk-service.local")
+        http_error = HTTPError(
+            url="http://risk-service.local/graph-relations/missing",
+            code=404,
+            msg="not found",
+            hdrs=None,
+            fp=None,
+        )
+
+        with patch("clients.http.urlopen", side_effect=http_error):
+            self.assertIsNone(client.fetch_graph_relation("missing"))
 
 
 if __name__ == "__main__":

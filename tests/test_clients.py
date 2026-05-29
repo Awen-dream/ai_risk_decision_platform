@@ -3,10 +3,17 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from clients.file import JsonCaseRecordClient, JsonMetricSnapshotSqlClient, JsonOrderProfileClient
-from clients.file import JsonStrategyProfileClient, JsonStrategySimulationClient
+from clients.file import (
+    JsonCaseRecordClient,
+    JsonGraphRelationClient,
+    JsonMetricSnapshotSqlClient,
+    JsonOrderProfileClient,
+    JsonStrategyProfileClient,
+    JsonStrategySimulationClient,
+)
 from clients.mock import (
     MockCaseRecordClient,
+    MockGraphRelationClient,
     MockMetricSnapshotClient,
     MockOrderProfileClient,
     MockStrategyProfileClient,
@@ -88,6 +95,22 @@ class MockClientTests(unittest.TestCase):
         self.assertEqual(profile["channel"], "wallet")
         self.assertIsNotNone(simulation)
         self.assertEqual(simulation["strategy_id"], "STRAT-002")
+
+    def test_mock_graph_relation_client_returns_payload(self) -> None:
+        client = MockGraphRelationClient()
+
+        relation = client.fetch_graph_relation("U10001")
+
+        self.assertIsNotNone(relation)
+        self.assertEqual(relation["risk_level"], "high")
+
+    def test_json_graph_relation_client_loads_graph_data(self) -> None:
+        client = JsonGraphRelationClient(Path("data/risk/graph_relations.json"))
+
+        relation = client.fetch_graph_relation("O10001")
+
+        self.assertIsNotNone(relation)
+        self.assertEqual(relation["entity_type"], "order")
 
 
 if __name__ == "__main__":

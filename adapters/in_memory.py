@@ -6,6 +6,7 @@ from adapters.base import KnowledgeSource, ToolAdapter
 from core.models import KnowledgeDocument, ToolResult
 from providers.base import (
     CaseRecordProvider,
+    GraphRelationProvider,
     MetricSnapshotProvider,
     OrderProfileProvider,
     StrategyProfileProvider,
@@ -13,6 +14,7 @@ from providers.base import (
 )
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
+    InMemoryGraphRelationProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
     InMemoryStrategyProfileProvider,
@@ -147,4 +149,28 @@ class InMemoryStrategySimulationAdapter(ToolAdapter):
             name=self.name,
             payload=payload,
             summary=f"已返回策略 {strategy_id} 的仿真结果",
+        )
+
+
+class InMemoryGraphRelationAdapter(ToolAdapter):
+    name = "graph_relation"
+
+    def __init__(self, provider: GraphRelationProvider | None = None) -> None:
+        self._provider = provider or InMemoryGraphRelationProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        entity_id = str(kwargs["entity_id"])
+        payload = self._provider.get_graph_relation(entity_id)
+        if payload is None:
+            return ToolResult(
+                name=self.name,
+                payload={},
+                summary="未找到图关系结果",
+                success=False,
+                error=f"Unknown graph relation: {entity_id}",
+            )
+        return ToolResult(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回实体 {entity_id} 的图关系结果",
         )

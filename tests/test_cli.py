@@ -109,6 +109,28 @@ class CliTests(unittest.TestCase):
         self.assertIn('"strategy_id": "STRAT-001"', debug_output)
         self.assertIn('[debug] response status: 200', debug_output)
 
+    def test_main_graph_agent_builds_entity_context(self) -> None:
+        response_payload = {"session_id": "s2", "agent_name": "graph"}
+
+        with patch("cli.urlopen", return_value=_FakeResponse(response_payload)) as mocked:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                exit_code = main(
+                    [
+                        "--base-url",
+                        "http://127.0.0.1:8000",
+                        "ask",
+                        "graph",
+                        "请分析用户 U10001 是否属于团伙网络",
+                        "--entity-id",
+                        "U10001",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        request = mocked.call_args[0][0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["context"]["entity_id"], "U10001")
+
 
 if __name__ == "__main__":
     unittest.main()

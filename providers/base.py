@@ -47,3 +47,11 @@ class StrategySimulationProvider(ABC):
     @abstractmethod
     def get_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         """Return the simulation output for the given strategy."""
+
+
+class GraphRelationProvider(ABC):
+    """Provides graph relation analysis data."""
+
+    @abstractmethod
+    def get_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Return graph relation data for the given entity."""

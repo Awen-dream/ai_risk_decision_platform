@@ -47,6 +47,16 @@ if __name__ == "__main__":
         session_id=session_id,
     )
     render_response("Strategy Agent Demo", strategy_response)
+
+    _, graph_response = runtime.execute(
+        "graph",
+        AgentRequest(
+            query="请分析用户 U10001 是否属于团伙网络",
+            context={"entity_id": "U10001"},
+        ),
+        session_id=session_id,
+    )
+    render_response("Graph Agent Demo", graph_response)
     print(f"\nShared session ID: {session_id}")
 
     print("\nAPI server hint:")

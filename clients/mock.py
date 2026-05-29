@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from clients.base import (
     CaseRecordClient,
+    GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
     StrategyProfileClient,
@@ -13,6 +14,7 @@ from sample_data import (
     build_case_records,
     build_metric_snapshots,
     build_order_profiles,
+    build_graph_relations,
     build_strategy_profiles,
     build_strategy_simulations,
 )
@@ -70,3 +72,13 @@ class MockStrategySimulationClient(StrategySimulationClient):
 
     def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         return self._simulations.get(strategy_id)
+
+
+class MockGraphRelationClient(GraphRelationClient):
+    """Mock client backed by local sample data."""
+
+    def __init__(self) -> None:
+        self._relations = build_graph_relations()
+
+    def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        return self._relations.get(entity_id)

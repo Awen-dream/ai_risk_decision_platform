@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from clients.file import (
     JsonCaseRecordClient,
+    JsonGraphRelationClient,
     JsonMetricSnapshotSqlClient,
     JsonOrderProfileClient,
     JsonStrategyProfileClient,
@@ -67,6 +68,19 @@ class StrategySimulationResponse(BaseModel):
     recommendation_reason: str
 
 
+class GraphRelationResponse(BaseModel):
+    entity_id: str
+    entity_type: str
+    risk_level: str
+    shared_devices: List[str]
+    shared_ips: List[str]
+    linked_accounts: List[str]
+    linked_orders: List[str]
+    community_size: int
+    key_path: str
+    risk_reason: str
+
+
 def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     config = config or AppConfig.from_env()
     metric_client = JsonMetricSnapshotSqlClient(config.metric_snapshot_path)
@@ -74,6 +88,7 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     order_client = JsonOrderProfileClient(config.order_profile_path)
     strategy_client = JsonStrategyProfileClient(config.strategy_profile_path)
     simulation_client = JsonStrategySimulationClient(config.strategy_simulation_path)
+    graph_client = JsonGraphRelationClient(config.graph_relation_path)
 
     fastapi_app = FastAPI(
         title="AI Risk Mock Service",
@@ -128,6 +143,13 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
         if simulation is None:
             raise HTTPException(status_code=404, detail="Strategy simulation not found")
         return StrategySimulationResponse(**simulation)
+
+    @fastapi_app.get("/graph-relations/{entity_id}", response_model=GraphRelationResponse)
+    def get_graph_relation(entity_id: str) -> GraphRelationResponse:
+        relation = graph_client.fetch_graph_relation(entity_id.upper())
+        if relation is None:
+            raise HTTPException(status_code=404, detail="Graph relation not found")
+        return GraphRelationResponse(**relation)
 
     return fastapi_app
 

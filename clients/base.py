@@ -46,3 +46,11 @@ class StrategySimulationClient(ABC):
     @abstractmethod
     def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         """Return the simulation output for the given strategy."""
+
+
+class GraphRelationClient(ABC):
+    """Client for fetching graph relation summaries."""
+
+    @abstractmethod
+    def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Return graph relation data for the given entity."""

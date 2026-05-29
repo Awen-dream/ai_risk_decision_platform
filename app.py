@@ -5,17 +5,20 @@ from dataclasses import dataclass
 from adapters.base import KnowledgeSource, ToolAdapter
 from adapters.in_memory import (
     InMemoryCaseLookupAdapter,
+    InMemoryGraphRelationAdapter,
     InMemoryKnowledgeSource,
     InMemoryMetricSnapshotAdapter,
     InMemoryOrderProfileAdapter,
     InMemoryStrategyProfileAdapter,
     InMemoryStrategySimulationAdapter,
 )
+from agents.graph import GraphAgent
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
 from agents.strategy import StrategyAgent
 from clients.file import (
     JsonCaseRecordClient,
+    JsonGraphRelationClient,
     JsonMetricSnapshotSqlClient,
     JsonOrderProfileClient,
     JsonStrategyProfileClient,
@@ -23,6 +26,7 @@ from clients.file import (
 )
 from clients.http import (
     HttpCaseRecordClient,
+    HttpGraphRelationClient,
     HttpMetricSnapshotClient,
     HttpOrderProfileClient,
     HttpStrategyProfileClient,
@@ -32,6 +36,7 @@ from core.runtime import AgentRuntime
 from core.session_store import InMemorySessionStore
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
+    InMemoryGraphRelationProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
     InMemoryStrategyProfileProvider,
@@ -76,12 +81,16 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
         simulation_provider = InMemoryStrategySimulationProvider(
             client=JsonStrategySimulationClient(config.strategy_simulation_path)
         )
+        graph_provider = InMemoryGraphRelationProvider(
+            client=JsonGraphRelationClient(config.graph_relation_path)
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
             InMemoryOrderProfileAdapter(provider=order_provider),
             InMemoryStrategyProfileAdapter(provider=strategy_provider),
             InMemoryStrategySimulationAdapter(provider=simulation_provider),
+            InMemoryGraphRelationAdapter(provider=graph_provider),
         ]
     if config.tool_backend == "http":
         http_headers = config.tool_http_headers()
@@ -129,12 +138,21 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 timeout_sec=config.tool_http_timeout_sec,
             )
         )
+        graph_provider = InMemoryGraphRelationProvider(
+            client=HttpGraphRelationClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_graph_relation_path_template,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+            )
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
             InMemoryOrderProfileAdapter(provider=order_provider),
             InMemoryStrategyProfileAdapter(provider=strategy_provider),
             InMemoryStrategySimulationAdapter(provider=simulation_provider),
+            InMemoryGraphRelationAdapter(provider=graph_provider),
         ]
     return [
         InMemoryMetricSnapshotAdapter(),
@@ -142,6 +160,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
         InMemoryOrderProfileAdapter(),
         InMemoryStrategyProfileAdapter(),
         InMemoryStrategySimulationAdapter(),
+        InMemoryGraphRelationAdapter(),
     ]
 
 
@@ -162,6 +181,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     runtime.register_agent(KnowledgeAgent(retrieval))
     runtime.register_agent(InvestigationAgent(tools, retrieval))
     runtime.register_agent(StrategyAgent(tools, retrieval))
+    runtime.register_agent(GraphAgent(tools, retrieval))
     return AppContainer(
         config=config,
         runtime=runtime,

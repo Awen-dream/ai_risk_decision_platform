@@ -125,13 +125,15 @@ def build_parser() -> argparse.ArgumentParser:
     session_parser.add_argument("session_id")
 
     ask_parser = subparsers.add_parser("ask", help="Invoke an agent")
-    ask_parser.add_argument("agent", choices=["knowledge", "investigation", "strategy"])
+    ask_parser.add_argument("agent", choices=["knowledge", "investigation", "strategy", "graph"])
     ask_parser.add_argument("query", help="Natural language query")
     ask_parser.add_argument("--session-id", default=None)
     ask_parser.add_argument("--user-role", default="risk_analyst")
     ask_parser.add_argument("--country", default=None)
     ask_parser.add_argument("--channel", default=None)
     ask_parser.add_argument("--order-id", default=None)
+    ask_parser.add_argument("--user-id", default=None)
+    ask_parser.add_argument("--entity-id", default=None)
     ask_parser.add_argument("--strategy-id", default=None)
     ask_parser.add_argument("--time-range", default=None)
 
@@ -169,6 +171,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "country": args.country,
                     "channel": args.channel,
                     "order_id": args.order_id,
+                    "user_id": args.user_id,
+                    "entity_id": args.entity_id,
                     "strategy_id": args.strategy_id,
                     "time_range": args.time_range,
                 }.items()

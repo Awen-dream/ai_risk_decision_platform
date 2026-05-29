@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from clients.base import (
     CaseRecordClient,
+    GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
     StrategyProfileClient,
@@ -100,6 +101,20 @@ class JsonStrategySimulationClient(StrategySimulationClient):
     def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         rows = self._load_rows()
         return rows.get(strategy_id)
+
+    def _load_rows(self) -> Dict[str, Dict[str, Any]]:
+        with self._file_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return dict(data)
+
+
+class JsonGraphRelationClient(GraphRelationClient):
+    def __init__(self, file_path: Path) -> None:
+        self._file_path = file_path
+
+    def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        rows = self._load_rows()
+        return rows.get(entity_id)
 
     def _load_rows(self) -> Dict[str, Dict[str, Any]]:
         with self._file_path.open("r", encoding="utf-8") as handle:

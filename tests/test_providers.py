@@ -4,6 +4,7 @@ import unittest
 
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
+    InMemoryGraphRelationProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
     InMemoryStrategyProfileProvider,
@@ -46,6 +47,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(profile["status"], "active")
         self.assertIsNotNone(simulation)
         self.assertEqual(simulation["simulation_window"], "recent_14d")
+
+    def test_graph_relation_provider_returns_relation_data(self) -> None:
+        provider = InMemoryGraphRelationProvider()
+
+        relation = provider.get_graph_relation("U10001")
+
+        self.assertIsNotNone(relation)
+        self.assertEqual(relation["community_size"], 5)
 
 
 if __name__ == "__main__":

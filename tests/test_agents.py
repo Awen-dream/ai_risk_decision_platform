@@ -78,6 +78,19 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "strategy_profile" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "strategy_simulation" for trace in response.tool_traces))
 
+    def test_graph_agent_returns_relation_summary(self) -> None:
+        _, response = self.runtime.execute(
+            "graph",
+            AgentRequest(
+                query="请分析用户 U10001 是否属于团伙网络",
+                context={"user_id": "U10001"},
+            ),
+        )
+
+        self.assertIn("U10001", response.summary)
+        self.assertTrue(any("共享设备" in finding for finding in response.findings))
+        self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+
 
 if __name__ == "__main__":
     unittest.main()

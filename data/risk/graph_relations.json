@@ -1,0 +1,48 @@
+{
+  "U10001": {
+    "entity_id": "U10001",
+    "entity_type": "user",
+    "risk_level": "high",
+    "shared_devices": [
+      "D-778",
+      "D-901"
+    ],
+    "shared_ips": [
+      "203.0.113.18"
+    ],
+    "linked_accounts": [
+      "U10002",
+      "U10421",
+      "U10987"
+    ],
+    "linked_orders": [
+      "O10001",
+      "O10019"
+    ],
+    "community_size": 5,
+    "key_path": "U10001 -> D-778 -> U10002 -> IP:203.0.113.18 -> U10421",
+    "risk_reason": "多账号共享设备与 IP，存在明显团伙联动特征。"
+  },
+  "O10001": {
+    "entity_id": "O10001",
+    "entity_type": "order",
+    "risk_level": "medium",
+    "shared_devices": [
+      "D-778"
+    ],
+    "shared_ips": [
+      "203.0.113.18"
+    ],
+    "linked_accounts": [
+      "U10001",
+      "U10002"
+    ],
+    "linked_orders": [
+      "O10019",
+      "O10021"
+    ],
+    "community_size": 4,
+    "key_path": "O10001 -> U10001 -> D-778 -> U10002 -> O10019",
+    "risk_reason": "订单关联账号和设备网络密集，疑似同一操作群体。"
+  }
+}
