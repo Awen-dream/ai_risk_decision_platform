@@ -42,6 +42,8 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("O10001", response.summary)
         self.assertTrue(any("命中规则" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "order_profile" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+        self.assertTrue(any("关键路径" in finding for finding in response.findings))
 
     def test_unknown_agent_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):

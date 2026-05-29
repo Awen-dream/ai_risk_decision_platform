@@ -23,7 +23,6 @@ CHANNEL_ALIASES = {
     "wallet": "wallet",
 }
 
-
 class InvestigationAgent(Agent):
     """Risk investigation agent that orchestrates simple tool calls."""
 
@@ -47,28 +46,51 @@ class InvestigationAgent(Agent):
             "order_profile",
             self._tools.execute("order_profile", order_id=order_id),
         )
+        graph_trace = response.record_tool_trace(
+            "graph_relation",
+            self._tools.execute("graph_relation", entity_id=order_id),
+        )
 
         order = order_trace.payload
+        graph_relation = graph_trace.payload if graph_trace.status == "success" else None
         docs = self._retrieval.search(
-            f"{request.query} {' '.join(order['risk_labels'])}", top_k=2
+            f"{request.query} {' '.join(order['risk_labels'])} graph relation fraud ring",
+            top_k=2,
         )
         response.citations.extend(
             Citation.from_document(doc, snippet_length=160) for doc in docs
         )
-        response.summary = (
-            f"订单 {order_id} 被判定为高风险，主要由 {', '.join(order['risk_labels'])} 驱动。"
-        )
+        if graph_relation:
+            response.summary = (
+                f"订单 {order_id} 被判定为高风险，主要由 {', '.join(order['risk_labels'])} 驱动，"
+                f"并且已落入 {graph_relation['community_size']} 个节点的关系网络，存在"
+                f" {graph_relation['risk_level']} 级别团伙风险。"
+            )
+        else:
+            response.summary = (
+                f"订单 {order_id} 被判定为高风险，主要由 {', '.join(order['risk_labels'])} 驱动。"
+            )
         response.findings = [
             f"命中规则：{', '.join(order['triggered_rules'])}",
             f"风险标签：{', '.join(order['risk_labels'])}",
             f"账号画像：国家 {order['country']}，支付渠道 {order['channel']}，近 7 天尝试下单 {order['recent_attempts']} 次",
         ]
+        if graph_relation:
+            response.findings.extend(
+                [
+                    f"关系网络：关联账号 {', '.join(graph_relation['linked_accounts']) or '无'}，关联订单 {', '.join(graph_relation['linked_orders']) or '无'}",
+                    f"图谱风险：共享设备 {', '.join(graph_relation['shared_devices']) or '无'}，共享 IP {', '.join(graph_relation['shared_ips']) or '无'}",
+                    f"关键路径：{graph_relation['key_path']}",
+                ]
+            )
         if order["recommended_action"] == "manual_review":
             response.findings.append("当前更适合转人工复核，而不是直接拒绝。")
         response.suggested_actions = [
             "复核最近 24 小时同设备/同支付工具订单",
             "结合相似 Case 判断是否属于误杀放大",
         ]
+        if graph_relation:
+            response.suggested_actions.append("优先排查共享设备和共享 IP 上的关联账号是否存在批量操作")
         response.confidence = 0.83
         return response
 

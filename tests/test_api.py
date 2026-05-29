@@ -64,6 +64,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["session_id"], session_id)
         self.assertEqual(payload["agent_name"], "investigation")
         self.assertTrue(any(trace["name"] == "order_profile" for trace in payload["tool_traces"]))
+        self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
+        self.assertTrue(any("关键路径" in finding for finding in payload["findings"]))
 
         fetched = self.client.get(f"/sessions/{session_id}")
         self.assertEqual(len(fetched.json()["turns"]), 1)
