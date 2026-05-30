@@ -145,6 +145,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "strategy")
         self.assertTrue(any(trace["name"] == "strategy_profile" for trace in payload["tool_traces"]))
+        self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
+        self.assertTrue(any("图谱风险" in finding for finding in payload["findings"]))
 
     def test_invoke_graph_agent(self) -> None:
         response = self.client.post(

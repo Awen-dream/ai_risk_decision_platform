@@ -139,6 +139,7 @@ def build_strategy_profiles() -> Dict[str, Dict[str, Any]]:
             "risk_capture_rate": "67%",
             "false_positive_rate": "2.1%",
             "recent_issue": "通过率下降且误杀投诉上升",
+            "top_impacted_entities": ["O10001", "U10001"],
         },
         "STRAT-002": {
             "strategy_id": "STRAT-002",
@@ -151,6 +152,7 @@ def build_strategy_profiles() -> Dict[str, Dict[str, Any]]:
             "risk_capture_rate": "58%",
             "false_positive_rate": "1.4%",
             "recent_issue": "挑战率波动放大，需重新评估阈值",
+            "top_impacted_entities": ["U10001"],
         },
     }
 

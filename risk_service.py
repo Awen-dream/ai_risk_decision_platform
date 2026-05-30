@@ -55,6 +55,7 @@ class StrategyProfileResponse(BaseModel):
     risk_capture_rate: str
     false_positive_rate: str
     recent_issue: str
+    top_impacted_entities: List[str]
 
 
 class StrategySimulationResponse(BaseModel):

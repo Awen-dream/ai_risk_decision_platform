@@ -93,6 +93,7 @@ class MockClientTests(unittest.TestCase):
 
         self.assertIsNotNone(profile)
         self.assertEqual(profile["channel"], "wallet")
+        self.assertEqual(profile["top_impacted_entities"], ["U10001"])
         self.assertIsNotNone(simulation)
         self.assertEqual(simulation["strategy_id"], "STRAT-002")
 

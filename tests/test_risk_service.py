@@ -64,6 +64,7 @@ class RiskServiceApiTests(unittest.TestCase):
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(simulation_response.status_code, 200)
         self.assertEqual(profile_response.json()["name"], "Brazil Credit Card Velocity Guard")
+        self.assertEqual(profile_response.json()["top_impacted_entities"], ["O10001", "U10001"])
         self.assertEqual(simulation_response.json()["recommended_threshold"], 0.66)
 
     def test_graph_relation_endpoint(self) -> None:

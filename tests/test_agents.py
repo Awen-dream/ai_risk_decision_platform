@@ -79,6 +79,8 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("仿真结果" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "strategy_profile" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "strategy_simulation" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+        self.assertTrue(any("图谱风险" in finding for finding in response.findings))
 
     def test_graph_agent_returns_relation_summary(self) -> None:
         _, response = self.runtime.execute(
