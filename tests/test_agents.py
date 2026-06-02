@@ -105,12 +105,28 @@ class AgentPlatformTests(unittest.TestCase):
         )
 
         self.assertIn("联合分析", response.summary)
+        self.assertIn("调查 -> 策略 -> 图谱", response.summary)
+        self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
+        self.assertTrue(any(finding.startswith("[规划] 策略") for finding in response.findings))
+        self.assertTrue(any(finding.startswith("[规划] 图谱") for finding in response.findings))
         self.assertTrue(any(finding.startswith("[调查]") for finding in response.findings))
         self.assertTrue(any(finding.startswith("[策略]") for finding in response.findings))
         self.assertTrue(any(finding.startswith("[图谱]") for finding in response.findings))
         self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("策略::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+
+    def test_copilot_agent_only_runs_investigation_for_plain_metric_question(self) -> None:
+        _, response = self.runtime.execute(
+            "copilot",
+            AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
+        )
+
+        self.assertIn("执行计划为 调查", response.summary)
+        self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
+        self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
+        self.assertFalse(any(finding.startswith("[规划] 图谱") for finding in response.findings))
+        self.assertTrue(all(trace.name.startswith("调查::") for trace in response.tool_traces))
 
 
 if __name__ == "__main__":

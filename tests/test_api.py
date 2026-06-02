@@ -174,6 +174,8 @@ class AgentApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "copilot")
+        self.assertIn("调查 -> 策略 -> 图谱", payload["summary"])
+        self.assertTrue(any(finding.startswith("[规划] 调查") for finding in payload["findings"]))
         self.assertTrue(any(trace["name"].startswith("调查::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("策略::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("图谱::") for trace in payload["tool_traces"]))
