@@ -23,7 +23,7 @@ class AgentApiTests(unittest.TestCase):
         response = self.client.get("/agents")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy", "graph"]})
+        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy", "graph", "copilot"]})
 
     def test_create_and_get_session(self) -> None:
         created = self.client.post("/sessions")
@@ -126,7 +126,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
         self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
-        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph"])
+        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph", "copilot"])
         self.assertEqual(
             payload["registered_tools"],
             ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation", "graph_relation"],
@@ -161,6 +161,22 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "graph")
         self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
+
+    def test_invoke_copilot_agent(self) -> None:
+        response = self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["agent_name"], "copilot")
+        self.assertTrue(any(trace["name"].startswith("调查::") for trace in payload["tool_traces"]))
+        self.assertTrue(any(trace["name"].startswith("策略::") for trace in payload["tool_traces"]))
+        self.assertTrue(any(trace["name"].startswith("图谱::") for trace in payload["tool_traces"]))
 
 
 if __name__ == "__main__":

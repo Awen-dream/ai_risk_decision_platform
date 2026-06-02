@@ -12,6 +12,7 @@ from adapters.in_memory import (
     InMemoryStrategyProfileAdapter,
     InMemoryStrategySimulationAdapter,
 )
+from agents.copilot import CopilotAgent
 from agents.graph import GraphAgent
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
@@ -178,10 +179,20 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         tools.register_adapter(adapter)
 
     runtime = AgentRuntime(session_store=InMemorySessionStore())
-    runtime.register_agent(KnowledgeAgent(retrieval))
-    runtime.register_agent(InvestigationAgent(tools, retrieval))
-    runtime.register_agent(StrategyAgent(tools, retrieval))
-    runtime.register_agent(GraphAgent(tools, retrieval))
+    knowledge_agent = KnowledgeAgent(retrieval)
+    investigation_agent = InvestigationAgent(tools, retrieval)
+    strategy_agent = StrategyAgent(tools, retrieval)
+    graph_agent = GraphAgent(tools, retrieval)
+    copilot_agent = CopilotAgent(
+        investigation_agent=investigation_agent,
+        strategy_agent=strategy_agent,
+        graph_agent=graph_agent,
+    )
+    runtime.register_agent(knowledge_agent)
+    runtime.register_agent(investigation_agent)
+    runtime.register_agent(strategy_agent)
+    runtime.register_agent(graph_agent)
+    runtime.register_agent(copilot_agent)
     return AppContainer(
         config=config,
         runtime=runtime,

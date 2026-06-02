@@ -57,6 +57,16 @@ if __name__ == "__main__":
         session_id=session_id,
     )
     render_response("Graph Agent Demo", graph_response)
+
+    _, copilot_response = runtime.execute(
+        "copilot",
+        AgentRequest(
+            query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+            context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+        ),
+        session_id=session_id,
+    )
+    render_response("Copilot Agent Demo", copilot_response)
     print(f"\nShared session ID: {session_id}")
 
     print("\nAPI server hint:")

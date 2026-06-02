@@ -95,6 +95,23 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("共享设备" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
 
+    def test_copilot_agent_merges_investigation_strategy_and_graph(self) -> None:
+        _, response = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+            ),
+        )
+
+        self.assertIn("联合分析", response.summary)
+        self.assertTrue(any(finding.startswith("[调查]") for finding in response.findings))
+        self.assertTrue(any(finding.startswith("[策略]") for finding in response.findings))
+        self.assertTrue(any(finding.startswith("[图谱]") for finding in response.findings))
+        self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
+        self.assertTrue(any(trace.name.startswith("策略::") for trace in response.tool_traces))
+        self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+
 
 if __name__ == "__main__":
     unittest.main()

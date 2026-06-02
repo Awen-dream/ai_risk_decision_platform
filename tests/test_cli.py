@@ -131,6 +131,34 @@ class CliTests(unittest.TestCase):
         body = json.loads(request.data.decode("utf-8"))
         self.assertEqual(body["context"]["entity_id"], "U10001")
 
+    def test_main_copilot_agent_accepts_mixed_context(self) -> None:
+        response_payload = {"session_id": "s3", "agent_name": "copilot"}
+
+        with patch("cli.urlopen", return_value=_FakeResponse(response_payload)) as mocked:
+            with patch("sys.stdout", new_callable=io.StringIO):
+                exit_code = main(
+                    [
+                        "--base-url",
+                        "http://127.0.0.1:8000",
+                        "ask",
+                        "copilot",
+                        "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                        "--order-id",
+                        "O10001",
+                        "--strategy-id",
+                        "STRAT-001",
+                        "--entity-id",
+                        "U10001",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        request = mocked.call_args[0][0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(body["context"]["order_id"], "O10001")
+        self.assertEqual(body["context"]["strategy_id"], "STRAT-001")
+        self.assertEqual(body["context"]["entity_id"], "U10001")
+
 
 if __name__ == "__main__":
     unittest.main()

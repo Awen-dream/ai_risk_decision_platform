@@ -125,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_parser.add_argument("session_id")
 
     ask_parser = subparsers.add_parser("ask", help="Invoke an agent")
-    ask_parser.add_argument("agent", choices=["knowledge", "investigation", "strategy", "graph"])
+    ask_parser.add_argument("agent", choices=["knowledge", "investigation", "strategy", "graph", "copilot"])
     ask_parser.add_argument("query", help="Natural language query")
     ask_parser.add_argument("--session-id", default=None)
     ask_parser.add_argument("--user-role", default="risk_analyst")
