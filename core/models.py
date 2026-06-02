@@ -89,7 +89,9 @@ class SessionTurn:
     query: str
     context: dict[str, Any]
     summary: str
-    confidence: float
+    confidence: float = 0.0
+    intent: str | None = None
+    plan_steps: list[str] = field(default_factory=list)
 
 
 @dataclass

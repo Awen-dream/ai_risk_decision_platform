@@ -54,6 +54,8 @@ class SessionTurnPayload(BaseModel):
     query: str
     context: Dict[str, Any]
     summary: str
+    intent: Optional[str] = None
+    plan_steps: List[str] = Field(default_factory=list)
     confidence: float
 
 
@@ -201,6 +203,8 @@ def _to_session_response(session) -> SessionResponse:
                 query=turn.query,
                 context=turn.context,
                 summary=turn.summary,
+                intent=turn.intent,
+                plan_steps=turn.plan_steps,
                 confidence=turn.confidence,
             )
             for turn in session.turns

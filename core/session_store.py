@@ -40,8 +40,9 @@ class InMemorySessionStore:
                 query=request.query,
                 context=request.context,
                 summary=response.summary,
+                intent=response.intent,
+                plan_steps=response.plan_steps,
                 confidence=response.confidence,
             )
         )
         return session
-

@@ -163,17 +163,21 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
 
     def test_invoke_copilot_agent(self) -> None:
+        created = self.client.post("/sessions")
+        session_id = created.json()["session_id"]
         response = self.client.post(
             "/agents/copilot",
             json={
                 "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
                 "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": session_id,
             },
         )
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "copilot")
+        self.assertEqual(payload["session_id"], session_id)
         self.assertEqual(payload["intent"], "composite")
         self.assertEqual(payload["plan_steps"], ["调查", "策略", "图谱"])
         self.assertIn("识别意图为 composite", payload["summary"])
@@ -183,6 +187,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any(trace["name"].startswith("调查::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("策略::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("图谱::") for trace in payload["tool_traces"]))
+
+        fetched = self.client.get(f"/sessions/{session_id}")
+        turn = fetched.json()["turns"][0]
+        self.assertEqual(turn["agent_name"], "copilot")
+        self.assertEqual(turn["intent"], "composite")
+        self.assertEqual(turn["plan_steps"], ["调查", "策略", "图谱"])
 
 
 if __name__ == "__main__":

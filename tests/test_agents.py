@@ -66,6 +66,21 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(session.turns[0].agent_name, "knowledge")
         self.assertEqual(session.turns[1].agent_name, "investigation")
 
+    def test_runtime_persists_copilot_intent_and_plan(self) -> None:
+        session_id, _ = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+            ),
+        )
+
+        session = self.runtime.get_session(session_id)
+        self.assertIsNotNone(session)
+        self.assertEqual(len(session.turns), 1)
+        self.assertEqual(session.turns[0].intent, "composite")
+        self.assertEqual(session.turns[0].plan_steps, ["调查", "策略", "图谱"])
+
     def test_strategy_agent_returns_simulation_guidance(self) -> None:
         _, response = self.runtime.execute(
             "strategy",
