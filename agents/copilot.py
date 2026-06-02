@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import re
 
 from agents.base import Agent
@@ -9,6 +10,14 @@ from core.models import AgentRequest, AgentResponse, Citation, ToolTrace
 
 STRATEGY_ID_PATTERN = re.compile(r"(STRAT-\d+)", re.IGNORECASE)
 ENTITY_ID_PATTERN = re.compile(r"((?:U|O)\d{5})", re.IGNORECASE)
+
+
+class CopilotIntent(str, Enum):
+    METRIC_ANOMALY = "metric_anomaly"
+    ORDER_CASE = "order_case"
+    STRATEGY_REVIEW = "strategy_review"
+    FRAUD_RING = "fraud_ring"
+    COMPOSITE = "composite"
 
 
 @dataclass
@@ -34,7 +43,8 @@ class CopilotAgent(Agent):
 
     def run(self, request: AgentRequest) -> AgentResponse:
         response = AgentResponse(agent_name=self.name)
-        plan_steps = self._plan(request)
+        intent = self._classify_intent(request)
+        plan_steps = self._plan(request, intent)
 
         child_responses: list[tuple[str, AgentResponse]] = []
         for step in plan_steps:
@@ -45,8 +55,8 @@ class CopilotAgent(Agent):
             elif step.label == "图谱":
                 child_responses.append((step.label, self._graph_agent.run(request)))
 
-        response.summary = self._build_summary(plan_steps, child_responses)
-        response.findings = self._merge_findings(plan_steps, child_responses)
+        response.summary = self._build_summary(intent, plan_steps, child_responses)
+        response.findings = self._merge_findings(intent, plan_steps, child_responses)
         response.suggested_actions = self._merge_actions(child_responses)
         response.citations = self._merge_citations(child_responses)
         response.tool_traces = self._merge_tool_traces(child_responses)
@@ -58,19 +68,22 @@ class CopilotAgent(Agent):
 
     @staticmethod
     def _build_summary(
+        intent: CopilotIntent,
         plan_steps: list[CopilotPlanStep],
         child_responses: list[tuple[str, AgentResponse]],
     ) -> str:
         planned_labels = " -> ".join(step.label for step in plan_steps)
         parts = [f"{label}结论：{child.summary}" for label, child in child_responses]
-        return f"已完成联合分析，执行计划为 {planned_labels}。 " + " ".join(parts)
+        return f"已完成联合分析，识别意图为 {intent.value}，执行计划为 {planned_labels}。 " + " ".join(parts)
 
     @staticmethod
     def _merge_findings(
+        intent: CopilotIntent,
         plan_steps: list[CopilotPlanStep],
         child_responses: list[tuple[str, AgentResponse]],
     ) -> list[str]:
-        findings = [f"[规划] {step.label}：{step.reason}" for step in plan_steps]
+        findings = [f"[意图] {intent.value}"]
+        findings.extend(f"[规划] {step.label}：{step.reason}" for step in plan_steps)
         for label, child in child_responses:
             findings.extend(f"[{label}] {finding}" for finding in child.findings)
         return findings
@@ -131,21 +144,21 @@ class CopilotAgent(Agent):
             return True
         return ENTITY_ID_PATTERN.search(request.query) is not None and "order_id" not in request.context
 
-    def _plan(self, request: AgentRequest) -> list[CopilotPlanStep]:
+    def _plan(self, request: AgentRequest, intent: CopilotIntent) -> list[CopilotPlanStep]:
         steps = [
             CopilotPlanStep(
                 label="调查",
                 reason="先做基础风险调查，定位异常对象、核心证据和影响范围。",
             )
         ]
-        if self._should_include_strategy(request):
+        if intent in (CopilotIntent.STRATEGY_REVIEW, CopilotIntent.COMPOSITE):
             steps.append(
                 CopilotPlanStep(
                     label="策略",
                     reason="问题包含策略或阈值信号，需要补充策略效果和仿真建议。",
                 )
             )
-        if self._should_include_graph(request):
+        if intent in (CopilotIntent.FRAUD_RING, CopilotIntent.ORDER_CASE, CopilotIntent.COMPOSITE):
             steps.append(
                 CopilotPlanStep(
                     label="图谱",
@@ -153,3 +166,19 @@ class CopilotAgent(Agent):
                 )
             )
         return steps
+
+    def _classify_intent(self, request: AgentRequest) -> CopilotIntent:
+        has_strategy = self._should_include_strategy(request)
+        has_graph = self._should_include_graph(request)
+        has_order = "order_id" in request.context or (
+            ENTITY_ID_PATTERN.search(request.query) is not None and "订单" in request.query
+        )
+        if has_strategy and has_graph:
+            return CopilotIntent.COMPOSITE
+        if has_strategy:
+            return CopilotIntent.STRATEGY_REVIEW
+        if has_graph:
+            if has_order:
+                return CopilotIntent.ORDER_CASE
+            return CopilotIntent.FRAUD_RING
+        return CopilotIntent.METRIC_ANOMALY
