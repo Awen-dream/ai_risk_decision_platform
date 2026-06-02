@@ -174,6 +174,8 @@ class AgentApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "copilot")
+        self.assertEqual(payload["intent"], "composite")
+        self.assertEqual(payload["plan_steps"], ["调查", "策略", "图谱"])
         self.assertIn("识别意图为 composite", payload["summary"])
         self.assertIn("调查 -> 策略 -> 图谱", payload["summary"])
         self.assertTrue(any(finding == "[意图] composite" for finding in payload["findings"]))

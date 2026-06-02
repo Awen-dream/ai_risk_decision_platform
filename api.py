@@ -40,6 +40,8 @@ class AgentInvokeResponse(BaseModel):
     session_id: str
     agent_name: str
     summary: str
+    intent: Optional[str] = None
+    plan_steps: List[str] = Field(default_factory=list)
     findings: List[str]
     suggested_actions: List[str]
     citations: List[CitationPayload]
@@ -165,6 +167,8 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
         session_id=session_id,
         agent_name=response.agent_name,
         summary=response.summary,
+        intent=response.intent,
+        plan_steps=response.plan_steps,
         findings=response.findings,
         suggested_actions=response.suggested_actions,
         citations=[

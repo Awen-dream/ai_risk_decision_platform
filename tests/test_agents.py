@@ -107,6 +107,8 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("联合分析", response.summary)
         self.assertIn("识别意图为 composite", response.summary)
         self.assertIn("调查 -> 策略 -> 图谱", response.summary)
+        self.assertEqual(response.intent, "composite")
+        self.assertEqual(response.plan_steps, ["调查", "策略", "图谱"])
         self.assertTrue(any(finding == "[意图] composite" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 策略") for finding in response.findings))
@@ -126,6 +128,8 @@ class AgentPlatformTests(unittest.TestCase):
 
         self.assertIn("识别意图为 metric_anomaly", response.summary)
         self.assertIn("执行计划为 调查", response.summary)
+        self.assertEqual(response.intent, "metric_anomaly")
+        self.assertEqual(response.plan_steps, ["调查"])
         self.assertTrue(any(finding == "[意图] metric_anomaly" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
@@ -143,6 +147,8 @@ class AgentPlatformTests(unittest.TestCase):
 
         self.assertIn("识别意图为 fraud_ring", response.summary)
         self.assertIn("执行计划为 调查 -> 图谱", response.summary)
+        self.assertEqual(response.intent, "fraud_ring")
+        self.assertEqual(response.plan_steps, ["调查", "图谱"])
         self.assertTrue(any(finding == "[意图] fraud_ring" for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
 

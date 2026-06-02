@@ -8,6 +8,10 @@ def render_response(title: str, response) -> None:
     print(f"\n=== {title} ===")
     print(f"Agent: {response.agent_name}")
     print(f"Summary: {response.summary}")
+    if getattr(response, "intent", None):
+        print(f"Intent: {response.intent}")
+    if getattr(response, "plan_steps", None):
+        print(f"Plan: {' -> '.join(response.plan_steps)}")
     print("Findings:")
     for finding in response.findings:
         print(f"  - {finding}")

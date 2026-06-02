@@ -45,6 +45,8 @@ class CopilotAgent(Agent):
         response = AgentResponse(agent_name=self.name)
         intent = self._classify_intent(request)
         plan_steps = self._plan(request, intent)
+        response.intent = intent.value
+        response.plan_steps = [step.label for step in plan_steps]
 
         child_responses: list[tuple[str, AgentResponse]] = []
         for step in plan_steps:
