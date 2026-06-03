@@ -180,6 +180,10 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["session_id"], session_id)
         self.assertEqual(payload["intent"], "composite")
         self.assertEqual(payload["plan_steps"], ["调查", "策略", "图谱"])
+        self.assertEqual(
+            [(trace["step"], trace["selected"]) for trace in payload["planner_trace"]],
+            [("调查", True), ("策略", True), ("图谱", True)],
+        )
         self.assertIn("识别意图为 composite", payload["summary"])
         self.assertIn("调查 -> 策略 -> 图谱", payload["summary"])
         self.assertTrue(any(finding == "[意图] composite" for finding in payload["findings"]))
@@ -193,6 +197,10 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(turn["agent_name"], "copilot")
         self.assertEqual(turn["intent"], "composite")
         self.assertEqual(turn["plan_steps"], ["调查", "策略", "图谱"])
+        self.assertEqual(
+            [(trace["step"], trace["selected"]) for trace in turn["planner_trace"]],
+            [("调查", True), ("策略", True), ("图谱", True)],
+        )
 
 
 if __name__ == "__main__":

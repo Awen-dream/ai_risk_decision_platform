@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from core.models import AgentRequest, AgentResponse, SessionRecord, SessionTurn
+from core.models import AgentRequest, AgentResponse, PlannerTraceStep, SessionRecord, SessionTurn
 
 
 class InMemorySessionStore:
@@ -42,6 +42,14 @@ class InMemorySessionStore:
                 summary=response.summary,
                 intent=response.intent,
                 plan_steps=response.plan_steps,
+                planner_trace=[
+                    PlannerTraceStep(
+                        step=trace.step,
+                        selected=trace.selected,
+                        reason=trace.reason,
+                    )
+                    for trace in response.planner_trace
+                ],
                 confidence=response.confidence,
             )
         )

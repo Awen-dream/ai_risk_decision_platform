@@ -60,11 +60,19 @@ class ToolTrace:
 
 
 @dataclass
+class PlannerTraceStep:
+    step: str
+    selected: bool
+    reason: str
+
+
+@dataclass
 class AgentResponse:
     agent_name: str
     summary: str = ""
     intent: str | None = None
     plan_steps: list[str] = field(default_factory=list)
+    planner_trace: list[PlannerTraceStep] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     suggested_actions: list[str] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
@@ -92,6 +100,7 @@ class SessionTurn:
     confidence: float = 0.0
     intent: str | None = None
     plan_steps: list[str] = field(default_factory=list)
+    planner_trace: list[PlannerTraceStep] = field(default_factory=list)
 
 
 @dataclass

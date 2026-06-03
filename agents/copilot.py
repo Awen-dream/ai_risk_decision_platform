@@ -5,7 +5,7 @@ from enum import Enum
 import re
 
 from agents.base import Agent
-from core.models import AgentRequest, AgentResponse, Citation, ToolTrace
+from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 
 
 STRATEGY_ID_PATTERN = re.compile(r"(STRAT-\d+)", re.IGNORECASE)
@@ -45,8 +45,10 @@ class CopilotAgent(Agent):
         response = AgentResponse(agent_name=self.name)
         intent = self._classify_intent(request)
         plan_steps = self._plan(request, intent)
+        planner_trace = self._build_planner_trace(intent)
         response.intent = intent.value
         response.plan_steps = [step.label for step in plan_steps]
+        response.planner_trace = planner_trace
 
         child_responses: list[tuple[str, AgentResponse]] = []
         for step in plan_steps:
@@ -168,6 +170,40 @@ class CopilotAgent(Agent):
                 )
             )
         return steps
+
+    @staticmethod
+    def _build_planner_trace(intent: CopilotIntent) -> list[PlannerTraceStep]:
+        strategy_selected = intent in (CopilotIntent.STRATEGY_REVIEW, CopilotIntent.COMPOSITE)
+        graph_selected = intent in (
+            CopilotIntent.FRAUD_RING,
+            CopilotIntent.ORDER_CASE,
+            CopilotIntent.COMPOSITE,
+        )
+        return [
+            PlannerTraceStep(
+                step="调查",
+                selected=True,
+                reason="所有风险问题都先从基础调查开始，统一定位对象、证据和影响范围。",
+            ),
+            PlannerTraceStep(
+                step="策略",
+                selected=strategy_selected,
+                reason=(
+                    "当前问题包含策略、阈值或仿真信号，需要补充策略效果分析。"
+                    if strategy_selected
+                    else "当前问题缺少策略评估信号，暂不进入策略分析。"
+                ),
+            ),
+            PlannerTraceStep(
+                step="图谱",
+                selected=graph_selected,
+                reason=(
+                    "当前问题包含实体关系、订单关联或团伙信号，需要补充关系网络分析。"
+                    if graph_selected
+                    else "当前问题缺少团伙或关系网络信号，暂不进入图谱分析。"
+                ),
+            ),
+        ]
 
     def _classify_intent(self, request: AgentRequest) -> CopilotIntent:
         has_strategy = self._should_include_strategy(request)

@@ -12,6 +12,11 @@ def render_response(title: str, response) -> None:
         print(f"Intent: {response.intent}")
     if getattr(response, "plan_steps", None):
         print(f"Plan: {' -> '.join(response.plan_steps)}")
+    if getattr(response, "planner_trace", None):
+        print("Planner trace:")
+        for trace in response.planner_trace:
+            marker = "selected" if trace.selected else "skipped"
+            print(f"  - {trace.step} [{marker}]: {trace.reason}")
     print("Findings:")
     for finding in response.findings:
         print(f"  - {finding}")

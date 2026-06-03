@@ -80,6 +80,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(len(session.turns), 1)
         self.assertEqual(session.turns[0].intent, "composite")
         self.assertEqual(session.turns[0].plan_steps, ["调查", "策略", "图谱"])
+        self.assertEqual(
+            [(trace.step, trace.selected) for trace in session.turns[0].planner_trace],
+            [("调查", True), ("策略", True), ("图谱", True)],
+        )
 
     def test_strategy_agent_returns_simulation_guidance(self) -> None:
         _, response = self.runtime.execute(
@@ -124,6 +128,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("调查 -> 策略 -> 图谱", response.summary)
         self.assertEqual(response.intent, "composite")
         self.assertEqual(response.plan_steps, ["调查", "策略", "图谱"])
+        self.assertEqual(len(response.planner_trace), 3)
+        self.assertEqual(
+            [(trace.step, trace.selected) for trace in response.planner_trace],
+            [("调查", True), ("策略", True), ("图谱", True)],
+        )
         self.assertTrue(any(finding == "[意图] composite" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 策略") for finding in response.findings))
@@ -145,6 +154,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("执行计划为 调查", response.summary)
         self.assertEqual(response.intent, "metric_anomaly")
         self.assertEqual(response.plan_steps, ["调查"])
+        self.assertEqual(
+            [(trace.step, trace.selected) for trace in response.planner_trace],
+            [("调查", True), ("策略", False), ("图谱", False)],
+        )
         self.assertTrue(any(finding == "[意图] metric_anomaly" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
@@ -164,6 +177,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("执行计划为 调查 -> 图谱", response.summary)
         self.assertEqual(response.intent, "fraud_ring")
         self.assertEqual(response.plan_steps, ["调查", "图谱"])
+        self.assertEqual(
+            [(trace.step, trace.selected) for trace in response.planner_trace],
+            [("调查", True), ("策略", False), ("图谱", True)],
+        )
         self.assertTrue(any(finding == "[意图] fraud_ring" for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
 

@@ -36,12 +36,19 @@ class ToolTracePayload(BaseModel):
     summary: str
 
 
+class PlannerTracePayload(BaseModel):
+    step: str
+    selected: bool
+    reason: str
+
+
 class AgentInvokeResponse(BaseModel):
     session_id: str
     agent_name: str
     summary: str
     intent: Optional[str] = None
     plan_steps: List[str] = Field(default_factory=list)
+    planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
     findings: List[str]
     suggested_actions: List[str]
     citations: List[CitationPayload]
@@ -56,6 +63,7 @@ class SessionTurnPayload(BaseModel):
     summary: str
     intent: Optional[str] = None
     plan_steps: List[str] = Field(default_factory=list)
+    planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
     confidence: float
 
 
@@ -171,6 +179,14 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
         summary=response.summary,
         intent=response.intent,
         plan_steps=response.plan_steps,
+        planner_trace=[
+            PlannerTracePayload(
+                step=trace.step,
+                selected=trace.selected,
+                reason=trace.reason,
+            )
+            for trace in response.planner_trace
+        ],
         findings=response.findings,
         suggested_actions=response.suggested_actions,
         citations=[
@@ -205,6 +221,14 @@ def _to_session_response(session) -> SessionResponse:
                 summary=turn.summary,
                 intent=turn.intent,
                 plan_steps=turn.plan_steps,
+                planner_trace=[
+                    PlannerTracePayload(
+                        step=trace.step,
+                        selected=trace.selected,
+                        reason=trace.reason,
+                    )
+                    for trace in turn.planner_trace
+                ],
                 confidence=turn.confidence,
             )
             for turn in session.turns
