@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field
 
 from app import build_app_container
 from core.models import AgentRequest, AgentResponse
+from services.presentation import (
+    build_agent_group,
+    build_badge,
+    build_expanded_sections,
+    build_severity,
+    build_turn_title,
+)
 from settings import AppConfig
 
 
@@ -61,15 +68,36 @@ class SessionTurnPayload(BaseModel):
     query: str
     context: Dict[str, Any]
     summary: str
+    title: str
+    status: str
+    agent_group: str
+    badge: str
+    severity: str
+    expanded_sections: List[str] = Field(default_factory=list)
     intent: Optional[str] = None
     plan_steps: List[str] = Field(default_factory=list)
     planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
     confidence: float
 
 
+class TimelineItemPayload(BaseModel):
+    turn_index: int
+    agent_name: str
+    title: str
+    status: str
+    agent_group: str
+    badge: str
+    severity: str
+    summary: str
+    intent: Optional[str] = None
+    plan_steps: List[str] = Field(default_factory=list)
+    expanded_sections: List[str] = Field(default_factory=list)
+
+
 class SessionResponse(BaseModel):
     session_id: str
     turns: List[SessionTurnPayload]
+    timeline: List[TimelineItemPayload] = Field(default_factory=list)
 
 
 class KnowledgeReloadResponse(BaseModel):
@@ -78,20 +106,52 @@ class KnowledgeReloadResponse(BaseModel):
     total_documents: int
 
 
+class CapabilityContractPayload(BaseModel):
+    name: str
+    description: str
+    knowledge_required: bool
+    required_tools: List[str] = Field(default_factory=list)
+    composed_agents: List[str] = Field(default_factory=list)
+
+
+class QueryParamContractPayload(BaseModel):
+    country_env_var: Optional[str] = None
+    country_name: Optional[str] = None
+    channel_env_var: Optional[str] = None
+    channel_name: Optional[str] = None
+
+
+class HttpEndpointContractPayload(BaseModel):
+    tool_name: str
+    path_env_var: str
+    path: str
+    supports_capabilities: List[str] = Field(default_factory=list)
+    query_params: QueryParamContractPayload = Field(
+        default_factory=QueryParamContractPayload
+    )
+
+
 class RuntimeInfoResponse(BaseModel):
     knowledge_backend: str
     tool_backend: str
     knowledge_dir: str
     tool_http_base_url: str
+    tool_http_timeout_sec: float
     tool_http_auth_mode: str
+    tool_http_auth_header: str
     tool_http_metric_path: str
     tool_http_case_path: str
     tool_http_order_path_template: str
     tool_http_strategy_profile_path_template: str
     tool_http_strategy_simulation_path_template: str
     tool_http_graph_relation_path_template: str
+    tool_http_country_param: str
+    tool_http_channel_param: str
     registered_agents: List[str]
     registered_tools: List[str]
+    supported_capabilities: List[str]
+    capability_contract: List[CapabilityContractPayload]
+    http_endpoint_contract: List[HttpEndpointContractPayload]
     indexed_documents: int
 
 
@@ -119,15 +179,28 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_backend=container.config.tool_backend,
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
+            tool_http_timeout_sec=container.config.tool_http_timeout_sec,
             tool_http_auth_mode=container.config.tool_http_auth_mode,
+            tool_http_auth_header=container.config.tool_http_auth_header,
             tool_http_metric_path=container.config.tool_http_metric_path,
             tool_http_case_path=container.config.tool_http_case_path,
             tool_http_order_path_template=container.config.tool_http_order_path_template,
             tool_http_strategy_profile_path_template=container.config.tool_http_strategy_profile_path_template,
             tool_http_strategy_simulation_path_template=container.config.tool_http_strategy_simulation_path_template,
             tool_http_graph_relation_path_template=container.config.tool_http_graph_relation_path_template,
+            tool_http_country_param=container.config.tool_http_country_param,
+            tool_http_channel_param=container.config.tool_http_channel_param,
             registered_agents=runtime.list_agents(),
             registered_tools=container.tools.list_tools(),
+            supported_capabilities=container.config.supported_agent_capabilities(),
+            capability_contract=[
+                CapabilityContractPayload(**item)
+                for item in container.config.capability_contract()
+            ],
+            http_endpoint_contract=[
+                HttpEndpointContractPayload(**item)
+                for item in container.config.http_endpoint_contract()
+            ],
             indexed_documents=container.retrieval.document_count(),
         )
 
@@ -211,27 +284,50 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
 
 
 def _to_session_response(session) -> SessionResponse:
+    turns = [
+        SessionTurnPayload(
+            agent_name=turn.agent_name,
+            query=turn.query,
+            context=turn.context,
+            summary=turn.summary,
+            title=build_turn_title(turn.agent_name),
+            status="completed",
+            agent_group=build_agent_group(turn.agent_name),
+            badge=build_badge(turn.agent_name, turn.intent),
+            severity=build_severity(turn.agent_name, turn.intent),
+            expanded_sections=build_expanded_sections(turn.agent_name),
+            intent=turn.intent,
+            plan_steps=turn.plan_steps,
+            planner_trace=[
+                PlannerTracePayload(
+                    step=trace.step,
+                    selected=trace.selected,
+                    reason=trace.reason,
+                )
+                for trace in turn.planner_trace
+            ],
+            confidence=turn.confidence,
+        )
+        for turn in session.turns
+    ]
     return SessionResponse(
         session_id=session.session_id,
-        turns=[
-            SessionTurnPayload(
+        turns=turns,
+        timeline=[
+            TimelineItemPayload(
+                turn_index=index,
                 agent_name=turn.agent_name,
-                query=turn.query,
-                context=turn.context,
+                title=turn.title,
+                status=turn.status,
+                agent_group=turn.agent_group,
+                badge=turn.badge,
+                severity=turn.severity,
                 summary=turn.summary,
                 intent=turn.intent,
                 plan_steps=turn.plan_steps,
-                planner_trace=[
-                    PlannerTracePayload(
-                        step=trace.step,
-                        selected=trace.selected,
-                        reason=trace.reason,
-                    )
-                    for trace in turn.planner_trace
-                ],
-                confidence=turn.confidence,
+                expanded_sections=turn.expanded_sections,
             )
-            for turn in session.turns
+            for index, turn in enumerate(turns, start=1)
         ],
     )
 

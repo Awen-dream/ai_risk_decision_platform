@@ -2,6 +2,16 @@
 
 This project supports replacing the local mock risk service with a real external HTTP service.
 
+## Phase 1 capability target
+
+Phase 1 must keep the full agent surface available after the HTTP switch:
+
+- `knowledge`: file-backed knowledge retrieval
+- `investigation`: metric snapshot, case lookup, order profile
+- `strategy`: strategy profile, strategy simulation, graph relation
+- `graph`: graph relation
+- `copilot`: orchestrates investigation + strategy + graph
+
 ## Required endpoints
 
 The agent API expects the risk service to provide:
@@ -17,6 +27,18 @@ The agent API expects the risk service to provide:
    - `channel`
 
 3. `GET /order-profiles/{order_id}`
+
+4. `GET /strategy-profiles/{strategy_id}`
+
+5. `GET /strategy-simulations/{strategy_id}`
+
+6. `GET /graph-relations/{entity_id}`
+
+The runtime declaration in `GET /admin/runtime` should match this exact surface through:
+
+- `supported_capabilities`
+- `capability_contract`
+- `http_endpoint_contract`
 
 ## Environment variables
 
@@ -53,6 +75,9 @@ If the external service uses custom endpoint paths or query parameter names:
 export AI_RISK_TOOL_HTTP_METRIC_PATH=/v2/metrics
 export AI_RISK_TOOL_HTTP_CASE_PATH=/v2/cases/search
 export AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE=/v2/orders/{order_id}/profile
+export AI_RISK_TOOL_HTTP_STRATEGY_PROFILE_PATH_TEMPLATE=/v2/strategies/{strategy_id}
+export AI_RISK_TOOL_HTTP_STRATEGY_SIMULATION_PATH_TEMPLATE=/v2/strategies/{strategy_id}/simulation
+export AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE=/v2/graph/{entity_id}
 export AI_RISK_TOOL_HTTP_COUNTRY_PARAM=market
 export AI_RISK_TOOL_HTTP_CHANNEL_PARAM=payment_channel
 ```
@@ -81,8 +106,9 @@ export AI_RISK_TOOL_HTTP_AUTH_HEADER=X-API-Key
 2. Fill real base URL, endpoint paths, parameter names, and auth token
 3. Start the API with `make run-api-http`
 4. Verify config with `python3 cli.py runtime`
-5. Run one `knowledge` query and one `investigation` query
-6. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
+5. Check `supported_capabilities`, `capability_contract`, and `http_endpoint_contract`
+6. Run one `knowledge` query and one query for each of `investigation`, `strategy`, `graph`, `copilot`
+7. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
 ## Local verification
 
@@ -93,9 +119,13 @@ make run-api-http
 python3 cli.py runtime
 python3 cli.py agents
 python3 cli.py ask knowledge "营销套利案件的标准排查 SOP 是什么？"
+python3 cli.py ask investigation "为什么巴西信用卡支付失败率从昨晚开始突然升高？" --country BR --channel credit_card
+python3 cli.py ask strategy "请评估策略 STRAT-001 是否应该调整阈值" --strategy-id STRAT-001
+python3 cli.py ask graph "请分析用户 U10001 是否属于团伙网络" --entity-id U10001
+python3 cli.py ask copilot "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议" --order-id O10001 --strategy-id STRAT-001 --entity-id U10001
 ```
 
-The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode, and registered tools.
+The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode, timeout, parameter mapping, registered tools, and the Phase 1 capability declaration.
 
 For rollout readiness, use:
 

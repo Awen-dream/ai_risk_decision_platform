@@ -8,8 +8,11 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Confirm the real service exposes metric snapshot lookup.
 - [ ] Confirm the real service exposes historical case lookup.
 - [ ] Confirm the real service exposes order profile lookup.
+- [ ] Confirm the real service exposes strategy profile lookup.
+- [ ] Confirm the real service exposes strategy simulation lookup.
+- [ ] Confirm the real service exposes graph relation lookup.
 - [ ] Confirm 404 behavior for missing resources.
-- [ ] Confirm response payload fields cover the current investigation agent needs.
+- [ ] Confirm response payload fields cover investigation, strategy, graph, and copilot needs.
 
 ## 2. Endpoint mapping
 
@@ -17,6 +20,9 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Fill `AI_RISK_TOOL_HTTP_METRIC_PATH`
 - [ ] Fill `AI_RISK_TOOL_HTTP_CASE_PATH`
 - [ ] Fill `AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE`
+- [ ] Fill `AI_RISK_TOOL_HTTP_STRATEGY_PROFILE_PATH_TEMPLATE`
+- [ ] Fill `AI_RISK_TOOL_HTTP_STRATEGY_SIMULATION_PATH_TEMPLATE`
+- [ ] Fill `AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE`
 - [ ] Fill `AI_RISK_TOOL_HTTP_COUNTRY_PARAM`
 - [ ] Fill `AI_RISK_TOOL_HTTP_CHANNEL_PARAM`
 
@@ -26,7 +32,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_MODE`
 - [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_HEADER`
 - [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_TOKEN`
-- [ ] Verify the runtime shows the expected auth mode in `GET /admin/runtime`
+- [ ] Verify `GET /admin/runtime` shows the expected auth mode, auth header, and timeout
 
 ## 4. Timeouts and networking
 
@@ -37,10 +43,15 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 5. Functional verification
 
 - [ ] Run `python3 cli.py runtime`
+- [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
+- [ ] Verify `capability_contract` and `http_endpoint_contract` match the agreed Phase 1 surface
 - [ ] Run `python3 cli.py agents`
 - [ ] Run one `knowledge` query
 - [ ] Run one `investigation` query with `country/channel`
 - [ ] Run one `investigation` query with `order_id`
+- [ ] Run one `strategy` query
+- [ ] Run one `graph` query
+- [ ] Run one `copilot` query
 - [ ] Check session history through `python3 cli.py session <session_id>`
 
 ## 6. Knowledge verification

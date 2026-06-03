@@ -34,6 +34,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(fetched.status_code, 200)
         self.assertEqual(fetched.json()["session_id"], session_id)
         self.assertEqual(fetched.json()["turns"], [])
+        self.assertEqual(fetched.json()["timeline"], [])
 
     def test_invoke_knowledge_agent(self) -> None:
         response = self.client.post(
@@ -69,6 +70,10 @@ class AgentApiTests(unittest.TestCase):
 
         fetched = self.client.get(f"/sessions/{session_id}")
         self.assertEqual(len(fetched.json()["turns"]), 1)
+        self.assertEqual(fetched.json()["timeline"][0]["title"], "风险调查")
+        self.assertEqual(fetched.json()["timeline"][0]["agent_group"], "analysis")
+        self.assertEqual(fetched.json()["timeline"][0]["badge"], "analysis")
+        self.assertEqual(fetched.json()["timeline"][0]["severity"], "medium")
 
     def test_unknown_agent_returns_404(self) -> None:
         response = self.client.post(
@@ -122,14 +127,46 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["knowledge_backend"], "file")
         self.assertEqual(payload["tool_backend"], "file")
+        self.assertEqual(payload["tool_http_timeout_sec"], 5.0)
         self.assertEqual(payload["tool_http_auth_mode"], "none")
+        self.assertEqual(payload["tool_http_auth_header"], "Authorization")
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
         self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
+        self.assertEqual(payload["tool_http_country_param"], "country")
+        self.assertEqual(payload["tool_http_channel_param"], "channel")
         self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph", "copilot"])
         self.assertEqual(
             payload["registered_tools"],
             ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation", "graph_relation"],
+        )
+        self.assertEqual(
+            payload["supported_capabilities"],
+            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+        )
+        self.assertEqual(
+            [item["name"] for item in payload["capability_contract"]],
+            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+        )
+        self.assertEqual(
+            [item["tool_name"] for item in payload["http_endpoint_contract"]],
+            [
+                "metric_snapshot",
+                "case_lookup",
+                "order_profile",
+                "strategy_profile",
+                "strategy_simulation",
+                "graph_relation",
+            ],
+        )
+        self.assertEqual(
+            payload["http_endpoint_contract"][0]["query_params"],
+            {
+                "country_env_var": "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
+                "country_name": "country",
+                "channel_env_var": "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
+                "channel_name": "channel",
+            },
         )
 
     def test_invoke_strategy_agent(self) -> None:
@@ -195,12 +232,26 @@ class AgentApiTests(unittest.TestCase):
         fetched = self.client.get(f"/sessions/{session_id}")
         turn = fetched.json()["turns"][0]
         self.assertEqual(turn["agent_name"], "copilot")
+        self.assertEqual(turn["title"], "联合分析")
+        self.assertEqual(turn["status"], "completed")
+        self.assertEqual(turn["agent_group"], "workflow")
+        self.assertEqual(turn["badge"], "workflow")
+        self.assertEqual(turn["severity"], "high")
+        self.assertEqual(turn["expanded_sections"], ["intent", "plan", "planner_trace", "findings", "actions"])
         self.assertEqual(turn["intent"], "composite")
         self.assertEqual(turn["plan_steps"], ["调查", "策略", "图谱"])
         self.assertEqual(
             [(trace["step"], trace["selected"]) for trace in turn["planner_trace"]],
             [("调查", True), ("策略", True), ("图谱", True)],
         )
+        timeline_item = fetched.json()["timeline"][0]
+        self.assertEqual(timeline_item["turn_index"], 1)
+        self.assertEqual(timeline_item["title"], "联合分析")
+        self.assertEqual(timeline_item["agent_group"], "workflow")
+        self.assertEqual(timeline_item["badge"], "workflow")
+        self.assertEqual(timeline_item["severity"], "high")
+        self.assertEqual(timeline_item["intent"], "composite")
+        self.assertEqual(timeline_item["plan_steps"], ["调查", "策略", "图谱"])
 
 
 if __name__ == "__main__":

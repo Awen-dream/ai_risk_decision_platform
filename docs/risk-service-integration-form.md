@@ -2,6 +2,14 @@
 
 Use this form with the external risk service owner when replacing the local mock service.
 
+Phase 1 target surface:
+
+- `knowledge`: knowledge retrieval stays file-backed in this project
+- `investigation`: metric snapshot + case record + order profile
+- `strategy`: strategy profile + strategy simulation + graph relation
+- `graph`: graph relation
+- `copilot`: composes investigation + strategy + graph
+
 ## 1. Service owner
 
 | Item | Value |
@@ -92,7 +100,75 @@ Expected response fields:
 | `risk_labels` | | |
 | `recommended_action` | | |
 
-## 7. Error and compatibility notes
+## 7. Strategy profile endpoint
+
+| Item | Value | Example |
+|---|---|---|
+| Endpoint path template | | `/strategy-profiles/{strategy_id}` |
+| Sample request | | `GET /strategy-profiles/STRAT-001` |
+| 404 behavior | | |
+
+Expected response fields:
+
+| Field | Available? | Notes |
+|---|---|---|
+| `strategy_id` | | |
+| `name` | | |
+| `country` | | |
+| `channel` | | |
+| `status` | | |
+| `current_threshold` | | |
+| `hit_rate` | | |
+| `risk_capture_rate` | | |
+| `false_positive_rate` | | |
+| `recent_issue` | | |
+| `top_impacted_entities` | | |
+
+## 8. Strategy simulation endpoint
+
+| Item | Value | Example |
+|---|---|---|
+| Endpoint path template | | `/strategy-simulations/{strategy_id}` |
+| Sample request | | `GET /strategy-simulations/STRAT-001` |
+| 404 behavior | | |
+
+Expected response fields:
+
+| Field | Available? | Notes |
+|---|---|---|
+| `strategy_id` | | |
+| `recommended_threshold` | | |
+| `delta_intercepts` | | |
+| `delta_false_positives` | | |
+| `estimated_risk_reduction` | | |
+| `estimated_revenue_impact` | | |
+| `simulation_window` | | |
+| `recommendation_reason` | | |
+
+## 9. Graph relation endpoint
+
+| Item | Value | Example |
+|---|---|---|
+| Endpoint path template | | `/graph-relations/{entity_id}` |
+| Sample request | | `GET /graph-relations/U10001` |
+| 404 behavior | | |
+
+Expected response fields:
+
+| Field | Available? | Notes |
+|---|---|---|
+| `entity_id` | | |
+| `entity_type` | | |
+| `risk_level` | | |
+| `shared_devices` | | |
+| `shared_ips` | | |
+| `linked_accounts` | | |
+| `linked_orders` | | |
+| `community_size` | | |
+| `key_path` | | |
+| `risk_reason` | | |
+
+## 10. Error and compatibility notes
 
 | Item | Value |
 |---|---|
@@ -102,7 +178,7 @@ Expected response fields:
 | Encoding / locale notes | |
 | Any field mapping differences | |
 
-## 8. Config mapping back to this project
+## 11. Config mapping back to this project
 
 Fill these values after the service owner confirms the contract:
 
@@ -115,6 +191,9 @@ AI_RISK_TOOL_HTTP_AUTH_TOKEN=
 AI_RISK_TOOL_HTTP_METRIC_PATH=
 AI_RISK_TOOL_HTTP_CASE_PATH=
 AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE=
+AI_RISK_TOOL_HTTP_STRATEGY_PROFILE_PATH_TEMPLATE=
+AI_RISK_TOOL_HTTP_STRATEGY_SIMULATION_PATH_TEMPLATE=
+AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE=
 AI_RISK_TOOL_HTTP_COUNTRY_PARAM=
 AI_RISK_TOOL_HTTP_CHANNEL_PARAM=
 ```

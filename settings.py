@@ -3,7 +3,50 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
+
+
+SUPPORTED_AGENT_CAPABILITIES = (
+    "knowledge",
+    "investigation",
+    "strategy",
+    "graph",
+    "copilot",
+)
+
+
+CAPABILITY_DESCRIPTIONS = {
+    "knowledge": "知识检索与 SOP/FAQ 问答能力。",
+    "investigation": "基于指标、案例和订单画像的风险调查能力。",
+    "strategy": "基于策略画像、仿真和图谱线索的策略分析能力。",
+    "graph": "基于关系网络数据的团伙与关联分析能力。",
+    "copilot": "编排 investigation、strategy、graph 的联合分析能力。",
+}
+
+
+CAPABILITY_REQUIRED_TOOLS = {
+    "knowledge": (),
+    "investigation": ("metric_snapshot", "case_lookup", "order_profile"),
+    "strategy": ("strategy_profile", "strategy_simulation", "graph_relation"),
+    "graph": ("graph_relation",),
+    "copilot": (
+        "metric_snapshot",
+        "case_lookup",
+        "order_profile",
+        "strategy_profile",
+        "strategy_simulation",
+        "graph_relation",
+    ),
+}
+
+
+CAPABILITY_COMPOSED_AGENTS = {
+    "knowledge": (),
+    "investigation": (),
+    "strategy": (),
+    "graph": (),
+    "copilot": ("investigation", "strategy", "graph"),
+}
 
 
 @dataclass
@@ -150,3 +193,76 @@ class AppConfig:
         if self.tool_http_auth_mode == "api_key" and self.tool_http_auth_token:
             return {self.tool_http_auth_header: self.tool_http_auth_token}
         return {}
+
+    def supported_agent_capabilities(self) -> list[str]:
+        return list(SUPPORTED_AGENT_CAPABILITIES)
+
+    def capability_contract(self) -> list[Dict[str, Any]]:
+        contract: list[Dict[str, Any]] = []
+        for capability in SUPPORTED_AGENT_CAPABILITIES:
+            contract.append(
+                {
+                    "name": capability,
+                    "description": CAPABILITY_DESCRIPTIONS[capability],
+                    "knowledge_required": capability in {"knowledge", "investigation", "strategy", "graph"},
+                    "required_tools": list(CAPABILITY_REQUIRED_TOOLS[capability]),
+                    "composed_agents": list(CAPABILITY_COMPOSED_AGENTS[capability]),
+                }
+            )
+        return contract
+
+    def http_endpoint_contract(self) -> list[Dict[str, Any]]:
+        return [
+            {
+                "tool_name": "metric_snapshot",
+                "path_env_var": "AI_RISK_TOOL_HTTP_METRIC_PATH",
+                "path": self.tool_http_metric_path,
+                "supports_capabilities": ["investigation", "copilot"],
+                "query_params": {
+                    "country_env_var": "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
+                    "country_name": self.tool_http_country_param,
+                    "channel_env_var": "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
+                    "channel_name": self.tool_http_channel_param,
+                },
+            },
+            {
+                "tool_name": "case_lookup",
+                "path_env_var": "AI_RISK_TOOL_HTTP_CASE_PATH",
+                "path": self.tool_http_case_path,
+                "supports_capabilities": ["investigation", "copilot"],
+                "query_params": {
+                    "country_env_var": "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
+                    "country_name": self.tool_http_country_param,
+                    "channel_env_var": "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
+                    "channel_name": self.tool_http_channel_param,
+                },
+            },
+            {
+                "tool_name": "order_profile",
+                "path_env_var": "AI_RISK_TOOL_HTTP_ORDER_PATH_TEMPLATE",
+                "path": self.tool_http_order_path_template,
+                "supports_capabilities": ["investigation", "copilot"],
+                "query_params": {},
+            },
+            {
+                "tool_name": "strategy_profile",
+                "path_env_var": "AI_RISK_TOOL_HTTP_STRATEGY_PROFILE_PATH_TEMPLATE",
+                "path": self.tool_http_strategy_profile_path_template,
+                "supports_capabilities": ["strategy", "copilot"],
+                "query_params": {},
+            },
+            {
+                "tool_name": "strategy_simulation",
+                "path_env_var": "AI_RISK_TOOL_HTTP_STRATEGY_SIMULATION_PATH_TEMPLATE",
+                "path": self.tool_http_strategy_simulation_path_template,
+                "supports_capabilities": ["strategy", "copilot"],
+                "query_params": {},
+            },
+            {
+                "tool_name": "graph_relation",
+                "path_env_var": "AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE",
+                "path": self.tool_http_graph_relation_path_template,
+                "supports_capabilities": ["strategy", "graph", "copilot"],
+                "query_params": {},
+            },
+        ]
