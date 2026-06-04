@@ -8,11 +8,8 @@ from pydantic import BaseModel, Field
 from app import build_app_container
 from core.models import AgentRequest, AgentResponse
 from services.presentation import (
-    build_agent_group,
-    build_badge,
-    build_expanded_sections,
-    build_severity,
-    build_turn_title,
+    build_session_turn_view,
+    build_timeline_items,
 )
 from settings import AppConfig
 
@@ -284,18 +281,19 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
 
 
 def _to_session_response(session) -> SessionResponse:
+    turn_views = [build_session_turn_view(turn) for turn in session.turns]
     turns = [
         SessionTurnPayload(
             agent_name=turn.agent_name,
             query=turn.query,
             context=turn.context,
             summary=turn.summary,
-            title=build_turn_title(turn.agent_name),
-            status="completed",
-            agent_group=build_agent_group(turn.agent_name),
-            badge=build_badge(turn.agent_name, turn.intent),
-            severity=build_severity(turn.agent_name, turn.intent),
-            expanded_sections=build_expanded_sections(turn.agent_name),
+            title=turn.title,
+            status=turn.status,
+            agent_group=turn.agent_group,
+            badge=turn.badge,
+            severity=turn.severity,
+            expanded_sections=turn.expanded_sections,
             intent=turn.intent,
             plan_steps=turn.plan_steps,
             planner_trace=[
@@ -308,14 +306,15 @@ def _to_session_response(session) -> SessionResponse:
             ],
             confidence=turn.confidence,
         )
-        for turn in session.turns
+        for turn in turn_views
     ]
+    timeline_views = build_timeline_items(turn_views)
     return SessionResponse(
         session_id=session.session_id,
         turns=turns,
         timeline=[
             TimelineItemPayload(
-                turn_index=index,
+                turn_index=turn.turn_index,
                 agent_name=turn.agent_name,
                 title=turn.title,
                 status=turn.status,
@@ -327,7 +326,7 @@ def _to_session_response(session) -> SessionResponse:
                 plan_steps=turn.plan_steps,
                 expanded_sections=turn.expanded_sections,
             )
-            for index, turn in enumerate(turns, start=1)
+            for turn in timeline_views
         ],
     )
 
