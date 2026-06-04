@@ -65,11 +65,13 @@ class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):
         self,
         country: str,
         channel: str,
+        time_range: str = "recent_24h",
     ) -> Optional[Dict[str, Any]]:
         query = urlencode(
             {
                 self._country_param: country.upper(),
                 self._channel_param: channel.lower(),
+                "time_range": time_range,
             }
         )
         try:

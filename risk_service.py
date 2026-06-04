@@ -19,6 +19,7 @@ from settings import AppConfig
 class MetricSnapshotResponse(BaseModel):
     country: str
     channel: str
+    time_range: str
     metric_name: str
     anomaly_started_at: str
     current_value: str
@@ -105,8 +106,13 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     def get_metric_snapshot(
         country: str = Query(..., min_length=2),
         channel: str = Query(..., min_length=2),
+        time_range: str = Query("recent_24h", min_length=3),
     ) -> MetricSnapshotResponse:
-        snapshot = metric_client.fetch_metric_snapshot(country=country, channel=channel)
+        snapshot = metric_client.fetch_metric_snapshot(
+            country=country,
+            channel=channel,
+            time_range=time_range,
+        )
         if snapshot is None:
             raise HTTPException(status_code=404, detail="Metric snapshot not found")
         return MetricSnapshotResponse(**snapshot)

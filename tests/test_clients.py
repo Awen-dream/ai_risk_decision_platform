@@ -30,6 +30,15 @@ class MockClientTests(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
 
+    def test_metric_snapshot_client_supports_time_range(self) -> None:
+        client = MockMetricSnapshotClient()
+
+        snapshot = client.fetch_metric_snapshot("BR", "credit_card", "recent_7d")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot["time_range"], "recent_7d")
+        self.assertEqual(snapshot["current_value"], "9.8%")
+
     def test_case_record_client_returns_records(self) -> None:
         client = MockCaseRecordClient()
 
@@ -50,11 +59,12 @@ class MockClientTests(unittest.TestCase):
 
         rows = client.query(
             table="metric_snapshots",
-            filters={"country": "BR", "channel": "credit_card"},
+            filters={"country": "BR", "channel": "credit_card", "time_range": "recent_7d"},
         )
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["metric_name"], "payment_failure_rate")
+        self.assertEqual(rows[0]["time_range"], "recent_7d")
 
     def test_json_case_record_client_loads_cases(self) -> None:
         client = JsonCaseRecordClient(Path("data/risk/case_records.json"))

@@ -38,8 +38,11 @@ class InMemoryMetricSnapshotProvider(MetricSnapshotProvider):
         channel: str,
         time_range: str,
     ) -> Optional[Dict[str, Any]]:
-        del time_range
-        return self._client.fetch_metric_snapshot(country=country, channel=channel)
+        return self._client.fetch_metric_snapshot(
+            country=country,
+            channel=channel,
+            time_range=time_range,
+        )
 
 
 class InMemoryCaseRecordProvider(CaseRecordProvider):

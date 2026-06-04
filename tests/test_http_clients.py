@@ -42,13 +42,13 @@ class HttpClientTests(unittest.TestCase):
                 }
             ),
         ) as mocked:
-            snapshot = client.fetch_metric_snapshot("BR", "credit_card")
+            snapshot = client.fetch_metric_snapshot("BR", "credit_card", "recent_7d")
 
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
         request = mocked.call_args[0][0]
         self.assertIsInstance(request, Request)
-        self.assertIn("metric-snapshots?country=BR&channel=credit_card", request.full_url)
+        self.assertIn("metric-snapshots?country=BR&channel=credit_card&time_range=recent_7d", request.full_url)
 
     def test_case_record_http_client(self) -> None:
         client = HttpCaseRecordClient("http://risk-service.local")
@@ -123,7 +123,7 @@ class HttpClientTests(unittest.TestCase):
             "clients.http.urlopen",
             return_value=_FakeResponse({"country": "BR", "channel": "credit_card"}),
         ) as mocked_metric:
-            metric_client.fetch_metric_snapshot("BR", "credit_card")
+            metric_client.fetch_metric_snapshot("BR", "credit_card", "recent_24h")
         with patch(
             "clients.http.urlopen",
             return_value=_FakeResponse([{"case_id": "BR-1", "title": "巴西案例"}]),
@@ -140,7 +140,7 @@ class HttpClientTests(unittest.TestCase):
         case_request = mocked_case.call_args[0][0]
         order_request = mocked_order.call_args[0][0]
 
-        self.assertIn("/v2/metrics?market=BR&payment_channel=credit_card", metric_request.full_url)
+        self.assertIn("/v2/metrics?market=BR&payment_channel=credit_card&time_range=recent_24h", metric_request.full_url)
         self.assertEqual(metric_request.headers["X-api-key"], "secret")
         self.assertEqual(metric_timeout, 9.0)
         self.assertIn("/v2/cases/search?market=BR&payment_channel=credit_card", case_request.full_url)

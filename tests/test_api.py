@@ -75,6 +75,20 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(fetched.json()["timeline"][0]["badge"], "analysis")
         self.assertEqual(fetched.json()["timeline"][0]["severity"], "medium")
 
+    def test_invoke_investigation_agent_with_missing_order_returns_degraded_trace(self) -> None:
+        response = self.client.post(
+            "/agents/investigation",
+            json={
+                "query": "请分析这个订单为什么被判高风险",
+                "context": {"order_id": "MISSING"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("暂时无法完成订单 MISSING 的完整调查", payload["summary"])
+        self.assertTrue(any(trace["status"] == "degraded" for trace in payload["tool_traces"]))
+
     def test_unknown_agent_returns_404(self) -> None:
         response = self.client.post(
             "/agents/unknown",
@@ -252,6 +266,20 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(timeline_item["severity"], "high")
         self.assertEqual(timeline_item["intent"], "composite")
         self.assertEqual(timeline_item["plan_steps"], ["调查", "策略", "图谱"])
+
+    def test_invoke_copilot_agent_with_order_only_context(self) -> None:
+        response = self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "请分析这个订单为什么被判高风险",
+                "context": {"order_id": "O10001"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["intent"], "order_case")
+        self.assertEqual(payload["plan_steps"], ["调查", "图谱"])
 
 
 if __name__ == "__main__":

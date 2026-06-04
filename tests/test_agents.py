@@ -30,6 +30,18 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("异常开始时间" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "metric_snapshot" for trace in response.tool_traces))
 
+    def test_metric_investigation_uses_time_range_context(self) -> None:
+        _, response = self.runtime.execute(
+            "investigation",
+            AgentRequest(
+                query="为什么巴西信用卡支付失败率持续升高？",
+                context={"country": "BR", "channel": "credit_card", "time_range": "recent_7d"},
+            ),
+        )
+
+        self.assertIn("2026-05-18 08:00", response.summary)
+        self.assertTrue(any("时间窗口：recent_7d" == finding for finding in response.findings))
+
     def test_order_investigation_uses_order_context(self) -> None:
         _, response = self.runtime.execute(
             "investigation",
@@ -44,6 +56,19 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "order_profile" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
         self.assertTrue(any("关键路径" in finding for finding in response.findings))
+
+    def test_order_investigation_degrades_when_order_is_missing(self) -> None:
+        _, response = self.runtime.execute(
+            "investigation",
+            AgentRequest(
+                query="请分析这个订单为什么被判高风险",
+                context={"order_id": "MISSING"},
+            ),
+        )
+
+        self.assertIn("暂时无法完成订单 MISSING 的完整调查", response.summary)
+        self.assertTrue(any(trace.status == "degraded" for trace in response.tool_traces))
+        self.assertTrue(any("订单画像：未找到订单画像" in finding for finding in response.findings))
 
     def test_unknown_agent_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):
@@ -101,6 +126,19 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
         self.assertTrue(any("图谱风险" in finding for finding in response.findings))
 
+    def test_strategy_agent_degrades_when_strategy_is_missing(self) -> None:
+        _, response = self.runtime.execute(
+            "strategy",
+            AgentRequest(
+                query="请评估策略 MISSING 是否应该调整阈值",
+                context={"strategy_id": "MISSING"},
+            ),
+        )
+
+        self.assertIn("暂时无法完成策略 MISSING 的完整分析", response.summary)
+        self.assertTrue(any(trace.status == "degraded" for trace in response.tool_traces))
+        self.assertTrue(any("策略画像：未找到策略画像" in finding for finding in response.findings))
+
     def test_graph_agent_returns_relation_summary(self) -> None:
         _, response = self.runtime.execute(
             "graph",
@@ -113,6 +151,18 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("U10001", response.summary)
         self.assertTrue(any("共享设备" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+
+    def test_graph_agent_degrades_when_relation_is_missing(self) -> None:
+        _, response = self.runtime.execute(
+            "graph",
+            AgentRequest(
+                query="请分析用户 MISSING 是否属于团伙网络",
+                context={"entity_id": "MISSING"},
+            ),
+        )
+
+        self.assertIn("暂时无法完成实体 MISSING 的图谱分析", response.summary)
+        self.assertEqual(response.tool_traces[0].status, "degraded")
 
     def test_copilot_agent_merges_investigation_strategy_and_graph(self) -> None:
         _, response = self.runtime.execute(
@@ -183,6 +233,19 @@ class AgentPlatformTests(unittest.TestCase):
         )
         self.assertTrue(any(finding == "[意图] fraud_ring" for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
+
+    def test_copilot_agent_classifies_order_only_question_as_order_case(self) -> None:
+        _, response = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请分析这个订单为什么被判高风险",
+                context={"order_id": "O10001"},
+            ),
+        )
+
+        self.assertEqual(response.intent, "order_case")
+        self.assertEqual(response.plan_steps, ["调查", "图谱"])
+        self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
 
 
 if __name__ == "__main__":

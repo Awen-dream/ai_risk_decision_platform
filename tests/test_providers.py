@@ -21,6 +21,15 @@ class ProviderTests(unittest.TestCase):
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot["country"], "BR")
 
+    def test_metric_snapshot_provider_uses_time_range(self) -> None:
+        provider = InMemoryMetricSnapshotProvider()
+
+        snapshot = provider.get_snapshot("BR", "credit_card", "recent_7d")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot["time_range"], "recent_7d")
+        self.assertEqual(snapshot["current_value"], "9.8%")
+
     def test_case_record_provider_returns_list(self) -> None:
         provider = InMemoryCaseRecordProvider()
 

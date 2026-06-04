@@ -2,6 +2,7 @@
   {
     "country": "BR",
     "channel": "credit_card",
+    "time_range": "recent_24h",
     "metric_name": "payment_failure_rate",
     "anomaly_started_at": "2026-05-20 22:00",
     "current_value": "12.4%",
@@ -10,8 +11,20 @@
     "suspected_driver": "阈值过严导致正常用户挑战和拒绝增加"
   },
   {
+    "country": "BR",
+    "channel": "credit_card",
+    "time_range": "recent_7d",
+    "metric_name": "payment_failure_rate",
+    "anomaly_started_at": "2026-05-18 08:00",
+    "current_value": "9.8%",
+    "baseline_value": "5.0%",
+    "recent_change": "过去 7 天内失败率持续抬升，5 月 20 日晚间阈值调整后进一步放大",
+    "suspected_driver": "阈值偏严叠加部分卡组织通过率下滑"
+  },
+  {
     "country": "ID",
     "channel": "wallet",
+    "time_range": "recent_24h",
     "metric_name": "payment_pass_rate",
     "anomaly_started_at": "2026-05-21 09:10",
     "current_value": "81.3%",
@@ -22,6 +35,7 @@
   {
     "country": "US",
     "channel": "credit_card",
+    "time_range": "recent_24h",
     "metric_name": "chargeback_rate",
     "anomaly_started_at": "2026-05-18 00:00",
     "current_value": "1.9%",
@@ -30,4 +44,3 @@
     "suspected_driver": "高风险流量结构变化"
   }
 ]
-

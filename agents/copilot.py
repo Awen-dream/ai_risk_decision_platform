@@ -141,12 +141,12 @@ class CopilotAgent(Agent):
 
     @staticmethod
     def _should_include_graph(request: AgentRequest) -> bool:
-        if any(key in request.context for key in ("entity_id", "user_id")):
+        if any(key in request.context for key in ("entity_id", "user_id", "order_id")):
             return True
         lowered = request.query.lower()
         if "团伙" in request.query or "关系网络" in request.query or "graph" in lowered:
             return True
-        return ENTITY_ID_PATTERN.search(request.query) is not None and "order_id" not in request.context
+        return ENTITY_ID_PATTERN.search(request.query) is not None
 
     def _plan(self, request: AgentRequest, intent: CopilotIntent) -> list[CopilotPlanStep]:
         steps = [

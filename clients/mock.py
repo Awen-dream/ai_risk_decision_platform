@@ -30,8 +30,9 @@ class MockMetricSnapshotClient(MetricSnapshotClient):
         self,
         country: str,
         channel: str,
+        time_range: str = "recent_24h",
     ) -> Optional[Dict[str, Any]]:
-        return self._snapshots.get((country.upper(), channel.lower()))
+        return self._snapshots.get((country.upper(), channel.lower(), time_range))
 
 
 class MockCaseRecordClient(CaseRecordClient):

@@ -21,14 +21,23 @@ class ToolRegistry:
 
     def execute(self, name: str, **kwargs: Any) -> ToolResult:
         if name not in self._tools:
-            return ToolResult(
+            return ToolResult.failed_result(
                 name=name,
                 payload={},
                 summary="工具未注册",
-                success=False,
                 error=f"Unknown tool: {name}",
+                error_type="unknown_tool",
             )
-        return self._tools[name](**kwargs)
+        try:
+            return self._tools[name](**kwargs)
+        except Exception as exc:  # pragma: no cover - exercised through higher-level tests
+            return ToolResult.failed_result(
+                name=name,
+                payload={},
+                summary="工具调用失败",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
 
     def list_tools(self) -> list[str]:
         return list(self._tools)

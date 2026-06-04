@@ -32,12 +32,14 @@ class RiskServiceApiTests(unittest.TestCase):
     def test_metric_snapshot_endpoint(self) -> None:
         response = self.client.get(
             "/metric-snapshots",
-            params={"country": "BR", "channel": "credit_card"},
+            params={"country": "BR", "channel": "credit_card", "time_range": "recent_7d"},
         )
 
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["metric_name"], "payment_failure_rate")
+        self.assertEqual(payload["time_range"], "recent_7d")
+        self.assertEqual(payload["current_value"], "9.8%")
 
     def test_case_records_endpoint(self) -> None:
         response = self.client.get(

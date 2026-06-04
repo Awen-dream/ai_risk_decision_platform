@@ -24,11 +24,21 @@ class JsonMetricSnapshotSqlClient(MetricSnapshotClient):
         self,
         country: str,
         channel: str,
+        time_range: str = "recent_24h",
     ) -> Optional[Dict[str, Any]]:
         rows = self.query(
             table="metric_snapshots",
-            filters={"country": country.upper(), "channel": channel.lower()},
+            filters={
+                "country": country.upper(),
+                "channel": channel.lower(),
+                "time_range": time_range,
+            },
         )
+        if not rows:
+            rows = self.query(
+                table="metric_snapshots",
+                filters={"country": country.upper(), "channel": channel.lower()},
+            )
         return rows[0] if rows else None
 
     def query(self, table: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:

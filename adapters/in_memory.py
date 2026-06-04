@@ -48,17 +48,17 @@ class InMemoryMetricSnapshotAdapter(ToolAdapter):
             time_range=time_range,
         )
         if payload is None:
-            return ToolResult(
+            return ToolResult.degraded_result(
                 name=self.name,
                 payload={},
                 summary="未找到对应指标快照",
-                success=False,
                 error=f"No snapshot for {country}/{channel} in {time_range}",
+                error_type="not_found",
             )
-        return ToolResult(
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
-            summary=f"已返回 {payload['country']} {payload['channel']} 的指标快照",
+            summary=f"已返回 {payload['country']} {payload['channel']} {time_range} 的指标快照",
         )
 
 
@@ -73,7 +73,15 @@ class InMemoryCaseLookupAdapter(ToolAdapter):
             country=str(kwargs["country"]),
             channel=str(kwargs["channel"]),
         )
-        return ToolResult(
+        if not payload:
+            return ToolResult.degraded_result(
+                name=self.name,
+                payload=[],
+                summary="未找到历史相似案例",
+                error="No historical cases matched the current dimensions",
+                error_type="not_found",
+            )
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
             summary=f"返回 {len(payload)} 条历史相似案例",
@@ -90,14 +98,14 @@ class InMemoryOrderProfileAdapter(ToolAdapter):
         order_id = str(kwargs["order_id"])
         payload = self._provider.get_order(order_id)
         if payload is None:
-            return ToolResult(
+            return ToolResult.degraded_result(
                 name=self.name,
                 payload={},
                 summary="未找到订单画像",
-                success=False,
                 error=f"Unknown order: {order_id}",
+                error_type="not_found",
             )
-        return ToolResult(
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
             summary=f"已返回订单 {order_id} 的风险画像",
@@ -114,14 +122,14 @@ class InMemoryStrategyProfileAdapter(ToolAdapter):
         strategy_id = str(kwargs["strategy_id"])
         payload = self._provider.get_strategy(strategy_id)
         if payload is None:
-            return ToolResult(
+            return ToolResult.degraded_result(
                 name=self.name,
                 payload={},
                 summary="未找到策略画像",
-                success=False,
                 error=f"Unknown strategy: {strategy_id}",
+                error_type="not_found",
             )
-        return ToolResult(
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
             summary=f"已返回策略 {strategy_id} 的画像",
@@ -138,14 +146,14 @@ class InMemoryStrategySimulationAdapter(ToolAdapter):
         strategy_id = str(kwargs["strategy_id"])
         payload = self._provider.get_simulation(strategy_id)
         if payload is None:
-            return ToolResult(
+            return ToolResult.degraded_result(
                 name=self.name,
                 payload={},
                 summary="未找到策略仿真结果",
-                success=False,
                 error=f"Unknown strategy simulation: {strategy_id}",
+                error_type="not_found",
             )
-        return ToolResult(
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
             summary=f"已返回策略 {strategy_id} 的仿真结果",
@@ -162,14 +170,14 @@ class InMemoryGraphRelationAdapter(ToolAdapter):
         entity_id = str(kwargs["entity_id"])
         payload = self._provider.get_graph_relation(entity_id)
         if payload is None:
-            return ToolResult(
+            return ToolResult.degraded_result(
                 name=self.name,
                 payload={},
                 summary="未找到图关系结果",
-                success=False,
                 error=f"Unknown graph relation: {entity_id}",
+                error_type="not_found",
             )
-        return ToolResult(
+        return ToolResult.success_result(
             name=self.name,
             payload=payload,
             summary=f"已返回实体 {entity_id} 的图关系结果",

@@ -51,15 +51,47 @@ class InvestigationAgent(Agent):
             self._tools.execute("graph_relation", entity_id=order_id),
         )
 
-        order = order_trace.payload
+        order = order_trace.payload if order_trace.status == "success" else None
         graph_relation = graph_trace.payload if graph_trace.status == "success" else None
+        search_terms = [request.query]
+        if order:
+            search_terms.extend(order.get("risk_labels", []))
+        if graph_relation:
+            search_terms.extend(["graph relation", "fraud ring", graph_relation.get("risk_reason", "")])
         docs = self._retrieval.search(
-            f"{request.query} {' '.join(order['risk_labels'])} graph relation fraud ring",
+            " ".join(search_terms),
             top_k=2,
         )
         response.citations.extend(
             Citation.from_document(doc, snippet_length=160) for doc in docs
         )
+        if order is None:
+            response.summary = (
+                f"暂时无法完成订单 {order_id} 的完整调查，"
+                f"{self._tool_status_phrase(order_trace, '订单画像')}。"
+            )
+            response.findings = [
+                self._tool_status_finding("订单画像", order_trace),
+            ]
+            if graph_relation:
+                response.findings.extend(
+                    [
+                        f"图谱风险：订单 {order_id} 仍处于 {graph_relation['community_size']} 节点的关系网络中，风险等级 {graph_relation['risk_level']}",
+                        f"关键路径：{graph_relation['key_path']}",
+                    ]
+                )
+            else:
+                response.findings.append(self._tool_status_finding("图谱关系", graph_trace))
+            response.suggested_actions = [
+                self._tool_status_action("订单画像", order_trace, order_id),
+            ]
+            if graph_relation:
+                response.suggested_actions.append("优先根据现有图谱线索复核共享设备、共享 IP 和关联账号")
+            else:
+                response.suggested_actions.append(self._tool_status_action("图谱关系", graph_trace, order_id))
+            response.confidence = 0.36 if graph_relation else 0.22
+            return response
+
         if graph_relation:
             response.summary = (
                 f"订单 {order_id} 被判定为高风险，主要由 {', '.join(order['risk_labels'])} 驱动，"
@@ -83,6 +115,8 @@ class InvestigationAgent(Agent):
                     f"关键路径：{graph_relation['key_path']}",
                 ]
             )
+        else:
+            response.findings.append(self._tool_status_finding("图谱关系", graph_trace))
         if order["recommended_action"] == "manual_review":
             response.findings.append("当前更适合转人工复核，而不是直接拒绝。")
         response.suggested_actions = [
@@ -91,52 +125,83 @@ class InvestigationAgent(Agent):
         ]
         if graph_relation:
             response.suggested_actions.append("优先排查共享设备和共享 IP 上的关联账号是否存在批量操作")
-        response.confidence = 0.83
+        else:
+            response.suggested_actions.append(self._tool_status_action("图谱关系", graph_trace, order_id))
+        response.confidence = 0.83 if graph_relation else 0.7
         return response
 
     def _investigate_metric(self, request: AgentRequest) -> AgentResponse:
         response = AgentResponse(agent_name=self.name)
         country = self._resolve_country(request)
         channel = self._resolve_channel(request)
+        time_range = str(request.context.get("time_range", "recent_24h"))
         metric_trace = response.record_tool_trace(
             "metric_snapshot",
             self._tools.execute(
                 "metric_snapshot",
                 country=country,
                 channel=channel,
-                time_range=request.context.get("time_range", "recent_24h"),
+                time_range=time_range,
             ),
         )
-        metric = metric_trace.payload
+        metric = metric_trace.payload if metric_trace.status == "success" else None
 
         case_trace = response.record_tool_trace(
             "case_lookup",
             self._tools.execute("case_lookup", country=country, channel=channel),
         )
-        cases = case_trace.payload
+        cases = case_trace.payload if case_trace.status == "success" else []
 
         docs = self._retrieval.search(request.query, top_k=2)
         response.citations.extend(
             Citation.from_document(doc, snippet_length=180) for doc in docs
         )
 
-        response.summary = (
-            f"{metric['country']} {metric['channel']} 的 {metric['metric_name']} 在 "
-            f"{metric['anomaly_started_at']} 后出现明显上升，当前最可疑的触发因素是 "
-            f"{metric['suspected_driver']}。"
-        )
-        response.findings = [
-            f"异常开始时间：{metric['anomaly_started_at']}",
-            f"当前指标：{metric['current_value']}，历史基线：{metric['baseline_value']}",
-            f"近期变更：{metric['recent_change']}",
-        ]
+        response.findings = [f"时间窗口：{time_range}"]
+        if metric:
+            response.summary = (
+                f"{metric['country']} {metric['channel']} 的 {metric['metric_name']} 在 "
+                f"{metric['anomaly_started_at']} 后出现明显上升，当前最可疑的触发因素是 "
+                f"{metric['suspected_driver']}。"
+            )
+            response.findings.extend(
+                [
+                    f"异常开始时间：{metric['anomaly_started_at']}",
+                    f"当前指标：{metric['current_value']}，历史基线：{metric['baseline_value']}",
+                    f"近期变更：{metric['recent_change']}",
+                ]
+            )
+        else:
+            response.summary = (
+                f"暂时无法完成 {country} {channel} 在 {time_range} 的完整指标调查，"
+                f"{self._tool_status_phrase(metric_trace, '指标快照')}。"
+            )
+            response.findings.append(self._tool_status_finding("指标快照", metric_trace))
+
         if cases:
             response.findings.append(f"历史相似案例：{cases[0]['title']}")
-        response.suggested_actions = [
-            "优先复核近 24 小时策略变更和阈值调整",
-            "按国家/渠道/卡组织进一步下钻影响范围",
-        ]
-        response.confidence = 0.79
+        else:
+            response.findings.append(self._tool_status_finding("历史案例", case_trace))
+
+        response.suggested_actions = []
+        if metric:
+            response.suggested_actions.extend(
+                [
+                    "优先复核近 24 小时策略变更和阈值调整",
+                    "按国家/渠道/卡组织进一步下钻影响范围",
+                ]
+            )
+        else:
+            response.suggested_actions.append(self._tool_status_action("指标快照", metric_trace, f"{country}/{channel}/{time_range}"))
+        if cases:
+            response.suggested_actions.append("结合历史相似案例复核最近变更是否会放大误杀")
+        else:
+            response.suggested_actions.append(self._tool_status_action("历史案例", case_trace, f"{country}/{channel}"))
+
+        if metric:
+            response.confidence = 0.79 if cases else 0.68
+        else:
+            response.confidence = 0.3 if cases else 0.18
         return response
 
     def _resolve_country(self, request: AgentRequest) -> str:
@@ -156,3 +221,21 @@ class InvestigationAgent(Agent):
             if alias in lowered or alias in request.query:
                 return value
         return "credit_card"
+
+    @staticmethod
+    def _tool_status_finding(label: str, trace) -> str:
+        if trace.status == "failed":
+            return f"{label}：调用失败，原因 {trace.summary}"
+        return f"{label}：{trace.summary}"
+
+    @staticmethod
+    def _tool_status_phrase(trace, label: str) -> str:
+        if trace.status == "failed":
+            return f"{label}调用失败"
+        return f"未获取到可用{label}"
+
+    @staticmethod
+    def _tool_status_action(label: str, trace, identifier: str) -> str:
+        if trace.status == "failed":
+            return f"检查{label}上游服务状态与字段契约，确认 {identifier} 对应调用可恢复"
+        return f"确认 {identifier} 对应的{label}数据是否已同步，必要时补齐记录后重试"

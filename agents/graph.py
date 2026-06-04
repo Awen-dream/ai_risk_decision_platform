@@ -28,30 +28,43 @@ class GraphAgent(Agent):
             "graph_relation",
             self._tools.execute("graph_relation", entity_id=entity_id),
         )
-        relation = relation_trace.payload
+        relation = relation_trace.payload if relation_trace.status == "success" else None
 
         docs = self._retrieval.search(f"{request.query} graph relation fraud ring", top_k=2)
         response.citations.extend(
             Citation.from_document(doc, snippet_length=180) for doc in docs
         )
 
+        if relation:
+            response.summary = (
+                f"实体 {entity_id} 当前处于 {relation['community_size']} 个节点的关系网络中，"
+                f"风险等级为 {relation['risk_level']}，主要风险原因是 {relation['risk_reason']}"
+            )
+            response.findings = [
+                f"实体类型：{relation['entity_type']}，共享设备：{', '.join(relation['shared_devices']) or '无'}",
+                f"共享 IP：{', '.join(relation['shared_ips']) or '无'}",
+                f"关联账号：{', '.join(relation['linked_accounts']) or '无'}",
+                f"关联订单：{', '.join(relation['linked_orders']) or '无'}",
+                f"关键路径：{relation['key_path']}",
+            ]
+            response.suggested_actions = [
+                "优先复核共享设备和共享 IP 上的关联账号",
+                "结合历史相似 Case 判断是否属于团伙扩散",
+                "如果网络继续扩大，建议补充图谱规则或升级人工审核",
+            ]
+            response.confidence = 0.8
+            return response
+
         response.summary = (
-            f"实体 {entity_id} 当前处于 {relation['community_size']} 个节点的关系网络中，"
-            f"风险等级为 {relation['risk_level']}，主要风险原因是 {relation['risk_reason']}"
+            f"暂时无法完成实体 {entity_id} 的图谱分析，"
+            f"{self._tool_status_phrase(relation_trace, '图谱关系')}。"
         )
-        response.findings = [
-            f"实体类型：{relation['entity_type']}，共享设备：{', '.join(relation['shared_devices']) or '无'}",
-            f"共享 IP：{', '.join(relation['shared_ips']) or '无'}",
-            f"关联账号：{', '.join(relation['linked_accounts']) or '无'}",
-            f"关联订单：{', '.join(relation['linked_orders']) or '无'}",
-            f"关键路径：{relation['key_path']}",
-        ]
+        response.findings = [self._tool_status_finding("图谱关系", relation_trace)]
         response.suggested_actions = [
-            "优先复核共享设备和共享 IP 上的关联账号",
-            "结合历史相似 Case 判断是否属于团伙扩散",
-            "如果网络继续扩大，建议补充图谱规则或升级人工审核",
+            self._tool_status_action("图谱关系", relation_trace, entity_id),
+            "如需继续分析，可先结合历史案件或订单画像补充上下文",
         ]
-        response.confidence = 0.8
+        response.confidence = 0.18
         return response
 
     @staticmethod
@@ -66,3 +79,21 @@ class GraphAgent(Agent):
         if match:
             return match.group(1).upper()
         return "U10001"
+
+    @staticmethod
+    def _tool_status_finding(label: str, trace) -> str:
+        if trace.status == "failed":
+            return f"{label}：调用失败，原因 {trace.summary}"
+        return f"{label}：{trace.summary}"
+
+    @staticmethod
+    def _tool_status_phrase(trace, label: str) -> str:
+        if trace.status == "failed":
+            return f"{label}调用失败"
+        return f"未获取到可用{label}"
+
+    @staticmethod
+    def _tool_status_action(label: str, trace, identifier: str) -> str:
+        if trace.status == "failed":
+            return f"检查{label}上游服务状态与字段契约，确认 {identifier} 对应调用可恢复"
+        return f"确认 {identifier} 对应的{label}数据是否已同步，必要时补齐记录后重试"

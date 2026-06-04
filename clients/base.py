@@ -12,6 +12,7 @@ class MetricSnapshotClient(ABC):
         self,
         country: str,
         channel: str,
+        time_range: str = "recent_24h",
     ) -> Optional[Dict[str, Any]]:
         """Return the matching metric snapshot."""
 

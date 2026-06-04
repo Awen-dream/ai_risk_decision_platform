@@ -47,8 +47,63 @@ class ToolResult:
     name: str
     payload: Any
     summary: str
-    success: bool = True
+    status: str = "success"
     error: str | None = None
+    error_type: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.status == "success"
+
+    @property
+    def degraded(self) -> bool:
+        return self.status == "degraded"
+
+    @property
+    def failed(self) -> bool:
+        return self.status == "failed"
+
+    @classmethod
+    def success_result(cls, name: str, payload: Any, summary: str) -> "ToolResult":
+        return cls(name=name, payload=payload, summary=summary, status="success")
+
+    @classmethod
+    def degraded_result(
+        cls,
+        name: str,
+        payload: Any,
+        summary: str,
+        *,
+        error: str | None = None,
+        error_type: str | None = None,
+    ) -> "ToolResult":
+        return cls(
+            name=name,
+            payload=payload,
+            summary=summary,
+            status="degraded",
+            error=error,
+            error_type=error_type,
+        )
+
+    @classmethod
+    def failed_result(
+        cls,
+        name: str,
+        payload: Any,
+        summary: str,
+        *,
+        error: str | None = None,
+        error_type: str | None = None,
+    ) -> "ToolResult":
+        return cls(
+            name=name,
+            payload=payload,
+            summary=summary,
+            status="failed",
+            error=error,
+            error_type=error_type,
+        )
 
 
 @dataclass
@@ -80,11 +135,13 @@ class AgentResponse:
     confidence: float = 0.0
 
     def record_tool_trace(self, name: str, result: ToolResult) -> ToolTrace:
-        status = "success" if result.success else "failed"
+        summary = result.summary
+        if result.failed:
+            summary = result.error or result.summary or "unknown error"
         trace = ToolTrace(
             name=name,
-            status=status,
-            summary=result.summary if result.success else result.error or "unknown error",
+            status=result.status,
+            summary=summary,
             payload=result.payload,
         )
         self.tool_traces.append(trace)

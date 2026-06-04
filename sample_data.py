@@ -51,11 +51,12 @@ def build_knowledge_documents() -> list[KnowledgeDocument]:
     ]
 
 
-def build_metric_snapshots() -> Dict[Tuple[str, str], Dict[str, Any]]:
+def build_metric_snapshots() -> Dict[Tuple[str, str, str], Dict[str, Any]]:
     return {
-        ("BR", "credit_card"): {
+        ("BR", "credit_card", "recent_24h"): {
             "country": "BR",
             "channel": "credit_card",
+            "time_range": "recent_24h",
             "metric_name": "payment_failure_rate",
             "anomaly_started_at": "2026-05-20 22:00",
             "current_value": "12.4%",
@@ -63,9 +64,21 @@ def build_metric_snapshots() -> Dict[Tuple[str, str], Dict[str, Any]]:
             "recent_change": "新支付风控阈值于 2026-05-20 21:40 上线",
             "suspected_driver": "阈值过严导致正常用户挑战和拒绝增加",
         },
-        ("ID", "wallet"): {
+        ("BR", "credit_card", "recent_7d"): {
+            "country": "BR",
+            "channel": "credit_card",
+            "time_range": "recent_7d",
+            "metric_name": "payment_failure_rate",
+            "anomaly_started_at": "2026-05-18 08:00",
+            "current_value": "9.8%",
+            "baseline_value": "5.0%",
+            "recent_change": "过去 7 天内失败率持续抬升，5 月 20 日晚间阈值调整后进一步放大",
+            "suspected_driver": "阈值偏严叠加部分卡组织通过率下滑",
+        },
+        ("ID", "wallet", "recent_24h"): {
             "country": "ID",
             "channel": "wallet",
+            "time_range": "recent_24h",
             "metric_name": "payment_pass_rate",
             "anomaly_started_at": "2026-05-21 09:10",
             "current_value": "81.3%",
@@ -73,9 +86,10 @@ def build_metric_snapshots() -> Dict[Tuple[str, str], Dict[str, Any]]:
             "recent_change": "钱包通道风险路由规则更新",
             "suspected_driver": "新路由规则放大了挑战比例",
         },
-        ("US", "credit_card"): {
+        ("US", "credit_card", "recent_24h"): {
             "country": "US",
             "channel": "credit_card",
+            "time_range": "recent_24h",
             "metric_name": "chargeback_rate",
             "anomaly_started_at": "2026-05-18 00:00",
             "current_value": "1.9%",

@@ -49,10 +49,11 @@ class FileBackendTests(unittest.TestCase):
         result = adapters[0].invoke(
             country="BR",
             channel="credit_card",
-            time_range="recent_24h",
+            time_range="recent_7d",
         )
         self.assertTrue(result.success)
         self.assertEqual(result.payload["country"], "BR")
+        self.assertEqual(result.payload["time_range"], "recent_7d")
         strategy_result = adapters[3].invoke(strategy_id="STRAT-001")
         self.assertTrue(strategy_result.success)
         self.assertEqual(strategy_result.payload["strategy_id"], "STRAT-001")

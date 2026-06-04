@@ -44,6 +44,20 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(order_result.success)
         self.assertEqual(order_result.payload["order_id"], "O10001")
 
+    def test_tool_registry_returns_failed_result_for_handler_exception(self) -> None:
+        registry = ToolRegistry()
+
+        def exploding_handler(**kwargs):  # type: ignore[no-untyped-def]
+            raise RuntimeError(f"boom: {kwargs['order_id']}")
+
+        registry.register("order_profile", exploding_handler)
+
+        result = registry.execute("order_profile", order_id="O99999")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_type, "RuntimeError")
+        self.assertIn("boom: O99999", result.error or "")
+
 
 if __name__ == "__main__":
     unittest.main()
