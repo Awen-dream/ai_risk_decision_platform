@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 
+from agents.investigation import InvestigationAgent
 from app import build_demo_runtime
-from core.models import AgentRequest
+from core.models import AgentRequest, ToolResult
+from retrieval.knowledge_base import RetrievalService
+from tools.registry import ToolRegistry
 
 
 class AgentPlatformTests(unittest.TestCase):
@@ -41,6 +44,46 @@ class AgentPlatformTests(unittest.TestCase):
 
         self.assertIn("2026-05-18 08:00", response.summary)
         self.assertTrue(any("时间窗口：recent_7d" == finding for finding in response.findings))
+
+    def test_metric_investigation_handles_failed_metric_tool(self) -> None:
+        registry = ToolRegistry()
+        registry.register(
+            "metric_snapshot",
+            lambda **kwargs: ToolResult.failed_result(
+                name="metric_snapshot",
+                payload={},
+                summary="工具调用失败",
+                error="upstream timeout",
+                error_type="timeout",
+            ),
+        )
+        registry.register(
+            "case_lookup",
+            lambda **kwargs: ToolResult.success_result(
+                name="case_lookup",
+                payload=[
+                    {
+                        "case_id": "BR-1",
+                        "country": "BR",
+                        "channel": "credit_card",
+                        "title": "阈值回退案例",
+                    }
+                ],
+                summary="返回 1 条历史相似案例",
+            ),
+        )
+        agent = InvestigationAgent(registry, RetrievalService())
+
+        response = agent.run(
+            AgentRequest(
+                query="为什么巴西信用卡支付失败率升高？",
+                context={"country": "BR", "channel": "credit_card"},
+            )
+        )
+
+        self.assertIn("指标快照调用失败", response.summary)
+        self.assertTrue(any(trace.status == "failed" for trace in response.tool_traces))
+        self.assertTrue(any("历史相似案例" in finding for finding in response.findings))
 
     def test_order_investigation_uses_order_context(self) -> None:
         _, response = self.runtime.execute(

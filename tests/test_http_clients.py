@@ -4,7 +4,7 @@ import io
 import json
 import unittest
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 from clients.http import (
@@ -94,6 +94,27 @@ class HttpClientTests(unittest.TestCase):
             self.assertIsNone(metric_client.fetch_metric_snapshot("BR", "wallet"))
             self.assertIsNone(order_client.fetch_order_profile("missing"))
             self.assertIsNone(strategy_client.fetch_strategy_profile("missing"))
+
+    def test_metric_snapshot_http_client_raises_non_404_http_error(self) -> None:
+        client = HttpMetricSnapshotClient("http://risk-service.local")
+        http_error = HTTPError(
+            url="http://risk-service.local/metric-snapshots",
+            code=503,
+            msg="service unavailable",
+            hdrs=None,
+            fp=None,
+        )
+
+        with patch("clients.http.urlopen", side_effect=http_error):
+            with self.assertRaises(HTTPError):
+                client.fetch_metric_snapshot("BR", "credit_card", "recent_24h")
+
+    def test_metric_snapshot_http_client_propagates_network_error(self) -> None:
+        client = HttpMetricSnapshotClient("http://risk-service.local")
+
+        with patch("clients.http.urlopen", side_effect=URLError("timeout")):
+            with self.assertRaises(URLError):
+                client.fetch_metric_snapshot("BR", "credit_card", "recent_24h")
 
     def test_http_clients_support_custom_paths_and_headers(self) -> None:
         metric_client = HttpMetricSnapshotClient(

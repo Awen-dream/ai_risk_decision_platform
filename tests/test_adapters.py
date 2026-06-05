@@ -58,6 +58,32 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.error_type, "RuntimeError")
         self.assertIn("boom: O99999", result.error or "")
 
+    def test_metric_snapshot_adapter_marks_invalid_payload_as_failed(self) -> None:
+        class BrokenMetricProvider:
+            def get_snapshot(self, country: str, channel: str, time_range: str):  # type: ignore[no-untyped-def]
+                return {"country": country, "channel": channel}
+
+        adapter = InMemoryMetricSnapshotAdapter(provider=BrokenMetricProvider())
+
+        result = adapter.invoke(country="BR", channel="credit_card", time_range="recent_24h")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_type, "invalid_payload")
+        self.assertIn("metric_name", result.error or "")
+
+    def test_case_lookup_adapter_marks_invalid_payload_as_failed(self) -> None:
+        class BrokenCaseProvider:
+            def get_cases(self, country: str, channel: str):  # type: ignore[no-untyped-def]
+                return [{"case_id": "BR-1"}]
+
+        adapter = InMemoryCaseLookupAdapter(provider=BrokenCaseProvider())
+
+        result = adapter.invoke(country="BR", channel="credit_card")
+
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.error_type, "invalid_payload")
+        self.assertIn("title", result.error or "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from api import create_app, fastapi_app
+from core.models import ToolResult
 from settings import AppConfig
+from tools.registry import ToolRegistry
 
 
 class AgentApiTests(unittest.TestCase):
@@ -88,6 +91,51 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("暂时无法完成订单 MISSING 的完整调查", payload["summary"])
         self.assertTrue(any(trace["status"] == "degraded" for trace in payload["tool_traces"]))
+
+    def test_invoke_investigation_agent_with_failed_metric_tool_returns_failed_trace(self) -> None:
+        def fake_execute(self, name, **kwargs):  # type: ignore[no-untyped-def]
+            if name == "metric_snapshot":
+                return ToolResult.failed_result(
+                    name=name,
+                    payload={},
+                    summary="工具调用失败",
+                    error="upstream 503",
+                    error_type="HTTPError",
+                )
+            if name == "case_lookup":
+                return ToolResult.success_result(
+                    name=name,
+                    payload=[
+                        {
+                            "case_id": "BR-1",
+                            "country": "BR",
+                            "channel": "credit_card",
+                            "title": "阈值回退案例",
+                        }
+                    ],
+                    summary="返回 1 条历史相似案例",
+                )
+            return ToolResult.degraded_result(
+                name=name,
+                payload={},
+                summary="未命中测试桩",
+                error="not stubbed",
+                error_type="test_stub",
+            )
+
+        with patch.object(ToolRegistry, "execute", autospec=True, side_effect=fake_execute):
+            response = self.client.post(
+                "/agents/investigation",
+                json={
+                    "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+                    "context": {"country": "BR", "channel": "credit_card"},
+                },
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("指标快照调用失败", payload["summary"])
+        self.assertTrue(any(trace["status"] == "failed" for trace in payload["tool_traces"]))
 
     def test_unknown_agent_returns_404(self) -> None:
         response = self.client.post(
