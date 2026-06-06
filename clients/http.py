@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List, Optional
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -14,6 +14,7 @@ from clients.base import (
     StrategyProfileClient,
     StrategySimulationClient,
 )
+from services.observability import current_headers, emit_event
 
 
 class BaseHttpJsonClient:
@@ -36,13 +37,48 @@ class BaseHttpJsonClient:
         return f"{self._base_url}{path}"
 
     def _get_json(self, path: str) -> Any:
+        url = self._join_url(path)
+        request_headers = {**self._headers, **current_headers()}
         request = Request(
-            self._join_url(path),
-            headers=self._headers,
+            url,
+            headers=request_headers,
             method="GET",
         )
-        with urlopen(request, timeout=self._timeout_sec) as response:
-            return json.load(response)
+        emit_event(
+            "upstream_http_request_started",
+            upstream_url=url,
+            method="GET",
+        )
+        try:
+            with urlopen(request, timeout=self._timeout_sec) as response:
+                payload = json.load(response)
+                emit_event(
+                    "upstream_http_request_completed",
+                    upstream_url=url,
+                    method="GET",
+                    status_code=getattr(response, "status", 200),
+                )
+                return payload
+        except HTTPError as exc:
+            emit_event(
+                "upstream_http_request_failed",
+                upstream_url=url,
+                method="GET",
+                status_code=exc.code,
+                error_type="HTTPError",
+                error=str(exc),
+            )
+            raise
+        except URLError as exc:
+            emit_event(
+                "upstream_http_request_failed",
+                upstream_url=url,
+                method="GET",
+                status_code=None,
+                error_type="URLError",
+                error=str(exc.reason),
+            )
+            raise
 
 
 class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):

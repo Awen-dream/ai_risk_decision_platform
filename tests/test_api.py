@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from api import create_app, fastapi_app
 from core.models import ToolResult
+from services.observability import LOGGER_NAME
 from settings import AppConfig
 from tools.registry import ToolRegistry
 
@@ -50,6 +52,25 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(payload["session_id"])
         self.assertEqual(payload["agent_name"], "knowledge")
         self.assertTrue(payload["citations"])
+        self.assertIn("X-Request-Id", response.headers)
+        self.assertIn("X-Trace-Id", response.headers)
+
+    def test_request_id_and_trace_id_headers_are_propagated(self) -> None:
+        with self.assertLogs(LOGGER_NAME, level="INFO") as captured:
+            response = self.client.post(
+                "/agents/knowledge",
+                headers={"X-Request-Id": "req-abc", "X-Trace-Id": "trace-def"},
+                json={"query": "营销套利案件的标准排查 SOP 是什么？"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["X-Request-Id"], "req-abc")
+        self.assertEqual(response.headers["X-Trace-Id"], "trace-def")
+        payloads = [json.loads(record.split("INFO:ai_risk_decision_platform:", 1)[1]) for record in captured.output]
+        self.assertTrue(any(item["event"] == "http_request_started" for item in payloads))
+        self.assertTrue(any(item["event"] == "agent_execution_completed" for item in payloads))
+        self.assertTrue(all(item["request_id"] == "req-abc" for item in payloads))
+        self.assertTrue(all(item["trace_id"] == "trace-def" for item in payloads))
 
     def test_invoke_investigation_agent(self) -> None:
         created = self.client.post("/sessions")

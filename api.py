@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import build_app_container
 from core.models import AgentRequest, AgentResponse
+from services.observability import (
+    REQUEST_ID_HEADER,
+    TRACE_ID_HEADER,
+    bind_context,
+    emit_event,
+)
 from services.presentation import (
     build_session_turn_view,
     build_timeline_items,
@@ -161,6 +168,32 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         description="Minimal agent-platform API for risk knowledge and investigation workflows.",
     )
 
+    @fastapi_app.middleware("http")
+    async def observability_middleware(request: Request, call_next):
+        request_id = request.headers.get(REQUEST_ID_HEADER) or uuid4().hex
+        trace_id = request.headers.get(TRACE_ID_HEADER) or request_id
+        with bind_context(
+            request_id=request_id,
+            trace_id=trace_id,
+            http_method=request.method,
+            http_path=request.url.path,
+        ):
+            emit_event("http_request_started")
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                emit_event(
+                    "http_request_failed",
+                    status_code=500,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                raise
+            response.headers[REQUEST_ID_HEADER] = request_id
+            response.headers[TRACE_ID_HEADER] = trace_id
+            emit_event("http_request_completed", status_code=response.status_code)
+            return response
+
     @fastapi_app.get("/healthz")
     def healthz() -> Dict[str, str]:
         return {"status": "ok"}
@@ -225,6 +258,11 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
 
     @fastapi_app.post("/agents/{agent_name}", response_model=AgentInvokeResponse)
     def invoke_agent(agent_name: str, payload: AgentInvokeRequest) -> AgentInvokeResponse:
+        emit_event(
+            "agent_request_received",
+            requested_agent=agent_name,
+            has_session_id=bool(payload.session_id),
+        )
         try:
             session_id, response = runtime.execute(
                 agent_name,
@@ -236,7 +274,18 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 session_id=payload.session_id,
             )
         except KeyError as exc:
+            emit_event(
+                "agent_request_failed",
+                requested_agent=agent_name,
+                error_type="KeyError",
+                error=str(exc),
+            )
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        emit_event(
+            "agent_request_completed",
+            requested_agent=agent_name,
+            session_id=session_id,
+        )
         return _to_response_model(session_id, response)
 
     return fastapi_app

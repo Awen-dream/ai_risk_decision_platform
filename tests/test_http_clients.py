@@ -15,6 +15,7 @@ from clients.http import (
     HttpStrategyProfileClient,
     HttpStrategySimulationClient,
 )
+from services.observability import bind_context
 
 
 class _FakeResponse:
@@ -32,23 +33,26 @@ class HttpClientTests(unittest.TestCase):
     def test_metric_snapshot_http_client(self) -> None:
         client = HttpMetricSnapshotClient("http://risk-service.local")
 
-        with patch(
-            "clients.http.urlopen",
-            return_value=_FakeResponse(
-                {
-                    "country": "BR",
-                    "channel": "credit_card",
-                    "metric_name": "payment_failure_rate",
-                }
-            ),
-        ) as mocked:
-            snapshot = client.fetch_metric_snapshot("BR", "credit_card", "recent_7d")
+        with bind_context(request_id="req-123", trace_id="trace-456"):
+            with patch(
+                "clients.http.urlopen",
+                return_value=_FakeResponse(
+                    {
+                        "country": "BR",
+                        "channel": "credit_card",
+                        "metric_name": "payment_failure_rate",
+                    }
+                ),
+            ) as mocked:
+                snapshot = client.fetch_metric_snapshot("BR", "credit_card", "recent_7d")
 
         self.assertIsNotNone(snapshot)
         self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
         request = mocked.call_args[0][0]
         self.assertIsInstance(request, Request)
         self.assertIn("metric-snapshots?country=BR&channel=credit_card&time_range=recent_7d", request.full_url)
+        self.assertEqual(request.headers["X-request-id"], "req-123")
+        self.assertEqual(request.headers["X-trace-id"], "trace-456")
 
     def test_case_record_http_client(self) -> None:
         client = HttpCaseRecordClient("http://risk-service.local")
