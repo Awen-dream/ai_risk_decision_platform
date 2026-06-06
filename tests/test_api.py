@@ -212,6 +212,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_backend"], "file")
         self.assertEqual(payload["session_store_backend"], "memory")
         self.assertEqual(payload["session_store_path"], ".data/sessions.json")
+        self.assertEqual(payload["case_store_backend"], "memory")
+        self.assertEqual(payload["case_store_path"], ".data/cases.json")
         self.assertEqual(payload["tool_http_timeout_sec"], 5.0)
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_auth_header"], "Authorization")
@@ -256,7 +258,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["readiness"]["status"], "ready")
         self.assertEqual(
             [item["name"] for item in payload["readiness"]["checks"]],
-            ["knowledge_index", "agent_registry", "tool_registry", "session_store"],
+            ["knowledge_index", "agent_registry", "tool_registry", "session_store", "case_store"],
         )
 
     def test_metrics_endpoint_exposes_runtime_counters(self) -> None:
@@ -411,6 +413,46 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(updated_payload["status"], "closed")
         self.assertEqual(len(updated_payload["history"]), 2)
         self.assertEqual(updated_payload["history"][1]["summary"], "人工复核完成")
+
+    def test_list_cases_supports_filters(self) -> None:
+        created = self.client.post("/sessions")
+        first_session_id = created.json()["session_id"]
+        self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": first_session_id,
+            },
+        )
+        first_case = self.client.post(f"/cases/from-session/{first_session_id}").json()
+
+        second_session = self.client.post("/sessions")
+        second_session_id = second_session.json()["session_id"]
+        self.client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 U10001 是否属于团伙网络",
+                "context": {"user_id": "U10001"},
+                "session_id": second_session_id,
+            },
+        )
+        self.client.post(f"/cases/from-session/{second_session_id}")
+
+        filtered = self.client.get(
+            "/cases",
+            params={
+                "status": "strategy_pending",
+                "source_agent": "copilot",
+                "session_id": first_session_id,
+                "severity": "high",
+            },
+        )
+
+        payload = filtered.json()
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["case_id"], first_case["case_id"])
 
 
 if __name__ == "__main__":

@@ -148,6 +148,8 @@ class RuntimeInfoResponse(BaseModel):
     tool_backend: str
     session_store_backend: str
     session_store_path: str
+    case_store_backend: str
+    case_store_path: str
     knowledge_dir: str
     tool_http_base_url: str
     tool_http_timeout_sec: float
@@ -259,6 +261,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_backend=container.config.tool_backend,
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
+            case_store_backend=container.config.case_store_backend,
+            case_store_path=str(container.config.case_store_path),
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
             tool_http_timeout_sec=container.config.tool_http_timeout_sec,
@@ -305,8 +309,23 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         return _to_session_response(session)
 
     @fastapi_app.get("/cases", response_model=List[WorkflowCasePayload])
-    def list_cases() -> List[WorkflowCasePayload]:
-        return [_to_case_payload(case) for case in container.case_service.list_cases()]
+    def list_cases(
+        status: Optional[str] = None,
+        source_agent: Optional[str] = None,
+        intent: Optional[str] = None,
+        session_id: Optional[str] = None,
+        severity: Optional[str] = None,
+    ) -> List[WorkflowCasePayload]:
+        return [
+            _to_case_payload(case)
+            for case in container.case_service.list_cases(
+                status=status,
+                source_agent=source_agent,
+                intent=intent,
+                session_id=session_id,
+                severity=severity,
+            )
+        ]
 
     @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
     def get_case(case_id: str) -> WorkflowCasePayload:
@@ -495,6 +514,10 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
         container.config.session_store_backend != "file"
         or container.config.session_store_path.parent.exists()
     )
+    case_store_ready = (
+        container.config.case_store_backend != "file"
+        or container.config.case_store_path.parent.exists()
+    )
     checks = [
         {
             "name": "knowledge_index",
@@ -517,6 +540,14 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
             "detail": (
                 f"backend={container.config.session_store_backend}, "
                 f"path={container.config.session_store_path}"
+            ),
+        },
+        {
+            "name": "case_store",
+            "status": "ready" if case_store_ready else "degraded",
+            "detail": (
+                f"backend={container.config.case_store_backend}, "
+                f"path={container.config.case_store_path}"
             ),
         },
     ]
