@@ -253,6 +253,25 @@ class AgentApiTests(unittest.TestCase):
                 "channel_name": "channel",
             },
         )
+        self.assertEqual(payload["readiness"]["status"], "ready")
+        self.assertEqual(
+            [item["name"] for item in payload["readiness"]["checks"]],
+            ["knowledge_index", "agent_registry", "tool_registry", "session_store"],
+        )
+
+    def test_metrics_endpoint_exposes_runtime_counters(self) -> None:
+        self.client.post(
+            "/agents/knowledge",
+            json={"query": "营销套利案件的标准排查 SOP 是什么？"},
+        )
+
+        response = self.client.get("/admin/metrics")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["counters"]["events.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.executions.completed"], 1)
+        self.assertGreaterEqual(payload["counters"]["http.requests.completed"], 1)
 
     def test_invoke_strategy_agent(self) -> None:
         response = self.client.post(
@@ -351,6 +370,47 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["intent"], "order_case")
         self.assertEqual(payload["plan_steps"], ["调查", "图谱"])
+
+    def test_create_case_from_copilot_session_and_update_status(self) -> None:
+        created = self.client.post("/sessions")
+        session_id = created.json()["session_id"]
+        self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+
+        created_case = self.client.post(f"/cases/from-session/{session_id}")
+
+        payload = created_case.json()
+        self.assertEqual(created_case.status_code, 200)
+        self.assertEqual(payload["session_id"], session_id)
+        self.assertEqual(payload["source_agent"], "copilot")
+        self.assertEqual(payload["status"], "strategy_pending")
+        self.assertEqual(payload["severity"], "high")
+        self.assertEqual(payload["strategy_recommendation"]["strategy_id"], "STRAT-001")
+        self.assertEqual(
+            payload["strategy_recommendation"]["validation_window"],
+            "shadow evaluation",
+        )
+        self.assertTrue(payload["suggested_actions"])
+
+        listed = self.client.get("/cases")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(len(listed.json()), 1)
+
+        updated = self.client.patch(
+            f"/cases/{payload['case_id']}",
+            json={"status": "closed", "note": "人工复核完成"},
+        )
+        updated_payload = updated.json()
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated_payload["status"], "closed")
+        self.assertEqual(len(updated_payload["history"]), 2)
+        self.assertEqual(updated_payload["history"][1]["summary"], "人工复核完成")
 
 
 if __name__ == "__main__":

@@ -74,6 +74,31 @@ class SessionStoreTests(unittest.TestCase):
                 ["knowledge", "investigation"],
             )
 
+    def test_file_session_store_persists_strategy_artifacts_and_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            session_path = Path(tmp_dir) / "sessions.json"
+            config = AppConfig(
+                session_store_backend="file",
+                session_store_path=session_path,
+            )
+
+            runtime = build_runtime(config)
+            session_id, _ = runtime.execute(
+                "strategy",
+                AgentRequest(
+                    query="请评估策略 STRAT-001 是否应该调整阈值",
+                    context={"strategy_id": "STRAT-001"},
+                ),
+            )
+
+            rebuilt_runtime = build_runtime(config)
+            session = rebuilt_runtime.get_session(session_id)
+
+            self.assertIsNotNone(session)
+            assert session is not None
+            self.assertEqual(session.turns[0].artifacts["strategy_recommendation"]["strategy_id"], "STRAT-001")
+            self.assertIn("shadow evaluation", session.turns[0].suggested_actions[0])
+
 
 if __name__ == "__main__":
     unittest.main()

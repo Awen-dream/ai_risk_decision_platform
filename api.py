@@ -7,12 +7,20 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import build_app_container
-from core.models import AgentRequest, AgentResponse
+from core.models import (
+    AgentRequest,
+    AgentResponse,
+    StrategyRecommendationRecord,
+    WorkflowCase,
+    WorkflowCaseHistoryEntry,
+)
+from services.case_service import ALLOWED_CASE_STATUSES
 from services.observability import (
     REQUEST_ID_HEADER,
     TRACE_ID_HEADER,
     bind_context,
     emit_event,
+    get_metrics_snapshot,
 )
 from services.presentation import (
     build_session_turn_view,
@@ -158,7 +166,47 @@ class RuntimeInfoResponse(BaseModel):
     supported_capabilities: List[str]
     capability_contract: List[CapabilityContractPayload]
     http_endpoint_contract: List[HttpEndpointContractPayload]
+    readiness: Dict[str, Any]
     indexed_documents: int
+
+
+class RuntimeMetricsResponse(BaseModel):
+    counters: Dict[str, int] = Field(default_factory=dict)
+
+
+class StrategyRecommendationPayload(BaseModel):
+    strategy_id: str
+    current_threshold: float
+    recommended_threshold: float
+    validation_window: str
+    rationale: str
+
+
+class CaseHistoryPayload(BaseModel):
+    event_type: str
+    status: str
+    summary: str
+
+
+class WorkflowCasePayload(BaseModel):
+    case_id: str
+    session_id: str
+    turn_index: int
+    title: str
+    summary: str
+    status: str
+    severity: str
+    source_agent: str
+    intent: Optional[str] = None
+    context: Dict[str, Any] = Field(default_factory=dict)
+    suggested_actions: List[str] = Field(default_factory=list)
+    strategy_recommendation: Optional[StrategyRecommendationPayload] = None
+    history: List[CaseHistoryPayload] = Field(default_factory=list)
+
+
+class CaseStatusUpdateRequest(BaseModel):
+    status: str = Field(..., min_length=1)
+    note: Optional[str] = None
 
 
 def create_app(config: Optional[AppConfig] = None) -> FastAPI:
@@ -235,8 +283,13 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 HttpEndpointContractPayload(**item)
                 for item in container.config.http_endpoint_contract()
             ],
+            readiness=_build_runtime_readiness(container),
             indexed_documents=container.retrieval.document_count(),
         )
+
+    @fastapi_app.get("/admin/metrics", response_model=RuntimeMetricsResponse)
+    def runtime_metrics() -> RuntimeMetricsResponse:
+        return RuntimeMetricsResponse(counters=get_metrics_snapshot())
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
     def create_session() -> SessionResponse:
@@ -250,6 +303,51 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
         return _to_session_response(session)
+
+    @fastapi_app.get("/cases", response_model=List[WorkflowCasePayload])
+    def list_cases() -> List[WorkflowCasePayload]:
+        return [_to_case_payload(case) for case in container.case_service.list_cases()]
+
+    @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
+    def get_case(case_id: str) -> WorkflowCasePayload:
+        case = container.case_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return _to_case_payload(case)
+
+    @fastapi_app.post("/cases/from-session/{session_id}", response_model=WorkflowCasePayload)
+    def create_case_from_session(session_id: str, turn_index: Optional[int] = None) -> WorkflowCasePayload:
+        session = runtime.get_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        try:
+            case = container.case_service.create_case_from_session(session, turn_index=turn_index)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        emit_event(
+            "case_created",
+            case_id=case.case_id,
+            session_id=session_id,
+            turn_index=case.turn_index,
+            case_status=case.status,
+        )
+        return _to_case_payload(case)
+
+    @fastapi_app.patch("/cases/{case_id}", response_model=WorkflowCasePayload)
+    def update_case_status(case_id: str, payload: CaseStatusUpdateRequest) -> WorkflowCasePayload:
+        if payload.status not in ALLOWED_CASE_STATUSES:
+            raise HTTPException(status_code=400, detail="Unsupported case status")
+        case = container.case_service.update_case_status(
+            case_id,
+            status=payload.status,
+            note=payload.note,
+        )
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        emit_event("case_status_updated", case_id=case.case_id, case_status=case.status)
+        return _to_case_payload(case)
 
     @fastapi_app.post("/admin/knowledge/reload", response_model=KnowledgeReloadResponse)
     def reload_knowledge() -> KnowledgeReloadResponse:
@@ -381,6 +479,90 @@ def _to_session_response(session) -> SessionResponse:
             )
             for turn in timeline_views
         ],
+    )
+
+
+def _build_runtime_readiness(container) -> Dict[str, Any]:
+    registered_agents = set(container.runtime.list_agents())
+    expected_agents = set(container.config.supported_agent_capabilities())
+    registered_tools = set(container.tools.list_tools())
+    required_tools = {
+        tool_name
+        for capability in container.config.capability_contract()
+        for tool_name in capability["required_tools"]
+    }
+    session_store_ready = (
+        container.config.session_store_backend != "file"
+        or container.config.session_store_path.parent.exists()
+    )
+    checks = [
+        {
+            "name": "knowledge_index",
+            "status": "ready" if container.retrieval.document_count() > 0 else "degraded",
+            "detail": f"indexed_documents={container.retrieval.document_count()}",
+        },
+        {
+            "name": "agent_registry",
+            "status": "ready" if expected_agents.issubset(registered_agents) else "degraded",
+            "detail": f"registered={sorted(registered_agents)}",
+        },
+        {
+            "name": "tool_registry",
+            "status": "ready" if required_tools.issubset(registered_tools) else "degraded",
+            "detail": f"registered={sorted(registered_tools)}",
+        },
+        {
+            "name": "session_store",
+            "status": "ready" if session_store_ready else "degraded",
+            "detail": (
+                f"backend={container.config.session_store_backend}, "
+                f"path={container.config.session_store_path}"
+            ),
+        },
+    ]
+    overall_status = "ready" if all(item["status"] == "ready" for item in checks) else "degraded"
+    return {"status": overall_status, "checks": checks}
+
+
+def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
+    return WorkflowCasePayload(
+        case_id=case.case_id,
+        session_id=case.session_id,
+        turn_index=case.turn_index,
+        title=case.title,
+        summary=case.summary,
+        status=case.status,
+        severity=case.severity,
+        source_agent=case.source_agent,
+        intent=case.intent,
+        context=case.context,
+        suggested_actions=case.suggested_actions,
+        strategy_recommendation=_to_strategy_recommendation_payload(
+            case.strategy_recommendation
+        ),
+        history=[_to_case_history_payload(item) for item in case.history],
+    )
+
+
+def _to_strategy_recommendation_payload(
+    recommendation: StrategyRecommendationRecord | None,
+) -> StrategyRecommendationPayload | None:
+    if recommendation is None:
+        return None
+    return StrategyRecommendationPayload(
+        strategy_id=recommendation.strategy_id,
+        current_threshold=recommendation.current_threshold,
+        recommended_threshold=recommendation.recommended_threshold,
+        validation_window=recommendation.validation_window,
+        rationale=recommendation.rationale,
+    )
+
+
+def _to_case_history_payload(entry: WorkflowCaseHistoryEntry) -> CaseHistoryPayload:
+    return CaseHistoryPayload(
+        event_type=entry.event_type,
+        status=entry.status,
+        summary=entry.summary,
     )
 
 

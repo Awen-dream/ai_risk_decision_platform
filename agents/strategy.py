@@ -59,6 +59,16 @@ class StrategyAgent(Agent):
 
         if profile and simulation:
             response.summary = self._build_summary(strategy_id, profile, simulation, graph_relation)
+            response.artifacts["strategy_recommendation"] = {
+                "strategy_id": strategy_id,
+                "current_threshold": profile["current_threshold"],
+                "recommended_threshold": simulation["recommended_threshold"],
+                "validation_window": "shadow evaluation",
+                "rationale": (
+                    f"基于仿真建议将阈值从 {profile['current_threshold']:.2f} "
+                    f"调整到 {simulation['recommended_threshold']:.2f}"
+                ),
+            }
         elif profile:
             response.summary = (
                 f"已获取策略 {strategy_id} 的当前画像，但尚未拿到仿真结果，"

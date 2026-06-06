@@ -64,6 +64,7 @@ class CopilotAgent(Agent):
         response.suggested_actions = self._merge_actions(child_responses)
         response.citations = self._merge_citations(child_responses)
         response.tool_traces = self._merge_tool_traces(child_responses)
+        response.artifacts = self._merge_artifacts(child_responses)
         response.confidence = round(
             sum(child.confidence for _, child in child_responses) / len(child_responses),
             2,
@@ -129,6 +130,13 @@ class CopilotAgent(Agent):
                 for trace in child.tool_traces
             )
         return traces
+
+    @staticmethod
+    def _merge_artifacts(child_responses: list[tuple[str, AgentResponse]]) -> dict[str, object]:
+        artifacts: dict[str, object] = {}
+        for _, child in child_responses:
+            artifacts.update(child.artifacts)
+        return artifacts
 
     @staticmethod
     def _should_include_strategy(request: AgentRequest) -> bool:

@@ -146,6 +146,8 @@ def build_session_turn(request: AgentRequest, response: AgentResponse) -> Sessio
             for trace in response.planner_trace
         ],
         confidence=response.confidence,
+        suggested_actions=list(response.suggested_actions),
+        artifacts=dict(response.artifacts),
     )
 
 
@@ -161,6 +163,8 @@ def _serialize_session_record(session: SessionRecord) -> dict[str, object]:
                 "confidence": turn.confidence,
                 "intent": turn.intent,
                 "plan_steps": turn.plan_steps,
+                "suggested_actions": turn.suggested_actions,
+                "artifacts": turn.artifacts,
                 "planner_trace": [
                     {
                         "step": trace.step,
@@ -188,6 +192,8 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
                 confidence=float(item.get("confidence", 0.0)),
                 intent=str(item["intent"]) if item.get("intent") is not None else None,
                 plan_steps=list(item.get("plan_steps", [])),
+                suggested_actions=list(item.get("suggested_actions", [])),
+                artifacts=dict(item.get("artifacts", {})),
                 planner_trace=[
                     PlannerTraceStep(
                         step=str(trace["step"]),

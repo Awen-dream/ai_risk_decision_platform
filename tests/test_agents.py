@@ -168,6 +168,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "strategy_simulation" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
         self.assertTrue(any("图谱风险" in finding for finding in response.findings))
+        self.assertEqual(
+            response.artifacts["strategy_recommendation"]["strategy_id"],
+            "STRAT-001",
+        )
 
     def test_strategy_agent_degrades_when_strategy_is_missing(self) -> None:
         _, response = self.runtime.execute(
@@ -289,6 +293,20 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(response.intent, "order_case")
         self.assertEqual(response.plan_steps, ["调查", "图谱"])
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+
+    def test_copilot_agent_preserves_strategy_recommendation_artifact(self) -> None:
+        _, response = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+            ),
+        )
+
+        self.assertEqual(
+            response.artifacts["strategy_recommendation"]["recommended_threshold"],
+            0.66,
+        )
 
 
 if __name__ == "__main__":

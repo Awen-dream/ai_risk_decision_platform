@@ -44,6 +44,7 @@ from providers.in_memory import (
     InMemoryStrategySimulationProvider,
 )
 from retrieval.knowledge_base import RetrievalService
+from services.case_service import InMemoryCaseService
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
 from settings import AppConfig
@@ -57,6 +58,7 @@ class AppContainer:
     retrieval: RetrievalService
     tools: ToolRegistry
     knowledge_sync_service: KnowledgeSyncService
+    case_service: InMemoryCaseService
 
 
 def build_knowledge_sources(config: AppConfig) -> list[KnowledgeSource]:
@@ -205,6 +207,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         retrieval=retrieval,
         tools=tools,
         knowledge_sync_service=KnowledgeSyncService(retrieval, knowledge_sources),
+        case_service=InMemoryCaseService(),
     )
 
 

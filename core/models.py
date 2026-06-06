@@ -133,6 +133,7 @@ class AgentResponse:
     citations: list[Citation] = field(default_factory=list)
     tool_traces: list[ToolTrace] = field(default_factory=list)
     confidence: float = 0.0
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
     def record_tool_trace(self, name: str, result: ToolResult) -> ToolTrace:
         summary = result.summary
@@ -158,9 +159,44 @@ class SessionTurn:
     intent: str | None = None
     plan_steps: list[str] = field(default_factory=list)
     planner_trace: list[PlannerTraceStep] = field(default_factory=list)
+    suggested_actions: list[str] = field(default_factory=list)
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class SessionRecord:
     session_id: str
     turns: list[SessionTurn] = field(default_factory=list)
+
+
+@dataclass
+class StrategyRecommendationRecord:
+    strategy_id: str
+    current_threshold: float
+    recommended_threshold: float
+    validation_window: str
+    rationale: str
+
+
+@dataclass
+class WorkflowCaseHistoryEntry:
+    event_type: str
+    status: str
+    summary: str
+
+
+@dataclass
+class WorkflowCase:
+    case_id: str
+    session_id: str
+    turn_index: int
+    title: str
+    summary: str
+    status: str
+    severity: str
+    source_agent: str
+    intent: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
+    suggested_actions: list[str] = field(default_factory=list)
+    strategy_recommendation: StrategyRecommendationRecord | None = None
+    history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)
