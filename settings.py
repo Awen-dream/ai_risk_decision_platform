@@ -73,6 +73,8 @@ class AppConfig:
     tool_http_graph_relation_path_template: str = "/graph-relations/{entity_id}"
     tool_http_country_param: str = "country"
     tool_http_channel_param: str = "channel"
+    session_store_backend: str = "memory"
+    session_store_path: Path = Path(".data/sessions.json")
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     risk_service_host: str = "127.0.0.1"
@@ -150,6 +152,13 @@ class AppConfig:
                 "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
                 "channel",
             ),
+            session_store_backend=os.getenv(
+                "AI_RISK_SESSION_STORE_BACKEND",
+                "memory",
+            ),
+            session_store_path=Path(
+                os.getenv("AI_RISK_SESSION_STORE_PATH", ".data/sessions.json")
+            ),
             api_host=os.getenv("AI_RISK_API_HOST", "127.0.0.1"),
             api_port=int(os.getenv("AI_RISK_API_PORT", "8000")),
             risk_service_host=os.getenv("AI_RISK_RISK_SERVICE_HOST", "127.0.0.1"),
@@ -181,6 +190,8 @@ class AppConfig:
             tool_http_graph_relation_path_template="/graph-relations/{entity_id}",
             tool_http_country_param="country",
             tool_http_channel_param="channel",
+            session_store_backend="memory",
+            session_store_path=Path(".data/sessions.json"),
             api_host="127.0.0.1",
             api_port=8000,
             risk_service_host="127.0.0.1",

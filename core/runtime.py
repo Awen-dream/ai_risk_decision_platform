@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from agents.base import Agent
 from core.models import AgentRequest, AgentResponse
-from core.session_store import InMemorySessionStore
+from core.session_store import InMemorySessionStore, SessionStore
 from services.observability import bind_context, emit_event
 
 
 class AgentRuntime:
     """Simple runtime for registering and executing agents by name."""
 
-    def __init__(self, session_store: InMemorySessionStore | None = None) -> None:
+    def __init__(self, session_store: SessionStore | None = None) -> None:
         self._agents: dict[str, Agent] = {}
         self._session_store = session_store or InMemorySessionStore()
 

@@ -210,6 +210,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["knowledge_backend"], "file")
         self.assertEqual(payload["tool_backend"], "file")
+        self.assertEqual(payload["session_store_backend"], "memory")
+        self.assertEqual(payload["session_store_path"], ".data/sessions.json")
         self.assertEqual(payload["tool_http_timeout_sec"], 5.0)
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_auth_header"], "Authorization")

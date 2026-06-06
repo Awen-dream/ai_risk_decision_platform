@@ -138,6 +138,8 @@ class HttpEndpointContractPayload(BaseModel):
 class RuntimeInfoResponse(BaseModel):
     knowledge_backend: str
     tool_backend: str
+    session_store_backend: str
+    session_store_path: str
     knowledge_dir: str
     tool_http_base_url: str
     tool_http_timeout_sec: float
@@ -207,6 +209,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         return RuntimeInfoResponse(
             knowledge_backend=container.config.knowledge_backend,
             tool_backend=container.config.tool_backend,
+            session_store_backend=container.config.session_store_backend,
+            session_store_path=str(container.config.session_store_path),
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
             tool_http_timeout_sec=container.config.tool_http_timeout_sec,

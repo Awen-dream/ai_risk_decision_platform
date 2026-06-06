@@ -34,7 +34,7 @@ from clients.http import (
     HttpStrategySimulationClient,
 )
 from core.runtime import AgentRuntime
-from core.session_store import InMemorySessionStore
+from core.session_store import FileSessionStore, InMemorySessionStore, SessionStore
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
     InMemoryGraphRelationProvider,
@@ -165,6 +165,12 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
     ]
 
 
+def build_session_store(config: AppConfig) -> SessionStore:
+    if config.session_store_backend == "file":
+        return FileSessionStore(config.session_store_path)
+    return InMemorySessionStore()
+
+
 def build_app_container(config: AppConfig | None = None) -> AppContainer:
     """Create the application container using the configured backends."""
     config = config or AppConfig.from_env()
@@ -178,7 +184,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     for adapter in build_tool_adapters(config):
         tools.register_adapter(adapter)
 
-    runtime = AgentRuntime(session_store=InMemorySessionStore())
+    runtime = AgentRuntime(session_store=build_session_store(config))
     knowledge_agent = KnowledgeAgent(retrieval)
     investigation_agent = InvestigationAgent(tools, retrieval)
     strategy_agent = StrategyAgent(tools, retrieval)

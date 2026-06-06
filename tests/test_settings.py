@@ -36,6 +36,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.knowledge_backend, "file")
         self.assertEqual(config.tool_backend, "http")
         self.assertEqual(config.tool_http_base_url, "http://127.0.0.1:8090")
+        self.assertEqual(config.session_store_backend, "memory")
 
     def test_supported_capabilities_cover_phase1_surface(self) -> None:
         config = AppConfig.local_http_stack()
