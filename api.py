@@ -174,6 +174,7 @@ class RuntimeInfoResponse(BaseModel):
 
 class RuntimeMetricsResponse(BaseModel):
     counters: Dict[str, int] = Field(default_factory=dict)
+    gauges: Dict[str, int] = Field(default_factory=dict)
 
 
 class StrategyRecommendationPayload(BaseModel):
@@ -204,6 +205,8 @@ class WorkflowCasePayload(BaseModel):
     suggested_actions: List[str] = Field(default_factory=list)
     strategy_recommendation: Optional[StrategyRecommendationPayload] = None
     history: List[CaseHistoryPayload] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
 
 
 class CaseStatusUpdateRequest(BaseModel):
@@ -293,7 +296,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
 
     @fastapi_app.get("/admin/metrics", response_model=RuntimeMetricsResponse)
     def runtime_metrics() -> RuntimeMetricsResponse:
-        return RuntimeMetricsResponse(counters=get_metrics_snapshot())
+        return RuntimeMetricsResponse(
+            counters=get_metrics_snapshot(),
+            gauges=_build_case_gauges(container),
+        )
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
     def create_session() -> SessionResponse:
@@ -315,6 +321,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         intent: Optional[str] = None,
         session_id: Optional[str] = None,
         severity: Optional[str] = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
     ) -> List[WorkflowCasePayload]:
         return [
             _to_case_payload(case)
@@ -324,6 +332,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                sort_by=sort_by,
+                sort_order=sort_order,
             )
         ]
 
@@ -572,6 +582,8 @@ def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
             case.strategy_recommendation
         ),
         history=[_to_case_history_payload(item) for item in case.history],
+        created_at=case.created_at,
+        updated_at=case.updated_at,
     )
 
 
@@ -595,6 +607,25 @@ def _to_case_history_payload(entry: WorkflowCaseHistoryEntry) -> CaseHistoryPayl
         status=entry.status,
         summary=entry.summary,
     )
+
+
+def _build_case_gauges(container) -> Dict[str, int]:
+    cases = container.case_service.list_cases(sort_by="updated_at", sort_order="desc")
+    gauges: Dict[str, int] = {"cases.total": len(cases)}
+    for status in ALLOWED_CASE_STATUSES:
+        gauges[f"cases.status.{status}"] = 0
+    for severity in ("high", "medium", "low"):
+        gauges[f"cases.severity.{severity}"] = 0
+    for case in cases:
+        gauges[f"cases.status.{case.status}"] = gauges.get(
+            f"cases.status.{case.status}",
+            0,
+        ) + 1
+        gauges[f"cases.severity.{case.severity}"] = gauges.get(
+            f"cases.severity.{case.severity}",
+            0,
+        ) + 1
+    return dict(sorted(gauges.items()))
 
 
 fastapi_app = create_app()

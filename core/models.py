@@ -200,3 +200,5 @@ class WorkflowCase:
     suggested_actions: list[str] = field(default_factory=list)
     strategy_recommendation: StrategyRecommendationRecord | None = None
     history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)
+    created_at: str = ""
+    updated_at: str = ""

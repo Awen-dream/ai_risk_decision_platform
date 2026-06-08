@@ -274,6 +274,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(payload["counters"]["events.total"], 1)
         self.assertGreaterEqual(payload["counters"]["agent.executions.completed"], 1)
         self.assertGreaterEqual(payload["counters"]["http.requests.completed"], 1)
+        self.assertIn("cases.total", payload["gauges"])
 
     def test_invoke_strategy_agent(self) -> None:
         response = self.client.post(
@@ -374,9 +375,11 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["plan_steps"], ["调查", "图谱"])
 
     def test_create_case_from_copilot_session_and_update_status(self) -> None:
-        created = self.client.post("/sessions")
+        client = TestClient(create_app())
+        created = client.post("/sessions")
         session_id = created.json()["session_id"]
-        self.client.post(
+        self.assertEqual(created.status_code, 200)
+        client.post(
             "/agents/copilot",
             json={
                 "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
@@ -385,7 +388,7 @@ class AgentApiTests(unittest.TestCase):
             },
         )
 
-        created_case = self.client.post(f"/cases/from-session/{session_id}")
+        created_case = client.post(f"/cases/from-session/{session_id}")
 
         payload = created_case.json()
         self.assertEqual(created_case.status_code, 200)
@@ -399,12 +402,14 @@ class AgentApiTests(unittest.TestCase):
             "shadow evaluation",
         )
         self.assertTrue(payload["suggested_actions"])
+        self.assertTrue(payload["created_at"].endswith("Z"))
+        self.assertEqual(payload["created_at"], payload["updated_at"])
 
-        listed = self.client.get("/cases")
+        listed = client.get("/cases")
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(len(listed.json()), 1)
 
-        updated = self.client.patch(
+        updated = client.patch(
             f"/cases/{payload['case_id']}",
             json={"status": "closed", "note": "人工复核完成"},
         )
@@ -413,11 +418,13 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(updated_payload["status"], "closed")
         self.assertEqual(len(updated_payload["history"]), 2)
         self.assertEqual(updated_payload["history"][1]["summary"], "人工复核完成")
+        self.assertNotEqual(updated_payload["updated_at"], updated_payload["created_at"])
 
     def test_list_cases_supports_filters(self) -> None:
-        created = self.client.post("/sessions")
+        client = TestClient(create_app())
+        created = client.post("/sessions")
         first_session_id = created.json()["session_id"]
-        self.client.post(
+        client.post(
             "/agents/copilot",
             json={
                 "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
@@ -425,11 +432,11 @@ class AgentApiTests(unittest.TestCase):
                 "session_id": first_session_id,
             },
         )
-        first_case = self.client.post(f"/cases/from-session/{first_session_id}").json()
+        first_case = client.post(f"/cases/from-session/{first_session_id}").json()
 
-        second_session = self.client.post("/sessions")
+        second_session = client.post("/sessions")
         second_session_id = second_session.json()["session_id"]
-        self.client.post(
+        client.post(
             "/agents/graph",
             json={
                 "query": "请分析用户 U10001 是否属于团伙网络",
@@ -437,9 +444,9 @@ class AgentApiTests(unittest.TestCase):
                 "session_id": second_session_id,
             },
         )
-        self.client.post(f"/cases/from-session/{second_session_id}")
+        client.post(f"/cases/from-session/{second_session_id}")
 
-        filtered = self.client.get(
+        filtered = client.get(
             "/cases",
             params={
                 "status": "strategy_pending",
@@ -453,6 +460,76 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(filtered.status_code, 200)
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["case_id"], first_case["case_id"])
+
+    def test_list_cases_defaults_to_recently_updated_first(self) -> None:
+        client = TestClient(create_app())
+        first_session = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 U10001 是否属于团伙网络",
+                "context": {"user_id": "U10001"},
+                "session_id": first_session,
+            },
+        )
+        first_case = client.post(f"/cases/from-session/{first_session}").json()
+
+        second_session = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": second_session,
+            },
+        )
+        second_case = client.post(f"/cases/from-session/{second_session}").json()
+        client.patch(
+            f"/cases/{first_case['case_id']}",
+            json={"status": "in_review", "note": "重新置顶"},
+        )
+
+        response = client.get("/cases")
+        payload = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload[0]["case_id"], first_case["case_id"])
+        self.assertEqual(payload[1]["case_id"], second_case["case_id"])
+
+        created_sorted = client.get(
+            "/cases",
+            params={"sort_by": "created_at", "sort_order": "asc"},
+        )
+        created_payload = created_sorted.json()
+        self.assertEqual(created_sorted.status_code, 200)
+        self.assertEqual(created_payload[0]["case_id"], first_case["case_id"])
+        self.assertEqual(created_payload[1]["case_id"], second_case["case_id"])
+
+    def test_metrics_endpoint_reports_case_gauges_and_counters(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+        client.patch(
+            f"/cases/{created_case['case_id']}",
+            json={"status": "closed", "note": "完成"},
+        )
+
+        response = client.get("/admin/metrics")
+        payload = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["counters"]["cases.created"], 1)
+        self.assertGreaterEqual(payload["counters"]["cases.status_updated"], 1)
+        self.assertGreaterEqual(payload["gauges"]["cases.total"], 1)
+        self.assertGreaterEqual(payload["gauges"]["cases.status.closed"], 1)
 
 
 if __name__ == "__main__":

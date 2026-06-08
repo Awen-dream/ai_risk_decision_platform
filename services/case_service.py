@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -39,6 +40,8 @@ class CaseService(ABC):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
     ) -> list[WorkflowCase]:
         """List cases with optional filters."""
 
@@ -78,6 +81,8 @@ class InMemoryCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
     ) -> list[WorkflowCase]:
         return _filter_cases(
             self._cases.values(),
@@ -86,6 +91,8 @@ class InMemoryCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
 
     def update_case_status(
@@ -132,6 +139,8 @@ class FileCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
     ) -> list[WorkflowCase]:
         return _filter_cases(
             self._load_cases().values(),
@@ -140,6 +149,8 @@ class FileCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
 
     def update_case_status(
@@ -191,6 +202,7 @@ def _build_case_from_session(
     turn = session.turns[resolved_turn_index - 1]
     recommendation = _extract_strategy_recommendation(turn.artifacts)
     status = _initial_status(turn.agent_name, turn.intent, recommendation)
+    timestamp = _current_timestamp()
     return WorkflowCase(
         case_id=f"CASE-{uuid4().hex[:8].upper()}",
         session_id=session.session_id,
@@ -211,6 +223,8 @@ def _build_case_from_session(
                 summary=f"基于 session {session.session_id} 的第 {resolved_turn_index} 个 turn 创建 case。",
             )
         ],
+        created_at=timestamp,
+        updated_at=timestamp,
     )
 
 
@@ -222,6 +236,8 @@ def _filter_cases(
     intent: str | None = None,
     session_id: str | None = None,
     severity: str | None = None,
+    sort_by: str = "updated_at",
+    sort_order: str = "desc",
 ) -> list[WorkflowCase]:
     filtered = list(cases)
     if status is not None:
@@ -234,6 +250,10 @@ def _filter_cases(
         filtered = [case for case in filtered if case.session_id == session_id]
     if severity is not None:
         filtered = [case for case in filtered if case.severity == severity]
+    filtered.sort(
+        key=lambda case: _case_sort_key(case, sort_by),
+        reverse=sort_order.lower() != "asc",
+    )
     return filtered
 
 
@@ -243,6 +263,7 @@ def _append_case_status_update(
     note: str | None,
 ) -> None:
     case.status = status
+    case.updated_at = _current_timestamp()
     case.history.append(
         WorkflowCaseHistoryEntry(
             event_type="status_updated",
@@ -292,6 +313,8 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
         "intent": case.intent,
         "context": case.context,
         "suggested_actions": case.suggested_actions,
+        "created_at": case.created_at,
+        "updated_at": case.updated_at,
         "strategy_recommendation": (
             {
                 "strategy_id": case.strategy_recommendation.strategy_id,
@@ -349,4 +372,23 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         suggested_actions=list(item.get("suggested_actions", [])),
         strategy_recommendation=recommendation,
         history=history,
+        created_at=str(item.get("created_at", "")),
+        updated_at=str(item.get("updated_at", "")),
+    )
+
+
+def _case_sort_key(case: WorkflowCase, sort_by: str) -> str:
+    if sort_by == "created_at":
+        return case.created_at
+    if sort_by == "status":
+        return case.status
+    if sort_by == "severity":
+        return case.severity
+    return case.updated_at
+
+
+def _current_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00",
+        "Z",
     )

@@ -75,6 +75,10 @@ def _increment_metrics(event: str, fields: dict[str, Any]) -> None:
             metric_names.append(f"agent.executions.by_agent.{agent_name}")
     if event == "session_created":
         metric_names.append("sessions.created")
+    if event == "case_created":
+        metric_names.append("cases.created")
+    if event == "case_status_updated":
+        metric_names.append("cases.status_updated")
     if event == "agent_request_failed":
         metric_names.append("agent.requests.failed")
         if agent_name:
