@@ -183,6 +183,12 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(paged_cases[0].case_id, first_case.case_id)
             self.assertEqual(len(filtered_cases), 1)
             self.assertEqual(filtered_cases[0].case_id, second_case.case_id)
+            self.assertEqual(
+                container.case_service.count_cases(
+                    updated_after=updated_second_case.created_at,
+                ),
+                1,
+            )
 
 
 if __name__ == "__main__":

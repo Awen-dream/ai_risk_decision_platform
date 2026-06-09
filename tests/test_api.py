@@ -460,6 +460,9 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(filtered.status_code, 200)
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["case_id"], first_case["case_id"])
+        self.assertEqual(filtered.headers["X-Total-Count"], "1")
+        self.assertEqual(filtered.headers["X-Has-More"], "false")
+        self.assertEqual(filtered.headers["X-Offset"], "0")
 
     def test_list_cases_supports_pagination_and_updated_at_filters(self) -> None:
         client = TestClient(create_app())
@@ -500,9 +503,15 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(paged.status_code, 200)
         self.assertEqual(len(paged_payload), 1)
         self.assertEqual(paged_payload[0]["case_id"], first_case["case_id"])
+        self.assertEqual(paged.headers["X-Total-Count"], "2")
+        self.assertEqual(paged.headers["X-Has-More"], "false")
+        self.assertEqual(paged.headers["X-Offset"], "1")
+        self.assertEqual(paged.headers["X-Limit"], "1")
         self.assertEqual(filtered.status_code, 200)
         self.assertEqual(len(filtered_payload), 1)
         self.assertEqual(filtered_payload[0]["case_id"], second_case["case_id"])
+        self.assertEqual(filtered.headers["X-Total-Count"], "1")
+        self.assertEqual(filtered.headers["X-Has-More"], "false")
 
     def test_list_cases_rejects_invalid_timestamp_filter(self) -> None:
         client = TestClient(create_app())
@@ -546,6 +555,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload[0]["case_id"], first_case["case_id"])
         self.assertEqual(payload[1]["case_id"], second_case["case_id"])
+        self.assertEqual(response.headers["X-Total-Count"], "2")
+        self.assertEqual(response.headers["X-Has-More"], "false")
 
         created_sorted = client.get(
             "/cases",
@@ -555,6 +566,29 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(created_sorted.status_code, 200)
         self.assertEqual(created_payload[0]["case_id"], first_case["case_id"])
         self.assertEqual(created_payload[1]["case_id"], second_case["case_id"])
+
+    def test_list_cases_pagination_headers_report_has_more(self) -> None:
+        client = TestClient(create_app())
+        for _ in range(3):
+            session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/graph",
+                json={
+                    "query": "请分析用户 U10001 是否属于团伙网络",
+                    "context": {"user_id": "U10001"},
+                    "session_id": session_id,
+                },
+            )
+            client.post(f"/cases/from-session/{session_id}")
+
+        response = client.get("/cases", params={"limit": 2, "offset": 0})
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(payload), 2)
+        self.assertEqual(response.headers["X-Total-Count"], "3")
+        self.assertEqual(response.headers["X-Has-More"], "true")
+        self.assertEqual(response.headers["X-Limit"], "2")
 
     def test_metrics_endpoint_reports_case_gauges_and_counters(self) -> None:
         client = TestClient(create_app())

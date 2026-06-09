@@ -50,6 +50,20 @@ class CaseService(ABC):
         """List cases with optional filters."""
 
     @abstractmethod
+    def count_cases(
+        self,
+        *,
+        status: str | None = None,
+        source_agent: str | None = None,
+        intent: str | None = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+    ) -> int:
+        """Return the number of cases that match the filters."""
+
+    @abstractmethod
     def update_case_status(
         self,
         case_id: str,
@@ -105,6 +119,32 @@ class InMemoryCaseService(CaseService):
             sort_order=sort_order,
             limit=limit,
             offset=offset,
+        )
+
+    def count_cases(
+        self,
+        *,
+        status: str | None = None,
+        source_agent: str | None = None,
+        intent: str | None = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+    ) -> int:
+        return len(
+            _filter_cases(
+                self._cases.values(),
+                status=status,
+                source_agent=source_agent,
+                intent=intent,
+                session_id=session_id,
+                severity=severity,
+                updated_after=updated_after,
+                updated_before=updated_before,
+                limit=None,
+                offset=0,
+            )
         )
 
     def update_case_status(
@@ -171,6 +211,32 @@ class FileCaseService(CaseService):
             sort_order=sort_order,
             limit=limit,
             offset=offset,
+        )
+
+    def count_cases(
+        self,
+        *,
+        status: str | None = None,
+        source_agent: str | None = None,
+        intent: str | None = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+    ) -> int:
+        return len(
+            _filter_cases(
+                self._load_cases().values(),
+                status=status,
+                source_agent=source_agent,
+                intent=intent,
+                session_id=session_id,
+                severity=severity,
+                updated_after=updated_after,
+                updated_before=updated_before,
+                limit=None,
+                offset=0,
+            )
         )
 
     def update_case_status(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app import build_app_container
@@ -316,6 +316,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
 
     @fastapi_app.get("/cases", response_model=List[WorkflowCasePayload])
     def list_cases(
+        response: Response,
         status: Optional[str] = None,
         source_agent: Optional[str] = None,
         intent: Optional[str] = None,
@@ -329,6 +330,15 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         offset: int = Query(default=0, ge=0),
     ) -> List[WorkflowCasePayload]:
         try:
+            total = container.case_service.count_cases(
+                status=status,
+                source_agent=source_agent,
+                intent=intent,
+                session_id=session_id,
+                severity=severity,
+                updated_after=updated_after,
+                updated_before=updated_before,
+            )
             cases = container.case_service.list_cases(
                 status=status,
                 source_agent=source_agent,
@@ -344,6 +354,11 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Has-More"] = str(offset + len(cases) < total).lower()
+        response.headers["X-Offset"] = str(offset)
+        if limit is not None:
+            response.headers["X-Limit"] = str(limit)
         return [_to_case_payload(case) for case in cases]
 
     @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
