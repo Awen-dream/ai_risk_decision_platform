@@ -461,6 +461,57 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["case_id"], first_case["case_id"])
 
+    def test_list_cases_supports_pagination_and_updated_at_filters(self) -> None:
+        client = TestClient(create_app())
+        first_session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 U10001 是否属于团伙网络",
+                "context": {"user_id": "U10001"},
+                "session_id": first_session_id,
+            },
+        )
+        first_case = client.post(f"/cases/from-session/{first_session_id}").json()
+
+        second_session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": second_session_id,
+            },
+        )
+        second_case = client.post(f"/cases/from-session/{second_session_id}").json()
+        updated_second_case = client.patch(
+            f"/cases/{second_case['case_id']}",
+            json={"status": "closed", "note": "完成"},
+        ).json()
+
+        paged = client.get("/cases", params={"limit": 1, "offset": 1})
+        filtered = client.get(
+            "/cases",
+            params={"updated_after": updated_second_case["created_at"]},
+        )
+
+        paged_payload = paged.json()
+        filtered_payload = filtered.json()
+        self.assertEqual(paged.status_code, 200)
+        self.assertEqual(len(paged_payload), 1)
+        self.assertEqual(paged_payload[0]["case_id"], first_case["case_id"])
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual(len(filtered_payload), 1)
+        self.assertEqual(filtered_payload[0]["case_id"], second_case["case_id"])
+
+    def test_list_cases_rejects_invalid_timestamp_filter(self) -> None:
+        client = TestClient(create_app())
+
+        response = client.get("/cases", params={"updated_after": "not-a-timestamp"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid isoformat string", response.json()["detail"])
+
     def test_list_cases_defaults_to_recently_updated_first(self) -> None:
         client = TestClient(create_app())
         first_session = client.post("/sessions").json()["session_id"]

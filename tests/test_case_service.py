@@ -136,6 +136,54 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(listed_cases[0].case_id, first_case.case_id)
             self.assertEqual(listed_cases[1].case_id, second_case.case_id)
 
+    def test_file_case_store_supports_pagination_and_updated_at_filters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="file",
+                session_store_path=Path(tmp_dir) / "sessions.json",
+                case_store_backend="file",
+                case_store_path=Path(tmp_dir) / "cases.json",
+            )
+
+            container = build_app_container(config)
+            first_session_id, _ = container.runtime.execute(
+                "graph",
+                AgentRequest(
+                    query="请分析用户 U10001 是否属于团伙网络",
+                    context={"user_id": "U10001"},
+                ),
+            )
+            first_session = container.runtime.get_session(first_session_id)
+            assert first_session is not None
+            first_case = container.case_service.create_case_from_session(first_session)
+
+            second_session_id, _ = container.runtime.execute(
+                "copilot",
+                AgentRequest(
+                    query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                ),
+            )
+            second_session = container.runtime.get_session(second_session_id)
+            assert second_session is not None
+            second_case = container.case_service.create_case_from_session(second_session)
+            updated_second_case = container.case_service.update_case_status(
+                second_case.case_id,
+                "closed",
+                note="完成",
+            )
+
+            assert updated_second_case is not None
+            paged_cases = container.case_service.list_cases(limit=1, offset=1)
+            filtered_cases = container.case_service.list_cases(
+                updated_after=updated_second_case.created_at,
+            )
+
+            self.assertEqual(len(paged_cases), 1)
+            self.assertEqual(paged_cases[0].case_id, first_case.case_id)
+            self.assertEqual(len(filtered_cases), 1)
+            self.assertEqual(filtered_cases[0].case_id, second_case.case_id)
+
 
 if __name__ == "__main__":
     unittest.main()

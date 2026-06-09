@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app import build_app_container
@@ -321,21 +321,30 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         intent: Optional[str] = None,
         session_id: Optional[str] = None,
         severity: Optional[str] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
+        limit: Optional[int] = Query(default=None, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
     ) -> List[WorkflowCasePayload]:
-        return [
-            _to_case_payload(case)
-            for case in container.case_service.list_cases(
+        try:
+            cases = container.case_service.list_cases(
                 status=status,
                 source_agent=source_agent,
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                updated_after=updated_after,
+                updated_before=updated_before,
                 sort_by=sort_by,
                 sort_order=sort_order,
+                limit=limit,
+                offset=offset,
             )
-        ]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return [_to_case_payload(case) for case in cases]
 
     @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
     def get_case(case_id: str) -> WorkflowCasePayload:

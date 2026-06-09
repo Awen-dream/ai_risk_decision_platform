@@ -40,8 +40,12 @@ class CaseService(ABC):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[WorkflowCase]:
         """List cases with optional filters."""
 
@@ -81,8 +85,12 @@ class InMemoryCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[WorkflowCase]:
         return _filter_cases(
             self._cases.values(),
@@ -91,8 +99,12 @@ class InMemoryCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            updated_after=updated_after,
+            updated_before=updated_before,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=limit,
+            offset=offset,
         )
 
     def update_case_status(
@@ -139,8 +151,12 @@ class FileCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
         sort_by: str = "updated_at",
         sort_order: str = "desc",
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[WorkflowCase]:
         return _filter_cases(
             self._load_cases().values(),
@@ -149,8 +165,12 @@ class FileCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            updated_after=updated_after,
+            updated_before=updated_before,
             sort_by=sort_by,
             sort_order=sort_order,
+            limit=limit,
+            offset=offset,
         )
 
     def update_case_status(
@@ -236,8 +256,12 @@ def _filter_cases(
     intent: str | None = None,
     session_id: str | None = None,
     severity: str | None = None,
+    updated_after: str | None = None,
+    updated_before: str | None = None,
     sort_by: str = "updated_at",
     sort_order: str = "desc",
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[WorkflowCase]:
     filtered = list(cases)
     if status is not None:
@@ -250,10 +274,28 @@ def _filter_cases(
         filtered = [case for case in filtered if case.session_id == session_id]
     if severity is not None:
         filtered = [case for case in filtered if case.severity == severity]
+    if updated_after is not None:
+        updated_after_dt = _parse_timestamp(updated_after)
+        filtered = [
+            case
+            for case in filtered
+            if case.updated_at and _parse_timestamp(case.updated_at) >= updated_after_dt
+        ]
+    if updated_before is not None:
+        updated_before_dt = _parse_timestamp(updated_before)
+        filtered = [
+            case
+            for case in filtered
+            if case.updated_at and _parse_timestamp(case.updated_at) <= updated_before_dt
+        ]
     filtered.sort(
         key=lambda case: _case_sort_key(case, sort_by),
         reverse=sort_order.lower() != "asc",
     )
+    if offset:
+        filtered = filtered[offset:]
+    if limit is not None:
+        filtered = filtered[:limit]
     return filtered
 
 
@@ -392,3 +434,7 @@ def _current_timestamp() -> str:
         "+00:00",
         "Z",
     )
+
+
+def _parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
