@@ -62,6 +62,10 @@ class AppConfig:
     graph_relation_path: Path = Path("data/risk/graph_relations.json")
     tool_http_base_url: str = "http://127.0.0.1:8090"
     tool_http_timeout_sec: float = 5.0
+    tool_http_retry_attempts: int = 2
+    tool_http_retry_backoff_sec: float = 0.1
+    tool_http_circuit_breaker_failure_threshold: int = 5
+    tool_http_circuit_breaker_reset_sec: float = 30.0
     tool_http_auth_mode: str = "none"
     tool_http_auth_token: str = ""
     tool_http_auth_header: str = "Authorization"
@@ -115,6 +119,21 @@ class AppConfig:
             ),
             tool_http_timeout_sec=float(
                 os.getenv("AI_RISK_TOOL_HTTP_TIMEOUT_SEC", "5.0")
+            ),
+            tool_http_retry_attempts=int(
+                os.getenv("AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS", "2")
+            ),
+            tool_http_retry_backoff_sec=float(
+                os.getenv("AI_RISK_TOOL_HTTP_RETRY_BACKOFF_SEC", "0.1")
+            ),
+            tool_http_circuit_breaker_failure_threshold=int(
+                os.getenv(
+                    "AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD",
+                    "5",
+                )
+            ),
+            tool_http_circuit_breaker_reset_sec=float(
+                os.getenv("AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC", "30.0")
             ),
             tool_http_auth_mode=os.getenv("AI_RISK_TOOL_HTTP_AUTH_MODE", "none"),
             tool_http_auth_token=os.getenv("AI_RISK_TOOL_HTTP_AUTH_TOKEN", ""),
@@ -188,6 +207,10 @@ class AppConfig:
             graph_relation_path=Path("data/risk/graph_relations.json"),
             tool_http_base_url="http://127.0.0.1:8090",
             tool_http_timeout_sec=5.0,
+            tool_http_retry_attempts=2,
+            tool_http_retry_backoff_sec=0.1,
+            tool_http_circuit_breaker_failure_threshold=5,
+            tool_http_circuit_breaker_reset_sec=30.0,
             tool_http_auth_mode="none",
             tool_http_auth_token="",
             tool_http_auth_header="Authorization",

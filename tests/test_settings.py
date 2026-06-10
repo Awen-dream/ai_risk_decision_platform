@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from settings import AppConfig
 
@@ -36,8 +37,29 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.knowledge_backend, "file")
         self.assertEqual(config.tool_backend, "http")
         self.assertEqual(config.tool_http_base_url, "http://127.0.0.1:8090")
+        self.assertEqual(config.tool_http_retry_attempts, 2)
+        self.assertEqual(config.tool_http_retry_backoff_sec, 0.1)
+        self.assertEqual(config.tool_http_circuit_breaker_failure_threshold, 5)
+        self.assertEqual(config.tool_http_circuit_breaker_reset_sec, 30.0)
         self.assertEqual(config.session_store_backend, "memory")
         self.assertEqual(config.case_store_backend, "memory")
+
+    def test_http_resilience_settings_load_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS": "4",
+                "AI_RISK_TOOL_HTTP_RETRY_BACKOFF_SEC": "0.25",
+                "AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD": "8",
+                "AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC": "45",
+            },
+        ):
+            config = AppConfig.from_env()
+
+        self.assertEqual(config.tool_http_retry_attempts, 4)
+        self.assertEqual(config.tool_http_retry_backoff_sec, 0.25)
+        self.assertEqual(config.tool_http_circuit_breaker_failure_threshold, 8)
+        self.assertEqual(config.tool_http_circuit_breaker_reset_sec, 45.0)
 
     def test_supported_capabilities_cover_phase1_surface(self) -> None:
         config = AppConfig.local_http_stack()

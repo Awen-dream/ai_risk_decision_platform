@@ -30,6 +30,7 @@ from clients.http import (
     HttpGraphRelationClient,
     HttpMetricSnapshotClient,
     HttpOrderProfileClient,
+    HttpResiliencePolicy,
     HttpStrategyProfileClient,
     HttpStrategySimulationClient,
 )
@@ -97,6 +98,14 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
         ]
     if config.tool_backend == "http":
         http_headers = config.tool_http_headers()
+        http_resilience = HttpResiliencePolicy(
+            retry_attempts=config.tool_http_retry_attempts,
+            retry_backoff_sec=config.tool_http_retry_backoff_sec,
+            circuit_breaker_failure_threshold=(
+                config.tool_http_circuit_breaker_failure_threshold
+            ),
+            circuit_breaker_reset_sec=config.tool_http_circuit_breaker_reset_sec,
+        )
         metric_provider = InMemoryMetricSnapshotProvider(
             client=HttpMetricSnapshotClient(
                 config.tool_http_base_url,
@@ -105,6 +114,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 channel_param=config.tool_http_channel_param,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         case_provider = InMemoryCaseRecordProvider(
@@ -115,6 +125,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 channel_param=config.tool_http_channel_param,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         order_provider = InMemoryOrderProfileProvider(
@@ -123,6 +134,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 path_template=config.tool_http_order_path_template,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         strategy_provider = InMemoryStrategyProfileProvider(
@@ -131,6 +143,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 path_template=config.tool_http_strategy_profile_path_template,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         simulation_provider = InMemoryStrategySimulationProvider(
@@ -139,6 +152,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 path_template=config.tool_http_strategy_simulation_path_template,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         graph_provider = InMemoryGraphRelationProvider(
@@ -147,6 +161,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 path_template=config.tool_http_graph_relation_path_template,
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
             )
         )
         return [

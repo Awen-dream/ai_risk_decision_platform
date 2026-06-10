@@ -7,15 +7,19 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
+from app import build_tool_adapters
 from clients.http import (
+    CircuitBreakerOpenError,
     HttpCaseRecordClient,
     HttpGraphRelationClient,
     HttpMetricSnapshotClient,
     HttpOrderProfileClient,
+    HttpResiliencePolicy,
     HttpStrategyProfileClient,
     HttpStrategySimulationClient,
 )
 from services.observability import bind_context
+from settings import AppConfig
 
 
 class _FakeResponse:
@@ -94,13 +98,17 @@ class HttpClientTests(unittest.TestCase):
             hdrs=None,
             fp=None,
         )
-        with patch("clients.http.urlopen", side_effect=http_error):
+        with patch("clients.http.urlopen", side_effect=http_error) as mocked:
             self.assertIsNone(metric_client.fetch_metric_snapshot("BR", "wallet"))
             self.assertIsNone(order_client.fetch_order_profile("missing"))
             self.assertIsNone(strategy_client.fetch_strategy_profile("missing"))
+        self.assertEqual(mocked.call_count, 3)
 
     def test_metric_snapshot_http_client_raises_non_404_http_error(self) -> None:
-        client = HttpMetricSnapshotClient("http://risk-service.local")
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(retry_backoff_sec=0),
+        )
         http_error = HTTPError(
             url="http://risk-service.local/metric-snapshots",
             code=503,
@@ -114,11 +122,147 @@ class HttpClientTests(unittest.TestCase):
                 client.fetch_metric_snapshot("BR", "credit_card", "recent_24h")
 
     def test_metric_snapshot_http_client_propagates_network_error(self) -> None:
-        client = HttpMetricSnapshotClient("http://risk-service.local")
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(retry_backoff_sec=0),
+        )
 
         with patch("clients.http.urlopen", side_effect=URLError("timeout")):
             with self.assertRaises(URLError):
                 client.fetch_metric_snapshot("BR", "credit_card", "recent_24h")
+
+    def test_http_client_retries_transient_failure_then_succeeds(self) -> None:
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(
+                retry_attempts=2,
+                retry_backoff_sec=0,
+            ),
+        )
+        http_error = HTTPError(
+            url="http://risk-service.local/metric-snapshots",
+            code=503,
+            msg="service unavailable",
+            hdrs=None,
+            fp=None,
+        )
+
+        with patch(
+            "clients.http.urlopen",
+            side_effect=[
+                http_error,
+                _FakeResponse({"metric_name": "payment_failure_rate"}),
+            ],
+        ) as mocked:
+            snapshot = client.fetch_metric_snapshot("BR", "credit_card")
+
+        self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
+        self.assertEqual(mocked.call_count, 2)
+
+    def test_http_client_opens_circuit_after_repeated_failures(self) -> None:
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(
+                retry_attempts=0,
+                circuit_breaker_failure_threshold=2,
+                circuit_breaker_reset_sec=30,
+            ),
+        )
+
+        with patch("clients.http.urlopen", side_effect=URLError("timeout")) as mocked:
+            with self.assertRaises(URLError):
+                client.fetch_metric_snapshot("BR", "credit_card")
+            with self.assertRaises(URLError):
+                client.fetch_metric_snapshot("BR", "credit_card")
+            with self.assertRaises(CircuitBreakerOpenError):
+                client.fetch_metric_snapshot("BR", "credit_card")
+
+        self.assertEqual(mocked.call_count, 2)
+
+    def test_http_client_allows_half_open_probe_after_reset(self) -> None:
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(
+                retry_attempts=0,
+                circuit_breaker_failure_threshold=1,
+                circuit_breaker_reset_sec=30,
+            ),
+        )
+
+        with patch("clients.http.time.monotonic", side_effect=[100.0, 131.0]):
+            with patch(
+                "clients.http.urlopen",
+                side_effect=[
+                    URLError("timeout"),
+                    _FakeResponse({"metric_name": "payment_failure_rate"}),
+                ],
+            ) as mocked:
+                with self.assertRaises(URLError):
+                    client.fetch_metric_snapshot("BR", "credit_card")
+                snapshot = client.fetch_metric_snapshot("BR", "credit_card")
+
+        self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
+        self.assertEqual(mocked.call_count, 2)
+
+    def test_non_retryable_half_open_response_closes_circuit(self) -> None:
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            resilience=HttpResiliencePolicy(
+                retry_attempts=0,
+                circuit_breaker_failure_threshold=1,
+                circuit_breaker_reset_sec=30,
+            ),
+        )
+        http_error = HTTPError(
+            url="http://risk-service.local/metric-snapshots",
+            code=404,
+            msg="not found",
+            hdrs=None,
+            fp=None,
+        )
+
+        with patch("clients.http.time.monotonic", side_effect=[100.0, 131.0]):
+            with patch(
+                "clients.http.urlopen",
+                side_effect=[
+                    URLError("timeout"),
+                    http_error,
+                    _FakeResponse({"metric_name": "payment_failure_rate"}),
+                ],
+            ) as mocked:
+                with self.assertRaises(URLError):
+                    client.fetch_metric_snapshot("BR", "credit_card")
+                self.assertIsNone(client.fetch_metric_snapshot("BR", "credit_card"))
+                snapshot = client.fetch_metric_snapshot("BR", "credit_card")
+
+        self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
+        self.assertEqual(mocked.call_count, 3)
+
+    def test_http_adapter_build_uses_configured_resilience_policy(self) -> None:
+        adapters = build_tool_adapters(
+            AppConfig(
+                tool_backend="http",
+                tool_http_retry_attempts=0,
+                tool_http_circuit_breaker_failure_threshold=1,
+                tool_http_circuit_breaker_reset_sec=60,
+            )
+        )
+
+        with patch("clients.http.urlopen", side_effect=URLError("timeout")) as mocked:
+            with self.assertRaises(URLError):
+                adapters[0].invoke(
+                    country="BR",
+                    channel="credit_card",
+                    time_range="recent_24h",
+                )
+            with self.assertRaises(CircuitBreakerOpenError):
+                adapters[0].invoke(
+                    country="BR",
+                    channel="credit_card",
+                    time_range="recent_24h",
+                )
+
+        self.assertEqual(mocked.call_count, 1)
 
     def test_http_clients_support_custom_paths_and_headers(self) -> None:
         metric_client = HttpMetricSnapshotClient(

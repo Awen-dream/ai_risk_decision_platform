@@ -67,7 +67,16 @@ export AI_RISK_KNOWLEDGE_BACKEND=file
 export AI_RISK_TOOL_BACKEND=http
 export AI_RISK_TOOL_HTTP_BASE_URL=https://risk-api.example.com
 export AI_RISK_TOOL_HTTP_TIMEOUT_SEC=5
+export AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS=2
+export AI_RISK_TOOL_HTTP_RETRY_BACKOFF_SEC=0.1
+export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC=30
 ```
+
+Retries use exponential backoff and apply only to network errors, timeouts, HTTP
+408/425/429, and 5xx responses. After the configured number of consecutive
+failed requests, the per-client circuit breaker opens and allows one half-open
+probe after the reset interval.
 
 If the external service uses custom endpoint paths or query parameter names:
 
@@ -125,7 +134,9 @@ python3 cli.py ask graph "请分析用户 U10001 是否属于团伙网络" --ent
 python3 cli.py ask copilot "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议" --order-id O10001 --strategy-id STRAT-001 --entity-id U10001
 ```
 
-The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode, timeout, parameter mapping, registered tools, and the Phase 1 capability declaration.
+The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode,
+timeout, retry and circuit-breaker policy, parameter mapping, registered tools,
+and the Phase 1 capability declaration.
 
 For rollout readiness, use:
 

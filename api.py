@@ -153,6 +153,10 @@ class RuntimeInfoResponse(BaseModel):
     knowledge_dir: str
     tool_http_base_url: str
     tool_http_timeout_sec: float
+    tool_http_retry_attempts: int
+    tool_http_retry_backoff_sec: float
+    tool_http_circuit_breaker_failure_threshold: int
+    tool_http_circuit_breaker_reset_sec: float
     tool_http_auth_mode: str
     tool_http_auth_header: str
     tool_http_metric_path: str
@@ -269,6 +273,14 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
             tool_http_timeout_sec=container.config.tool_http_timeout_sec,
+            tool_http_retry_attempts=container.config.tool_http_retry_attempts,
+            tool_http_retry_backoff_sec=container.config.tool_http_retry_backoff_sec,
+            tool_http_circuit_breaker_failure_threshold=(
+                container.config.tool_http_circuit_breaker_failure_threshold
+            ),
+            tool_http_circuit_breaker_reset_sec=(
+                container.config.tool_http_circuit_breaker_reset_sec
+            ),
             tool_http_auth_mode=container.config.tool_http_auth_mode,
             tool_http_auth_header=container.config.tool_http_auth_header,
             tool_http_metric_path=container.config.tool_http_metric_path,

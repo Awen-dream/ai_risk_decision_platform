@@ -37,8 +37,11 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 4. Timeouts and networking
 
 - [ ] Fill `AI_RISK_TOOL_HTTP_TIMEOUT_SEC`
+- [ ] Tune `AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS` and `AI_RISK_TOOL_HTTP_RETRY_BACKOFF_SEC`
+- [ ] Tune `AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD` and `AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC`
 - [ ] Verify the API host can reach the external service
-- [ ] Verify error behavior for timeout / 4xx / 5xx responses
+- [ ] Verify error and retry behavior for timeout / 4xx / 5xx responses
+- [ ] Verify `GET /admin/runtime` shows the expected resilience policy
 
 ## 5. Functional verification
 
@@ -63,8 +66,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 
 ## 7. Production hardening follow-ups
 
-- [ ] Add structured request IDs / trace IDs between agent API and risk service
+- [x] Add structured request IDs / trace IDs between agent API and risk service
 - [ ] Add secret management instead of raw env token injection
-- [ ] Add retry / circuit-breaker policy if the external service is unstable
+- [x] Add retry / circuit-breaker policy for transient upstream failures
 - [ ] Add audit logging for external tool requests
 - [ ] Add integration tests against a staging endpoint
