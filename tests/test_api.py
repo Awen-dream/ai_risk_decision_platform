@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -214,6 +215,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["session_store_path"], ".data/sessions.json")
         self.assertEqual(payload["case_store_backend"], "memory")
         self.assertEqual(payload["case_store_path"], ".data/cases.json")
+        self.assertEqual(payload["database_path"], ".data/platform.db")
         self.assertEqual(payload["tool_http_timeout_sec"], 5.0)
         self.assertEqual(payload["tool_http_retry_attempts"], 2)
         self.assertEqual(payload["tool_http_retry_backoff_sec"], 0.1)
@@ -264,6 +266,29 @@ class AgentApiTests(unittest.TestCase):
             [item["name"] for item in payload["readiness"]["checks"]],
             ["knowledge_index", "agent_registry", "tool_registry", "session_store", "case_store"],
         )
+
+    def test_runtime_info_checks_sqlite_database_readiness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            database_path = Path(tmp_dir) / "platform.db"
+            app = create_app(
+                AppConfig(
+                    session_store_backend="sqlite",
+                    case_store_backend="sqlite",
+                    database_path=database_path,
+                )
+            )
+            client = TestClient(app)
+
+            response = client.get("/admin/runtime")
+
+            payload = response.json()
+            checks = {item["name"]: item for item in payload["readiness"]["checks"]}
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(payload["database_path"], str(database_path))
+            self.assertEqual(payload["readiness"]["status"], "ready")
+            self.assertEqual(checks["session_store"]["status"], "ready")
+            self.assertEqual(checks["case_store"]["status"], "ready")
+            self.assertIn(str(database_path), checks["session_store"]["detail"])
 
     def test_metrics_endpoint_exposes_runtime_counters(self) -> None:
         self.client.post(

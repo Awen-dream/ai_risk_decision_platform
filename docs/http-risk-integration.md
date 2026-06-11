@@ -65,6 +65,9 @@ Use these variables to point the agent API to a real risk service:
 ```bash
 export AI_RISK_KNOWLEDGE_BACKEND=file
 export AI_RISK_TOOL_BACKEND=http
+export AI_RISK_SESSION_STORE_BACKEND=sqlite
+export AI_RISK_CASE_STORE_BACKEND=sqlite
+export AI_RISK_DATABASE_PATH=.data/platform.db
 export AI_RISK_TOOL_HTTP_BASE_URL=https://risk-api.example.com
 export AI_RISK_TOOL_HTTP_TIMEOUT_SEC=5
 export AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS=2
@@ -77,6 +80,9 @@ Retries use exponential backoff and apply only to network errors, timeouts, HTTP
 408/425/429, and 5xx responses. After the configured number of consecutive
 failed requests, the per-client circuit breaker opens and allows one half-open
 probe after the reset interval.
+
+The SQLite settings provide the transactional single-instance persistence
+baseline described in `docs/sqlite-persistence.md`.
 
 If the external service uses custom endpoint paths or query parameter names:
 

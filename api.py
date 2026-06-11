@@ -14,6 +14,7 @@ from core.models import (
     WorkflowCase,
     WorkflowCaseHistoryEntry,
 )
+from persistence.sqlite import SQLiteDatabase
 from services.case_service import ALLOWED_CASE_STATUSES
 from services.observability import (
     REQUEST_ID_HEADER,
@@ -150,6 +151,7 @@ class RuntimeInfoResponse(BaseModel):
     session_store_path: str
     case_store_backend: str
     case_store_path: str
+    database_path: str
     knowledge_dir: str
     tool_http_base_url: str
     tool_http_timeout_sec: float
@@ -270,6 +272,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,
             case_store_path=str(container.config.case_store_path),
+            database_path=str(container.config.database_path),
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
             tool_http_timeout_sec=container.config.tool_http_timeout_sec,
@@ -556,13 +559,34 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
         for capability in container.config.capability_contract()
         for tool_name in capability["required_tools"]
     }
-    session_store_ready = (
-        container.config.session_store_backend != "file"
-        or container.config.session_store_path.parent.exists()
+    sqlite_enabled = (
+        container.config.session_store_backend == "sqlite"
+        or container.config.case_store_backend == "sqlite"
     )
-    case_store_ready = (
-        container.config.case_store_backend != "file"
-        or container.config.case_store_path.parent.exists()
+    database_ready = (
+        SQLiteDatabase(container.config.database_path).is_ready()
+        if sqlite_enabled
+        else True
+    )
+    session_store_ready = _store_ready(
+        container.config.session_store_backend,
+        container.config.session_store_path,
+        database_ready,
+    )
+    case_store_ready = _store_ready(
+        container.config.case_store_backend,
+        container.config.case_store_path,
+        database_ready,
+    )
+    session_store_path = _store_path(
+        container.config,
+        container.config.session_store_backend,
+        container.config.session_store_path,
+    )
+    case_store_path = _store_path(
+        container.config,
+        container.config.case_store_backend,
+        container.config.case_store_path,
     )
     checks = [
         {
@@ -585,7 +609,7 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
             "status": "ready" if session_store_ready else "degraded",
             "detail": (
                 f"backend={container.config.session_store_backend}, "
-                f"path={container.config.session_store_path}"
+                f"path={session_store_path}"
             ),
         },
         {
@@ -593,12 +617,26 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
             "status": "ready" if case_store_ready else "degraded",
             "detail": (
                 f"backend={container.config.case_store_backend}, "
-                f"path={container.config.case_store_path}"
+                f"path={case_store_path}"
             ),
         },
     ]
     overall_status = "ready" if all(item["status"] == "ready" for item in checks) else "degraded"
     return {"status": overall_status, "checks": checks}
+
+
+def _store_ready(backend: str, file_path, database_ready: bool) -> bool:
+    if backend == "sqlite":
+        return database_ready
+    if backend == "file":
+        return file_path.parent.exists()
+    return True
+
+
+def _store_path(config: AppConfig, backend: str, file_path) -> str:
+    if backend == "sqlite":
+        return str(config.database_path)
+    return str(file_path)
 
 
 def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:

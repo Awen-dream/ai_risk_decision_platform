@@ -46,6 +46,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 5. Functional verification
 
 - [ ] Run `python3 cli.py runtime`
+- [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
+- [ ] Restart the API and verify session/case records remain available
 - [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
 - [ ] Verify `capability_contract` and `http_endpoint_contract` match the agreed Phase 1 surface
 - [ ] Run `python3 cli.py agents`
@@ -69,5 +71,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [x] Add structured request IDs / trace IDs between agent API and risk service
 - [ ] Add secret management instead of raw env token injection
 - [x] Add retry / circuit-breaker policy for transient upstream failures
+- [x] Add transactional single-instance persistence for sessions and cases
+- [ ] Replace SQLite with PostgreSQL before horizontal scaling
 - [ ] Add audit logging for external tool requests
 - [ ] Add integration tests against a staging endpoint

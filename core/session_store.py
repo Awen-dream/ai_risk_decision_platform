@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import uuid
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
 
 from core.models import AgentRequest, AgentResponse, PlannerTraceStep, SessionRecord, SessionTurn
+from persistence.sqlite import SQLiteDatabase
 
 
 class SessionStore(ABC):
@@ -129,6 +131,109 @@ class FileSessionStore(SessionStore):
         )
 
 
+class SQLiteSessionStore(SessionStore):
+    """Stores session records transactionally in SQLite."""
+
+    def __init__(self, database_path: Path) -> None:
+        self._database = SQLiteDatabase(database_path)
+        self._database.migrate(
+            1,
+            "create_sessions",
+            (
+                """
+                CREATE TABLE sessions (
+                    session_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+                "CREATE INDEX idx_sessions_updated_at ON sessions(updated_at DESC)",
+            ),
+        )
+
+    def create_session(self) -> SessionRecord:
+        session = SessionRecord(session_id=str(uuid.uuid4()))
+        timestamp = _current_timestamp()
+        with self._database.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO sessions(
+                    session_id, payload_json, revision, created_at, updated_at
+                ) VALUES (?, ?, 0, ?, ?)
+                """,
+                (
+                    session.session_id,
+                    _session_json(session),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return session
+
+    def get_session(self, session_id: str) -> SessionRecord | None:
+        with self._database.connection() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _deserialize_session_record(json.loads(row["payload_json"]))
+
+    def ensure_session(self, session_id: str | None) -> SessionRecord:
+        if session_id:
+            existing = self.get_session(session_id)
+            if existing:
+                return existing
+        return self.create_session()
+
+    def append_turn(
+        self,
+        session_id: str,
+        request: AgentRequest,
+        response: AgentResponse,
+    ) -> SessionRecord:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                session = SessionRecord(session_id=session_id or str(uuid.uuid4()))
+                timestamp = _current_timestamp()
+                connection.execute(
+                    """
+                    INSERT INTO sessions(
+                        session_id, payload_json, revision, created_at, updated_at
+                    ) VALUES (?, ?, 0, ?, ?)
+                    """,
+                    (
+                        session.session_id,
+                        _session_json(session),
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+            else:
+                session = _deserialize_session_record(json.loads(row["payload_json"]))
+            session.turns.append(build_session_turn(request, response))
+            connection.execute(
+                """
+                UPDATE sessions
+                SET payload_json = ?, revision = revision + 1, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (
+                    _session_json(session),
+                    _current_timestamp(),
+                    session.session_id,
+                ),
+            )
+        return session
+
+
 def build_session_turn(request: AgentRequest, response: AgentResponse) -> SessionTurn:
     return SessionTurn(
         agent_name=response.agent_name,
@@ -205,3 +310,18 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
             )
         )
     return SessionRecord(session_id=str(payload["session_id"]), turns=turns)
+
+
+def _session_json(session: SessionRecord) -> str:
+    return json.dumps(
+        _serialize_session_record(session),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _current_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00",
+        "Z",
+    )

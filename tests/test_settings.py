@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 from settings import AppConfig
 
@@ -43,6 +44,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.tool_http_circuit_breaker_reset_sec, 30.0)
         self.assertEqual(config.session_store_backend, "memory")
         self.assertEqual(config.case_store_backend, "memory")
+        self.assertEqual(config.database_path, Path(".data/platform.db"))
 
     def test_http_resilience_settings_load_from_environment(self) -> None:
         with patch.dict(
@@ -60,6 +62,21 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.tool_http_retry_backoff_sec, 0.25)
         self.assertEqual(config.tool_http_circuit_breaker_failure_threshold, 8)
         self.assertEqual(config.tool_http_circuit_breaker_reset_sec, 45.0)
+
+    def test_sqlite_persistence_settings_load_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_RISK_SESSION_STORE_BACKEND": "sqlite",
+                "AI_RISK_CASE_STORE_BACKEND": "sqlite",
+                "AI_RISK_DATABASE_PATH": "/tmp/ai-risk-platform.db",
+            },
+        ):
+            config = AppConfig.from_env()
+
+        self.assertEqual(config.session_store_backend, "sqlite")
+        self.assertEqual(config.case_store_backend, "sqlite")
+        self.assertEqual(config.database_path, Path("/tmp/ai-risk-platform.db"))
 
     def test_supported_capabilities_cover_phase1_surface(self) -> None:
         config = AppConfig.local_http_stack()

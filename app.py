@@ -35,7 +35,12 @@ from clients.http import (
     HttpStrategySimulationClient,
 )
 from core.runtime import AgentRuntime
-from core.session_store import FileSessionStore, InMemorySessionStore, SessionStore
+from core.session_store import (
+    FileSessionStore,
+    InMemorySessionStore,
+    SessionStore,
+    SQLiteSessionStore,
+)
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
     InMemoryGraphRelationProvider,
@@ -45,7 +50,12 @@ from providers.in_memory import (
     InMemoryStrategySimulationProvider,
 )
 from retrieval.knowledge_base import RetrievalService
-from services.case_service import CaseService, FileCaseService, InMemoryCaseService
+from services.case_service import (
+    CaseService,
+    FileCaseService,
+    InMemoryCaseService,
+    SQLiteCaseService,
+)
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
 from settings import AppConfig
@@ -183,12 +193,16 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
 
 
 def build_session_store(config: AppConfig) -> SessionStore:
+    if config.session_store_backend == "sqlite":
+        return SQLiteSessionStore(config.database_path)
     if config.session_store_backend == "file":
         return FileSessionStore(config.session_store_path)
     return InMemorySessionStore()
 
 
 def build_case_service(config: AppConfig) -> CaseService:
+    if config.case_store_backend == "sqlite":
+        return SQLiteCaseService(config.database_path)
     if config.case_store_backend == "file":
         return FileCaseService(config.case_store_path)
     return InMemoryCaseService()

@@ -22,6 +22,7 @@ env/
 # Local env files
 .env
 .env.local
+.data/
 
 # Build and packaging
 build/

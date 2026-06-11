@@ -81,6 +81,7 @@ class AppConfig:
     session_store_path: Path = Path(".data/sessions.json")
     case_store_backend: str = "memory"
     case_store_path: Path = Path(".data/cases.json")
+    database_path: Path = Path(".data/platform.db")
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     risk_service_host: str = "127.0.0.1"
@@ -187,6 +188,9 @@ class AppConfig:
             case_store_path=Path(
                 os.getenv("AI_RISK_CASE_STORE_PATH", ".data/cases.json")
             ),
+            database_path=Path(
+                os.getenv("AI_RISK_DATABASE_PATH", ".data/platform.db")
+            ),
             api_host=os.getenv("AI_RISK_API_HOST", "127.0.0.1"),
             api_port=int(os.getenv("AI_RISK_API_PORT", "8000")),
             risk_service_host=os.getenv("AI_RISK_RISK_SERVICE_HOST", "127.0.0.1"),
@@ -226,6 +230,7 @@ class AppConfig:
             session_store_path=Path(".data/sessions.json"),
             case_store_backend="memory",
             case_store_path=Path(".data/cases.json"),
+            database_path=Path(".data/platform.db"),
             api_host="127.0.0.1",
             api_port=8000,
             risk_service_host="127.0.0.1",

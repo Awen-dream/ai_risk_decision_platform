@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app import build_runtime, build_session_store
-from core.models import AgentRequest
-from core.session_store import FileSessionStore
+from core.models import AgentRequest, AgentResponse
+from core.session_store import FileSessionStore, SQLiteSessionStore
 from settings import AppConfig
 
 
 class SessionStoreTests(unittest.TestCase):
+    def test_build_session_store_returns_sqlite_store_for_sqlite_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="sqlite",
+                database_path=Path(tmp_dir) / "platform.db",
+            )
+
+            store = build_session_store(config)
+
+            self.assertIsInstance(store, SQLiteSessionStore)
+
     def test_build_session_store_returns_file_store_for_file_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(
@@ -98,6 +110,52 @@ class SessionStoreTests(unittest.TestCase):
             assert session is not None
             self.assertEqual(session.turns[0].artifacts["strategy_recommendation"]["strategy_id"], "STRAT-001")
             self.assertIn("shadow evaluation", session.turns[0].suggested_actions[0])
+
+    def test_sqlite_session_store_persists_across_runtime_rebuilds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="sqlite",
+                database_path=Path(tmp_dir) / "platform.db",
+            )
+
+            runtime = build_runtime(config)
+            session_id, _ = runtime.execute(
+                "knowledge",
+                AgentRequest(query="营销套利案件的标准排查 SOP 是什么？"),
+            )
+
+            rebuilt_runtime = build_runtime(config)
+            session = rebuilt_runtime.get_session(session_id)
+
+            self.assertIsNotNone(session)
+            assert session is not None
+            self.assertEqual(len(session.turns), 1)
+            self.assertEqual(session.turns[0].agent_name, "knowledge")
+
+    def test_sqlite_session_store_serializes_concurrent_appends(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = SQLiteSessionStore(Path(tmp_dir) / "platform.db")
+            session_id = store.create_session().session_id
+
+            def append_turn(index: int) -> None:
+                store.append_turn(
+                    session_id,
+                    AgentRequest(query=f"query-{index}"),
+                    AgentResponse(agent_name="knowledge", summary=f"summary-{index}"),
+                )
+
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                list(executor.map(append_turn, range(20)))
+
+            session = store.get_session(session_id)
+
+            self.assertIsNotNone(session)
+            assert session is not None
+            self.assertEqual(len(session.turns), 20)
+            self.assertEqual(
+                {turn.query for turn in session.turns},
+                {f"query-{index}" for index in range(20)},
+            )
 
 
 if __name__ == "__main__":
