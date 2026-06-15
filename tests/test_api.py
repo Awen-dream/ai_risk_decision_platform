@@ -261,6 +261,11 @@ class AgentApiTests(unittest.TestCase):
                 "channel_name": "channel",
             },
         )
+        self.assertEqual(payload["observability"]["prometheus_metrics_path"], "/metrics")
+        self.assertIn(
+            "http.request.duration_seconds",
+            payload["observability"]["duration_histograms"],
+        )
         self.assertEqual(payload["readiness"]["status"], "ready")
         self.assertEqual(
             [item["name"] for item in payload["readiness"]["checks"]],
@@ -304,6 +309,29 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(payload["counters"]["agent.executions.completed"], 1)
         self.assertGreaterEqual(payload["counters"]["http.requests.completed"], 1)
         self.assertIn("cases.total", payload["gauges"])
+        self.assertIn("http.request.duration_seconds", payload["histograms"])
+        self.assertIn("agent.execution.duration_seconds", payload["histograms"])
+
+    def test_prometheus_metrics_endpoint_exposes_standard_format(self) -> None:
+        self.client.post(
+            "/agents/knowledge",
+            json={"query": "营销套利案件的标准排查 SOP 是什么？"},
+        )
+
+        response = self.client.get("/metrics")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/plain", response.headers["content-type"])
+        self.assertIn("# TYPE ai_risk_http_requests_total counter", response.text)
+        self.assertIn(
+            "# TYPE ai_risk_http_request_duration_seconds histogram",
+            response.text,
+        )
+        self.assertIn(
+            'ai_risk_http_request_duration_seconds_bucket{le="+Inf"}',
+            response.text,
+        )
+        self.assertIn("# TYPE ai_risk_cases_total gauge", response.text)
 
     def test_invoke_strategy_agent(self) -> None:
         response = self.client.post(

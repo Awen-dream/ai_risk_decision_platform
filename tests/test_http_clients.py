@@ -18,7 +18,7 @@ from clients.http import (
     HttpStrategyProfileClient,
     HttpStrategySimulationClient,
 )
-from services.observability import bind_context
+from services.observability import bind_context, get_gauges_snapshot
 from settings import AppConfig
 
 
@@ -178,6 +178,12 @@ class HttpClientTests(unittest.TestCase):
                 client.fetch_metric_snapshot("BR", "credit_card")
 
         self.assertEqual(mocked.call_count, 2)
+        self.assertEqual(
+            get_gauges_snapshot()[
+                "upstream.circuit.HttpMetricSnapshotClient.open"
+            ],
+            1.0,
+        )
 
     def test_http_client_allows_half_open_probe_after_reset(self) -> None:
         client = HttpMetricSnapshotClient(

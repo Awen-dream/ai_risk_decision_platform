@@ -17,7 +17,7 @@ from clients.base import (
     StrategyProfileClient,
     StrategySimulationClient,
 )
-from services.observability import current_headers, emit_event
+from services.observability import current_headers, emit_event, set_gauge
 
 
 class CircuitBreakerOpenError(RuntimeError):
@@ -61,6 +61,8 @@ class BaseHttpJsonClient:
         self._consecutive_failures = 0
         self._circuit_opened_at: Optional[float] = None
         self._circuit_lock = Lock()
+        self._metric_id = self.__class__.__name__
+        self._set_circuit_state_metrics("closed")
 
     def _join_url(self, path: str) -> str:
         if path.startswith("http://") or path.startswith("https://"):
@@ -78,8 +80,10 @@ class BaseHttpJsonClient:
         )
         total_attempts = self._resilience.retry_attempts + 1
         for attempt in range(1, total_attempts + 1):
+            attempt_started_at = time.perf_counter()
             emit_event(
                 "upstream_http_request_started",
+                upstream_client=self._metric_id,
                 upstream_url=url,
                 method="GET",
                 attempt=attempt,
@@ -95,6 +99,8 @@ class BaseHttpJsonClient:
                         method="GET",
                         status_code=getattr(response, "status", 200),
                         attempt=attempt,
+                        upstream_client=self._metric_id,
+                        duration_seconds=time.perf_counter() - attempt_started_at,
                     )
                     return payload
             except HTTPError as exc:
@@ -106,6 +112,8 @@ class BaseHttpJsonClient:
                     error_type="HTTPError",
                     error=str(exc),
                     attempt=attempt,
+                    upstream_client=self._metric_id,
+                    duration_seconds=time.perf_counter() - attempt_started_at,
                 )
                 if not self._is_retryable_http_error(exc):
                     self._record_success(url)
@@ -124,6 +132,8 @@ class BaseHttpJsonClient:
                     error_type=type(exc).__name__,
                     error=str(error),
                     attempt=attempt,
+                    upstream_client=self._metric_id,
+                    duration_seconds=time.perf_counter() - attempt_started_at,
                 )
                 if attempt == total_attempts:
                     self._record_failure(url)
@@ -138,6 +148,8 @@ class BaseHttpJsonClient:
                     error_type=type(exc).__name__,
                     error=str(exc),
                     attempt=attempt,
+                    upstream_client=self._metric_id,
+                    duration_seconds=time.perf_counter() - attempt_started_at,
                 )
                 self._record_failure(url)
                 raise
@@ -160,6 +172,7 @@ class BaseHttpJsonClient:
             failed_attempt=attempt,
             backoff_sec=backoff_sec,
             error_type=type(exc).__name__,
+            upstream_client=self._metric_id,
         )
         if backoff_sec > 0:
             time.sleep(backoff_sec)
@@ -176,17 +189,20 @@ class BaseHttpJsonClient:
             ):
                 self._circuit_state = "half_open"
                 half_opened = True
+                self._set_circuit_state_metrics("half_open")
         if half_opened:
             emit_event(
                 "upstream_http_circuit_half_open",
                 upstream_url=url,
                 method="GET",
+                upstream_client=self._metric_id,
             )
             return
         emit_event(
             "upstream_http_circuit_request_rejected",
             upstream_url=url,
             method="GET",
+            upstream_client=self._metric_id,
         )
         raise CircuitBreakerOpenError(f"upstream circuit is open for {url}")
 
@@ -196,11 +212,13 @@ class BaseHttpJsonClient:
             self._circuit_state = "closed"
             self._consecutive_failures = 0
             self._circuit_opened_at = None
+            self._set_circuit_state_metrics("closed")
         if previous_state != "closed":
             emit_event(
                 "upstream_http_circuit_closed",
                 upstream_url=url,
                 method="GET",
+                upstream_client=self._metric_id,
             )
 
     def _record_failure(self, url: str) -> None:
@@ -214,6 +232,7 @@ class BaseHttpJsonClient:
             if should_open:
                 self._circuit_state = "open"
                 self._circuit_opened_at = time.monotonic()
+                self._set_circuit_state_metrics("open")
             failure_count = self._consecutive_failures
         if should_open:
             emit_event(
@@ -221,7 +240,13 @@ class BaseHttpJsonClient:
                 upstream_url=url,
                 method="GET",
                 consecutive_failures=failure_count,
+                upstream_client=self._metric_id,
             )
+
+    def _set_circuit_state_metrics(self, state: str) -> None:
+        prefix = f"upstream.circuit.{self._metric_id}"
+        set_gauge(f"{prefix}.open", 1.0 if state == "open" else 0.0)
+        set_gauge(f"{prefix}.half_open", 1.0 if state == "half_open" else 0.0)
 
 
 class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):

@@ -48,6 +48,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Run `python3 cli.py runtime`
 - [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
 - [ ] Restart the API and verify session/case records remain available
+- [ ] Confirm Prometheus can scrape `GET /metrics`
+- [ ] Validate the SLO and alert baseline in `docs/observability-slo.md`
 - [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
 - [ ] Verify `capability_contract` and `http_endpoint_contract` match the agreed Phase 1 surface
 - [ ] Run `python3 cli.py agents`
@@ -72,6 +74,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Add secret management instead of raw env token injection
 - [x] Add retry / circuit-breaker policy for transient upstream failures
 - [x] Add transactional single-instance persistence for sessions and cases
+- [x] Add Prometheus metrics and latency/state instrumentation
 - [ ] Replace SQLite with PostgreSQL before horizontal scaling
 - [ ] Add audit logging for external tool requests
 - [ ] Add integration tests against a staging endpoint

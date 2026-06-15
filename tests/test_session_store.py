@@ -8,6 +8,11 @@ from pathlib import Path
 from app import build_runtime, build_session_store
 from core.models import AgentRequest, AgentResponse
 from core.session_store import FileSessionStore, SQLiteSessionStore
+from services.observability import (
+    get_gauges_snapshot,
+    get_histograms_snapshot,
+    get_metrics_snapshot,
+)
 from settings import AppConfig
 
 
@@ -155,6 +160,18 @@ class SessionStoreTests(unittest.TestCase):
             self.assertEqual(
                 {turn.query for turn in session.turns},
                 {f"query-{index}" for index in range(20)},
+            )
+            self.assertEqual(
+                get_gauges_snapshot()["database.sqlite.transactions.active"],
+                0.0,
+            )
+            self.assertGreaterEqual(
+                get_metrics_snapshot()["database.sqlite.transactions.completed"],
+                21,
+            )
+            self.assertIn(
+                "database.sqlite.transaction.duration_seconds",
+                get_histograms_snapshot(),
             )
 
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import time
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from app import build_app_container
@@ -21,7 +23,11 @@ from services.observability import (
     TRACE_ID_HEADER,
     bind_context,
     emit_event,
+    get_gauges_snapshot,
+    get_histograms_snapshot,
     get_metrics_snapshot,
+    render_prometheus,
+    set_gauge,
 )
 from services.presentation import (
     build_session_turn_view,
@@ -174,13 +180,15 @@ class RuntimeInfoResponse(BaseModel):
     supported_capabilities: List[str]
     capability_contract: List[CapabilityContractPayload]
     http_endpoint_contract: List[HttpEndpointContractPayload]
+    observability: Dict[str, Any]
     readiness: Dict[str, Any]
     indexed_documents: int
 
 
 class RuntimeMetricsResponse(BaseModel):
     counters: Dict[str, int] = Field(default_factory=dict)
-    gauges: Dict[str, int] = Field(default_factory=dict)
+    gauges: Dict[str, float] = Field(default_factory=dict)
+    histograms: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
 class StrategyRecommendationPayload(BaseModel):
@@ -231,6 +239,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
 
     @fastapi_app.middleware("http")
     async def observability_middleware(request: Request, call_next):
+        started_at = time.perf_counter()
         request_id = request.headers.get(REQUEST_ID_HEADER) or uuid4().hex
         trace_id = request.headers.get(TRACE_ID_HEADER) or request_id
         with bind_context(
@@ -248,11 +257,16 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                     status_code=500,
                     error_type=type(exc).__name__,
                     error=str(exc),
+                    duration_seconds=time.perf_counter() - started_at,
                 )
                 raise
             response.headers[REQUEST_ID_HEADER] = request_id
             response.headers[TRACE_ID_HEADER] = trace_id
-            emit_event("http_request_completed", status_code=response.status_code)
+            emit_event(
+                "http_request_completed",
+                status_code=response.status_code,
+                duration_seconds=time.perf_counter() - started_at,
+            )
             return response
 
     @fastapi_app.get("/healthz")
@@ -305,15 +319,35 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 HttpEndpointContractPayload(**item)
                 for item in container.config.http_endpoint_contract()
             ],
+            observability={
+                "json_metrics_path": "/admin/metrics",
+                "prometheus_metrics_path": "/metrics",
+                "duration_histograms": [
+                    "http.request.duration_seconds",
+                    "agent.execution.duration_seconds",
+                    "upstream.http.request.duration_seconds",
+                    "database.sqlite.transaction.duration_seconds",
+                ],
+                "slo_baseline": "docs/observability-slo.md",
+            },
             readiness=_build_runtime_readiness(container),
             indexed_documents=container.retrieval.document_count(),
         )
 
     @fastapi_app.get("/admin/metrics", response_model=RuntimeMetricsResponse)
     def runtime_metrics() -> RuntimeMetricsResponse:
+        case_gauges = _build_case_gauges(container)
         return RuntimeMetricsResponse(
             counters=get_metrics_snapshot(),
-            gauges=_build_case_gauges(container),
+            gauges={**get_gauges_snapshot(), **case_gauges},
+            histograms=get_histograms_snapshot(),
+        )
+
+    @fastapi_app.get("/metrics", response_class=PlainTextResponse)
+    def prometheus_metrics() -> PlainTextResponse:
+        return PlainTextResponse(
+            render_prometheus(extra_gauges=_build_case_gauges(container)),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
@@ -568,6 +602,7 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
         if sqlite_enabled
         else True
     )
+    set_gauge("runtime.readiness.database", 1.0 if database_ready else 0.0)
     session_store_ready = _store_ready(
         container.config.session_store_backend,
         container.config.session_store_path,

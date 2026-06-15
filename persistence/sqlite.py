@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Sequence
+
+from services.observability import (
+    add_gauge,
+    increment_counter,
+    observe_histogram,
+    set_gauge,
+)
 
 
 class SQLiteDatabase:
@@ -56,19 +64,41 @@ class SQLiteDatabase:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
-        with self.connection() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                yield connection
-            except Exception:
-                connection.rollback()
-                raise
-            else:
-                connection.commit()
+        started_at = time.perf_counter()
+        increment_counter("database.sqlite.transactions.started")
+        add_gauge("database.sqlite.transactions.active", 1.0)
+        try:
+            with self.connection() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    yield connection
+                except Exception:
+                    connection.rollback()
+                    raise
+                else:
+                    connection.commit()
+            increment_counter("database.sqlite.transactions.completed")
+            set_gauge("database.sqlite.ready", 1.0)
+        except sqlite3.Error:
+            increment_counter("database.sqlite.transactions.failed")
+            set_gauge("database.sqlite.ready", 0.0)
+            raise
+        except Exception:
+            increment_counter("database.sqlite.transactions.failed")
+            raise
+        finally:
+            add_gauge("database.sqlite.transactions.active", -1.0)
+            observe_histogram(
+                "database.sqlite.transaction.duration_seconds",
+                time.perf_counter() - started_at,
+            )
 
     def is_ready(self) -> bool:
         try:
             with self.connection() as connection:
-                return connection.execute("SELECT 1").fetchone()[0] == 1
+                ready = connection.execute("SELECT 1").fetchone()[0] == 1
+                set_gauge("database.sqlite.ready", 1.0 if ready else 0.0)
+                return ready
         except sqlite3.Error:
+            set_gauge("database.sqlite.ready", 0.0)
             return False
