@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from validation.staging import (
     ValidationRunner,
     _validate_copilot,
     _validate_fields,
     _validate_runtime,
+    _validate_upstream_audit,
 )
 
 
 class StubAgentClient:
-    def __init__(self, response: dict[str, object]) -> None:
+    def __init__(self, response: Any) -> None:
         self.response = response
 
-    def post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+    def post(self, path: str, payload: dict[str, object]) -> Any:
+        return self.response
+
+    def get(self, path: str) -> Any:
         return self.response
 
 
@@ -96,6 +101,24 @@ class StagingValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "missing orchestrated tool traces"):
             _validate_copilot(client, {"order_id": "O10001"})
+
+    def test_upstream_audit_contract_requires_redacted_records(self) -> None:
+        client = StubAgentClient(
+            [
+                {
+                    "event_id": "event-1",
+                    "occurred_at": "2026-06-15T00:00:00Z",
+                    "upstream_client": "HttpOrderProfileClient",
+                    "target_url": "https://risk.example.com/orders/{order_id}",
+                    "outcome": "success",
+                    "request_header_names": ["Authorization"],
+                }
+            ]
+        )
+
+        detail = _validate_upstream_audit(client)
+
+        self.assertIn("redacted records", detail)
 
 
 if __name__ == "__main__":

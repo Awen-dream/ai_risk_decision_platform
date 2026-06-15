@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
+from urllib.parse import unquote
 from urllib.request import Request
 
 from app import build_tool_adapters
@@ -19,6 +22,7 @@ from clients.http import (
     HttpStrategySimulationClient,
 )
 from services.observability import bind_context, get_gauges_snapshot
+from services.audit import JsonLinesAuditLog
 from settings import AppConfig
 
 
@@ -33,7 +37,82 @@ class _FakeResponse:
         self._buffer.close()
 
 
+class _FailingAuditLog:
+    def record(self, event) -> None:
+        raise OSError("audit unavailable")
+
+
 class HttpClientTests(unittest.TestCase):
+    def test_audit_write_failure_does_not_break_external_call(self) -> None:
+        client = HttpMetricSnapshotClient(
+            "http://risk-service.local",
+            audit_log=_FailingAuditLog(),
+        )
+
+        with patch(
+            "clients.http.urlopen",
+            return_value=_FakeResponse({"metric_name": "payment_failure_rate"}),
+        ):
+            snapshot = client.fetch_metric_snapshot("BR", "credit_card")
+
+        self.assertEqual(snapshot["metric_name"], "payment_failure_rate")
+
+    def test_http_client_writes_redacted_audit_event_for_each_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_log = JsonLinesAuditLog(Path(tmp_dir) / "audit.jsonl")
+            client = HttpMetricSnapshotClient(
+                "http://risk-service.local",
+                headers={"Authorization": "Bearer secret-token"},
+                resilience=HttpResiliencePolicy(retry_attempts=1, retry_backoff_sec=0),
+                audit_log=audit_log,
+            )
+            http_error = HTTPError(
+                url="http://risk-service.local/metric-snapshots",
+                code=503,
+                msg="service unavailable",
+                hdrs=None,
+                fp=None,
+            )
+
+            with bind_context(request_id="req-audit", trace_id="trace-audit"):
+                with patch(
+                    "clients.http.urlopen",
+                    side_effect=[
+                        http_error,
+                        _FakeResponse({"metric_name": "payment_failure_rate"}),
+                    ],
+                ):
+                    client.fetch_metric_snapshot("BR", "credit_card")
+
+            events = audit_log.list_events(request_id="req-audit")
+
+        self.assertEqual([event["outcome"] for event in events], ["success", "http_error"])
+        self.assertEqual(events[0]["request_header_names"], ["Authorization", "X-Request-Id", "X-Trace-Id"])
+        rendered = json.dumps([unquote(event["target_url"]) for event in events])
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("credit_card", rendered)
+        self.assertNotIn("BR", rendered)
+
+    def test_http_client_audit_uses_route_template_for_arbitrary_entity_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_log = JsonLinesAuditLog(Path(tmp_dir) / "audit.jsonl")
+            client = HttpOrderProfileClient(
+                "http://risk-service.local",
+                audit_log=audit_log,
+            )
+
+            with patch(
+                "clients.http.urlopen",
+                return_value=_FakeResponse({"order_id": "customer@example.com"}),
+            ):
+                client.fetch_order_profile("customer@example.com")
+
+            events = audit_log.list_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertIn("{order_id}", events[0]["target_url"])
+        self.assertNotIn("customer@example.com", events[0]["target_url"])
+
     def test_metric_snapshot_http_client(self) -> None:
         client = HttpMetricSnapshotClient("http://risk-service.local")
 

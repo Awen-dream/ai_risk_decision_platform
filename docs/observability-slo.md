@@ -5,6 +5,7 @@ The API exposes:
 - `GET /admin/metrics`: JSON diagnostics for operators and local debugging.
 - `GET /metrics`: Prometheus text exposition for scraping and alerting.
 - `GET /admin/runtime`: active observability contract and readiness details.
+- `GET /admin/audit-events`: redacted external-tool audit records with bounded filtering.
 
 ## Trial-run SLOs
 
@@ -63,6 +64,11 @@ Any circuit remaining open:
 ```promql
 max({__name__=~"ai_risk_upstream_circuit_.*_open"}) > 0
 ```
+
+External HTTP audit writes are append-only JSONL records. Audit records retain
+request/trace/session correlation, outcome, latency, status, and header names,
+but omit payloads and credential values and redact query values and entity IDs.
+See `docs/upstream-audit.md` for operating guidance.
 
 SQLite remains the single-instance persistence baseline. Before horizontal
 scaling, move persistence to PostgreSQL and add instance-level labels and

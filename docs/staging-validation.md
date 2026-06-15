@@ -43,6 +43,8 @@ fault injection only for the mock risk service, and verifies:
 2. Repeated exhausted requests open the circuit.
 3. Clearing the fault and waiting for reset permits a half-open probe and
    closes the circuit.
+4. Retry failures, circuit rejection, and recovery success remain available as
+   redacted audit evidence.
 
 The default report is written to `.data/reports/recovery-drill.json`.
 The drill refuses to start if either isolated port is already in use. Override

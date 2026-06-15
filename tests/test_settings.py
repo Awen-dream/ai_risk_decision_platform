@@ -63,6 +63,19 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.tool_http_circuit_breaker_failure_threshold, 8)
         self.assertEqual(config.tool_http_circuit_breaker_reset_sec, 45.0)
 
+    def test_http_audit_settings_load_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AI_RISK_TOOL_HTTP_AUDIT_ENABLED": "false",
+                "AI_RISK_TOOL_HTTP_AUDIT_PATH": "/tmp/upstream-audit.jsonl",
+            },
+        ):
+            config = AppConfig.from_env()
+
+        self.assertFalse(config.tool_http_audit_enabled)
+        self.assertEqual(config.tool_http_audit_path, Path("/tmp/upstream-audit.jsonl"))
+
     def test_sqlite_persistence_settings_load_from_environment(self) -> None:
         with patch.dict(
             "os.environ",

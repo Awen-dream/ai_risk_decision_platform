@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -259,6 +259,7 @@ def run_contract_validation(
             },
         ),
     )
+    runner.check("agent.upstream_audit", lambda: _validate_upstream_audit(agent))
     runner.check("agent.prometheus", lambda: _validate_prometheus(agent_base_url))
     return runner.report()
 
@@ -287,6 +288,10 @@ def run_recovery_drill(
     runner.check(
         "recovery.half_open_closes",
         lambda: _half_open_recovery_check(agent),
+    )
+    runner.check(
+        "recovery.audit_evidence",
+        lambda: _recovery_audit_evidence_check(agent),
     )
     risk.delete("/admin/faults")
     return runner.report()
@@ -329,6 +334,19 @@ def _half_open_recovery_check(agent: JsonHttpClient) -> str:
     if metrics["gauges"].get(gauge_name) != 0.0:
         raise AssertionError(f"expected closed circuit gauge, got {metrics['gauges'].get(gauge_name)}")
     return "half-open probe succeeded and circuit closed"
+
+
+def _recovery_audit_evidence_check(agent: JsonHttpClient) -> str:
+    events = agent.get(
+        "/admin/audit-events?"
+        + urlencode({"limit": 200, "upstream_client": "HttpMetricSnapshotClient"})
+    )
+    outcomes = {event["outcome"] for event in events}
+    required = {"success", "http_error", "circuit_rejected"}
+    missing = required - outcomes
+    if missing:
+        raise AssertionError(f"recovery audit evidence missing outcomes: {sorted(missing)}")
+    return "retry, circuit rejection, and recovery outcomes are auditable"
 
 
 def _invoke_investigation(agent: JsonHttpClient) -> dict[str, Any]:
@@ -432,6 +450,33 @@ def _validate_prometheus(agent_base_url: str) -> str:
     if "ai_risk_http_requests_total" not in payload:
         raise AssertionError("Prometheus request counter is missing")
     return "Prometheus metrics endpoint is scrapeable"
+
+
+def _validate_upstream_audit(agent: JsonHttpClient) -> str:
+    events = agent.get("/admin/audit-events?limit=200")
+    if not events:
+        raise AssertionError("no upstream audit events found after agent validation")
+    required_fields = {
+        "event_id",
+        "occurred_at",
+        "upstream_client",
+        "target_url",
+        "outcome",
+        "request_header_names",
+    }
+    for event in events:
+        missing = required_fields - set(event)
+        if missing:
+            raise AssertionError(f"audit event missing fields: {sorted(missing)}")
+    rendered = json.dumps(
+        [unquote(event["target_url"]) for event in events],
+        ensure_ascii=False,
+    )
+    sensitive_values = ("O10001", "U10001", "STRAT-001", "credit_card", "BR")
+    leaked = [value for value in sensitive_values if value in rendered]
+    if leaked:
+        raise AssertionError(f"audit events contain unredacted values: {leaked}")
+    return f"upstream audit query returned {len(events)} redacted records"
 
 
 def _tool_trace(response: dict[str, Any], name: str) -> dict[str, Any]:

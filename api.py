@@ -167,6 +167,8 @@ class RuntimeInfoResponse(BaseModel):
     tool_http_circuit_breaker_reset_sec: float
     tool_http_auth_mode: str
     tool_http_auth_header: str
+    tool_http_audit_enabled: bool
+    tool_http_audit_path: str
     tool_http_metric_path: str
     tool_http_case_path: str
     tool_http_order_path_template: str
@@ -189,6 +191,26 @@ class RuntimeMetricsResponse(BaseModel):
     counters: Dict[str, int] = Field(default_factory=dict)
     gauges: Dict[str, float] = Field(default_factory=dict)
     histograms: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class UpstreamAuditEventPayload(BaseModel):
+    event_id: str
+    occurred_at: str
+    event_type: str
+    upstream_client: str
+    method: str
+    target_url: str
+    outcome: str
+    status_code: Optional[int] = None
+    attempt: Optional[int] = None
+    total_attempts: Optional[int] = None
+    duration_ms: Optional[float] = None
+    error_type: Optional[str] = None
+    request_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    session_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    request_header_names: List[str] = Field(default_factory=list)
 
 
 class StrategyRecommendationPayload(BaseModel):
@@ -300,6 +322,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             ),
             tool_http_auth_mode=container.config.tool_http_auth_mode,
             tool_http_auth_header=container.config.tool_http_auth_header,
+            tool_http_audit_enabled=container.config.tool_http_audit_enabled,
+            tool_http_audit_path=str(container.config.tool_http_audit_path),
             tool_http_metric_path=container.config.tool_http_metric_path,
             tool_http_case_path=container.config.tool_http_case_path,
             tool_http_order_path_template=container.config.tool_http_order_path_template,
@@ -322,6 +346,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             observability={
                 "json_metrics_path": "/admin/metrics",
                 "prometheus_metrics_path": "/metrics",
+                "upstream_audit_path": "/admin/audit-events",
                 "duration_histograms": [
                     "http.request.duration_seconds",
                     "agent.execution.duration_seconds",
@@ -349,6 +374,23 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             render_prometheus(extra_gauges=_build_case_gauges(container)),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
+
+    @fastapi_app.get("/admin/audit-events", response_model=List[UpstreamAuditEventPayload])
+    def upstream_audit_events(
+        outcome: Optional[str] = None,
+        upstream_client: Optional[str] = None,
+        request_id: Optional[str] = None,
+        limit: int = Query(default=100, ge=1, le=200),
+    ) -> List[UpstreamAuditEventPayload]:
+        return [
+            UpstreamAuditEventPayload(**event)
+            for event in container.audit_log.list_events(
+                limit=limit,
+                outcome=outcome,
+                upstream_client=upstream_client,
+                request_id=request_id,
+            )
+        ]
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
     def create_session() -> SessionResponse:

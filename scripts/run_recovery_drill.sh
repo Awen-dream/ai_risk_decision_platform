@@ -15,6 +15,7 @@ RISK_HOST="${AI_RISK_DRILL_RISK_HOST:-127.0.0.1}"
 RISK_PORT="${AI_RISK_DRILL_RISK_PORT:-18090}"
 REPORT_PATH="${AI_RISK_DRILL_REPORT_PATH:-.data/reports/recovery-drill.json}"
 DATABASE_PATH="${AI_RISK_DRILL_DATABASE_PATH:-.data/recovery-drill.db}"
+AUDIT_PATH="${AI_RISK_DRILL_AUDIT_PATH:-.data/recovery-drill-audit-$$.jsonl}"
 
 cleanup() {
   if [[ -n "${API_PID:-}" ]]; then
@@ -72,6 +73,8 @@ AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC=0.2 \
 AI_RISK_SESSION_STORE_BACKEND=sqlite \
 AI_RISK_CASE_STORE_BACKEND=sqlite \
 AI_RISK_DATABASE_PATH="$DATABASE_PATH" \
+AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true \
+AI_RISK_TOOL_HTTP_AUDIT_PATH="$AUDIT_PATH" \
   "$PYTHON_BIN" -m uvicorn api:fastapi_app \
   --host "$API_HOST" --port "$API_PORT" >.data/recovery-drill-api.log 2>&1 &
 API_PID=$!

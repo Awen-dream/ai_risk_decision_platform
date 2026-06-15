@@ -76,6 +76,8 @@ class AppConfig:
     tool_http_auth_mode: str = "none"
     tool_http_auth_token: str = ""
     tool_http_auth_header: str = "Authorization"
+    tool_http_audit_enabled: bool = True
+    tool_http_audit_path: Path = Path(".data/upstream-audit.jsonl")
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
@@ -149,6 +151,16 @@ class AppConfig:
             tool_http_auth_header=os.getenv(
                 "AI_RISK_TOOL_HTTP_AUTH_HEADER",
                 "Authorization",
+            ),
+            tool_http_audit_enabled=_env_bool(
+                "AI_RISK_TOOL_HTTP_AUDIT_ENABLED",
+                True,
+            ),
+            tool_http_audit_path=Path(
+                os.getenv(
+                    "AI_RISK_TOOL_HTTP_AUDIT_PATH",
+                    ".data/upstream-audit.jsonl",
+                )
             ),
             tool_http_metric_path=os.getenv(
                 "AI_RISK_TOOL_HTTP_METRIC_PATH",
@@ -230,6 +242,8 @@ class AppConfig:
             tool_http_auth_mode="none",
             tool_http_auth_token="",
             tool_http_auth_header="Authorization",
+            tool_http_audit_enabled=True,
+            tool_http_audit_path=Path(".data/upstream-audit.jsonl"),
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",

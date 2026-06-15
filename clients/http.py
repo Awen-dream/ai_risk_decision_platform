@@ -17,6 +17,7 @@ from clients.base import (
     StrategyProfileClient,
     StrategySimulationClient,
 )
+from services.audit import AuditLog, build_upstream_audit_event, redact_url
 from services.observability import current_headers, emit_event, set_gauge
 
 
@@ -52,11 +53,13 @@ class BaseHttpJsonClient:
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._headers = headers or {}
         self._timeout_sec = timeout_sec
         self._resilience = resilience or HttpResiliencePolicy()
+        self._audit_log = audit_log
         self._circuit_state = "closed"
         self._consecutive_failures = 0
         self._circuit_opened_at: Optional[float] = None
@@ -69,10 +72,13 @@ class BaseHttpJsonClient:
             return path
         return f"{self._base_url}{path}"
 
-    def _get_json(self, path: str) -> Any:
+    def _get_json(self, path: str, *, audit_path: str | None = None) -> Any:
         url = self._join_url(path)
-        self._ensure_circuit_allows_request(url)
+        audit_url = self._join_url(audit_path) if audit_path is not None else url
+        safe_url = redact_url(audit_url)
+        self._ensure_circuit_allows_request(audit_url)
         request_headers = {**self._headers, **current_headers()}
+        request_header_names = list(request_headers)
         request = Request(
             url,
             headers=request_headers,
@@ -84,7 +90,7 @@ class BaseHttpJsonClient:
             emit_event(
                 "upstream_http_request_started",
                 upstream_client=self._metric_id,
-                upstream_url=url,
+                upstream_url=safe_url,
                 method="GET",
                 attempt=attempt,
                 total_attempts=total_attempts,
@@ -92,66 +98,103 @@ class BaseHttpJsonClient:
             try:
                 with urlopen(request, timeout=self._timeout_sec) as response:
                     payload = json.load(response)
-                    self._record_success(url)
+                    self._record_success(audit_url)
+                    duration_seconds = time.perf_counter() - attempt_started_at
                     emit_event(
                         "upstream_http_request_completed",
-                        upstream_url=url,
+                        upstream_url=safe_url,
                         method="GET",
                         status_code=getattr(response, "status", 200),
                         attempt=attempt,
                         upstream_client=self._metric_id,
-                        duration_seconds=time.perf_counter() - attempt_started_at,
+                        duration_seconds=duration_seconds,
+                    )
+                    self._record_audit(
+                        url=audit_url,
+                        outcome="success",
+                        attempt=attempt,
+                        total_attempts=total_attempts,
+                        duration_seconds=duration_seconds,
+                        status_code=getattr(response, "status", 200),
+                        request_header_names=request_header_names,
                     )
                     return payload
             except HTTPError as exc:
+                duration_seconds = time.perf_counter() - attempt_started_at
                 emit_event(
                     "upstream_http_request_failed",
-                    upstream_url=url,
+                    upstream_url=safe_url,
                     method="GET",
                     status_code=exc.code,
                     error_type="HTTPError",
-                    error=str(exc),
                     attempt=attempt,
                     upstream_client=self._metric_id,
-                    duration_seconds=time.perf_counter() - attempt_started_at,
+                    duration_seconds=duration_seconds,
+                )
+                self._record_audit(
+                    url=audit_url,
+                    outcome="http_error",
+                    attempt=attempt,
+                    total_attempts=total_attempts,
+                    duration_seconds=duration_seconds,
+                    status_code=exc.code,
+                    error_type="HTTPError",
+                    request_header_names=request_header_names,
                 )
                 if not self._is_retryable_http_error(exc):
-                    self._record_success(url)
+                    self._record_success(audit_url)
                     raise
                 if attempt == total_attempts:
-                    self._record_failure(url)
+                    self._record_failure(audit_url)
                     raise
-                self._backoff_before_retry(url, attempt, exc)
+                self._backoff_before_retry(audit_url, attempt, exc)
             except (URLError, TimeoutError) as exc:
-                error = exc.reason if isinstance(exc, URLError) else str(exc)
+                duration_seconds = time.perf_counter() - attempt_started_at
                 emit_event(
                     "upstream_http_request_failed",
-                    upstream_url=url,
+                    upstream_url=safe_url,
                     method="GET",
                     status_code=None,
                     error_type=type(exc).__name__,
-                    error=str(error),
                     attempt=attempt,
                     upstream_client=self._metric_id,
-                    duration_seconds=time.perf_counter() - attempt_started_at,
+                    duration_seconds=duration_seconds,
+                )
+                self._record_audit(
+                    url=audit_url,
+                    outcome="network_error",
+                    attempt=attempt,
+                    total_attempts=total_attempts,
+                    duration_seconds=duration_seconds,
+                    error_type=type(exc).__name__,
+                    request_header_names=request_header_names,
                 )
                 if attempt == total_attempts:
-                    self._record_failure(url)
+                    self._record_failure(audit_url)
                     raise
-                self._backoff_before_retry(url, attempt, exc)
+                self._backoff_before_retry(audit_url, attempt, exc)
             except json.JSONDecodeError as exc:
+                duration_seconds = time.perf_counter() - attempt_started_at
                 emit_event(
                     "upstream_http_request_failed",
-                    upstream_url=url,
+                    upstream_url=safe_url,
                     method="GET",
                     status_code=None,
                     error_type=type(exc).__name__,
-                    error=str(exc),
                     attempt=attempt,
                     upstream_client=self._metric_id,
-                    duration_seconds=time.perf_counter() - attempt_started_at,
+                    duration_seconds=duration_seconds,
                 )
-                self._record_failure(url)
+                self._record_audit(
+                    url=audit_url,
+                    outcome="invalid_json",
+                    attempt=attempt,
+                    total_attempts=total_attempts,
+                    duration_seconds=duration_seconds,
+                    error_type=type(exc).__name__,
+                    request_header_names=request_header_names,
+                )
+                self._record_failure(audit_url)
                 raise
 
     @staticmethod
@@ -167,7 +210,7 @@ class BaseHttpJsonClient:
         backoff_sec = self._resilience.retry_backoff_sec * (2 ** (attempt - 1))
         emit_event(
             "upstream_http_request_retrying",
-            upstream_url=url,
+            upstream_url=redact_url(url),
             method="GET",
             failed_attempt=attempt,
             backoff_sec=backoff_sec,
@@ -193,18 +236,26 @@ class BaseHttpJsonClient:
         if half_opened:
             emit_event(
                 "upstream_http_circuit_half_open",
-                upstream_url=url,
+                upstream_url=redact_url(url),
                 method="GET",
                 upstream_client=self._metric_id,
             )
             return
         emit_event(
             "upstream_http_circuit_request_rejected",
-            upstream_url=url,
+            upstream_url=redact_url(url),
             method="GET",
             upstream_client=self._metric_id,
         )
-        raise CircuitBreakerOpenError(f"upstream circuit is open for {url}")
+        self._record_audit(
+            url=url,
+            outcome="circuit_rejected",
+            attempt=None,
+            total_attempts=None,
+            error_type="CircuitBreakerOpenError",
+            request_header_names=list({**self._headers, **current_headers()}),
+        )
+        raise CircuitBreakerOpenError(f"upstream circuit is open for {redact_url(url)}")
 
     def _record_success(self, url: str) -> None:
         with self._circuit_lock:
@@ -216,7 +267,7 @@ class BaseHttpJsonClient:
         if previous_state != "closed":
             emit_event(
                 "upstream_http_circuit_closed",
-                upstream_url=url,
+                upstream_url=redact_url(url),
                 method="GET",
                 upstream_client=self._metric_id,
             )
@@ -237,7 +288,7 @@ class BaseHttpJsonClient:
         if should_open:
             emit_event(
                 "upstream_http_circuit_opened",
-                upstream_url=url,
+                upstream_url=redact_url(url),
                 method="GET",
                 consecutive_failures=failure_count,
                 upstream_client=self._metric_id,
@@ -247,6 +298,43 @@ class BaseHttpJsonClient:
         prefix = f"upstream.circuit.{self._metric_id}"
         set_gauge(f"{prefix}.open", 1.0 if state == "open" else 0.0)
         set_gauge(f"{prefix}.half_open", 1.0 if state == "half_open" else 0.0)
+
+    def _record_audit(
+        self,
+        *,
+        url: str,
+        outcome: str,
+        attempt: int | None,
+        total_attempts: int | None,
+        duration_seconds: float | None = None,
+        status_code: int | None = None,
+        error_type: str | None = None,
+        request_header_names: list[str] | None = None,
+    ) -> None:
+        if self._audit_log is None:
+            return
+        try:
+            self._audit_log.record(
+                build_upstream_audit_event(
+                    upstream_client=self._metric_id,
+                    method="GET",
+                    url=url,
+                    outcome=outcome,
+                    attempt=attempt,
+                    total_attempts=total_attempts,
+                    duration_seconds=duration_seconds,
+                    status_code=status_code,
+                    error_type=error_type,
+                    request_header_names=request_header_names,
+                )
+            )
+        except Exception as exc:
+            emit_event(
+                "upstream_http_audit_failed",
+                upstream_client=self._metric_id,
+                upstream_url=redact_url(url),
+                error_type=type(exc).__name__,
+            )
 
 
 class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):
@@ -260,12 +348,14 @@ class HttpMetricSnapshotClient(BaseHttpJsonClient, MetricSnapshotClient):
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path = path
         self._country_param = country_param
@@ -302,12 +392,14 @@ class HttpCaseRecordClient(BaseHttpJsonClient, CaseRecordClient):
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path = path
         self._country_param = country_param
@@ -337,18 +429,23 @@ class HttpOrderProfileClient(BaseHttpJsonClient, OrderProfileClient):
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path_template = path_template
 
     def fetch_order_profile(self, order_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self._get_json(self._path_template.format(order_id=order_id))
+            return self._get_json(
+                self._path_template.format(order_id=order_id),
+                audit_path=self._path_template,
+            )
         except HTTPError as exc:
             if exc.code == 404:
                 return None
@@ -364,18 +461,23 @@ class HttpStrategyProfileClient(BaseHttpJsonClient, StrategyProfileClient):
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path_template = path_template
 
     def fetch_strategy_profile(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self._get_json(self._path_template.format(strategy_id=strategy_id))
+            return self._get_json(
+                self._path_template.format(strategy_id=strategy_id),
+                audit_path=self._path_template,
+            )
         except HTTPError as exc:
             if exc.code == 404:
                 return None
@@ -391,18 +493,23 @@ class HttpStrategySimulationClient(BaseHttpJsonClient, StrategySimulationClient)
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path_template = path_template
 
     def fetch_strategy_simulation(self, strategy_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self._get_json(self._path_template.format(strategy_id=strategy_id))
+            return self._get_json(
+                self._path_template.format(strategy_id=strategy_id),
+                audit_path=self._path_template,
+            )
         except HTTPError as exc:
             if exc.code == 404:
                 return None
@@ -418,18 +525,23 @@ class HttpGraphRelationClient(BaseHttpJsonClient, GraphRelationClient):
         headers: Optional[Dict[str, str]] = None,
         timeout_sec: float = 5.0,
         resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
     ) -> None:
         super().__init__(
             base_url,
             headers=headers,
             timeout_sec=timeout_sec,
             resilience=resilience,
+            audit_log=audit_log,
         )
         self._path_template = path_template
 
     def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return self._get_json(self._path_template.format(entity_id=entity_id))
+            return self._get_json(
+                self._path_template.format(entity_id=entity_id),
+                audit_path=self._path_template,
+            )
         except HTTPError as exc:
             if exc.code == 404:
                 return None

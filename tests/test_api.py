@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from api import create_app, fastapi_app
 from core.models import ToolResult
+from services.audit import JsonLinesAuditLog, build_upstream_audit_event
 from services.observability import LOGGER_NAME
 from settings import AppConfig
 from tools.registry import ToolRegistry
@@ -223,6 +224,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_circuit_breaker_reset_sec"], 30.0)
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_auth_header"], "Authorization")
+        self.assertTrue(payload["tool_http_audit_enabled"])
+        self.assertEqual(payload["tool_http_audit_path"], ".data/upstream-audit.jsonl")
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
         self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
@@ -262,6 +265,7 @@ class AgentApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(payload["observability"]["prometheus_metrics_path"], "/metrics")
+        self.assertEqual(payload["observability"]["upstream_audit_path"], "/admin/audit-events")
         self.assertIn(
             "http.request.duration_seconds",
             payload["observability"]["duration_histograms"],
@@ -271,6 +275,35 @@ class AgentApiTests(unittest.TestCase):
             [item["name"] for item in payload["readiness"]["checks"]],
             ["knowledge_index", "agent_registry", "tool_registry", "session_store", "case_store"],
         )
+
+    def test_audit_events_endpoint_filters_redacted_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_path = Path(tmp_dir) / "audit.jsonl"
+            audit_log = JsonLinesAuditLog(audit_path)
+            audit_log.record(
+                build_upstream_audit_event(
+                    upstream_client="HttpOrderProfileClient",
+                    method="GET",
+                    url="https://risk.example.com/orders/O10001",
+                    outcome="success",
+                    attempt=1,
+                    total_attempts=1,
+                    status_code=200,
+                )
+            )
+            app = create_app(AppConfig(tool_http_audit_path=audit_path))
+            client = TestClient(app)
+
+            response = client.get(
+                "/admin/audit-events",
+                params={"outcome": "success", "upstream_client": "HttpOrderProfileClient"},
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["outcome"], "success")
+        self.assertNotIn("O10001", payload[0]["target_url"])
 
     def test_runtime_info_checks_sqlite_database_readiness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

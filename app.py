@@ -56,6 +56,7 @@ from services.case_service import (
     InMemoryCaseService,
     SQLiteCaseService,
 )
+from services.audit import AuditLog, JsonLinesAuditLog, NoopAuditLog
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
 from settings import AppConfig
@@ -70,6 +71,7 @@ class AppContainer:
     tools: ToolRegistry
     knowledge_sync_service: KnowledgeSyncService
     case_service: CaseService
+    audit_log: AuditLog
 
 
 def build_knowledge_sources(config: AppConfig) -> list[KnowledgeSource]:
@@ -78,7 +80,10 @@ def build_knowledge_sources(config: AppConfig) -> list[KnowledgeSource]:
     return [InMemoryKnowledgeSource()]
 
 
-def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
+def build_tool_adapters(
+    config: AppConfig,
+    audit_log: AuditLog | None = None,
+) -> list[ToolAdapter]:
     if config.tool_backend == "file":
         metric_provider = InMemoryMetricSnapshotProvider(
             client=JsonMetricSnapshotSqlClient(config.metric_snapshot_path)
@@ -125,6 +130,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         case_provider = InMemoryCaseRecordProvider(
@@ -136,6 +142,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         order_provider = InMemoryOrderProfileProvider(
@@ -145,6 +152,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         strategy_provider = InMemoryStrategyProfileProvider(
@@ -154,6 +162,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         simulation_provider = InMemoryStrategySimulationProvider(
@@ -163,6 +172,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         graph_provider = InMemoryGraphRelationProvider(
@@ -172,6 +182,7 @@ def build_tool_adapters(config: AppConfig) -> list[ToolAdapter]:
                 headers=http_headers,
                 timeout_sec=config.tool_http_timeout_sec,
                 resilience=http_resilience,
+                audit_log=audit_log,
             )
         )
         return [
@@ -208,6 +219,12 @@ def build_case_service(config: AppConfig) -> CaseService:
     return InMemoryCaseService()
 
 
+def build_audit_log(config: AppConfig) -> AuditLog:
+    if config.tool_http_audit_enabled:
+        return JsonLinesAuditLog(config.tool_http_audit_path)
+    return NoopAuditLog()
+
+
 def build_app_container(config: AppConfig | None = None) -> AppContainer:
     """Create the application container using the configured backends."""
     config = config or AppConfig.from_env()
@@ -217,8 +234,9 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     for source in knowledge_sources:
         retrieval.add_source(source)
 
+    audit_log = build_audit_log(config)
     tools = ToolRegistry()
-    for adapter in build_tool_adapters(config):
+    for adapter in build_tool_adapters(config, audit_log=audit_log):
         tools.register_adapter(adapter)
 
     runtime = AgentRuntime(session_store=build_session_store(config))
@@ -243,6 +261,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         tools=tools,
         knowledge_sync_service=KnowledgeSyncService(retrieval, knowledge_sources),
         case_service=build_case_service(config),
+        audit_log=audit_log,
     )
 
 

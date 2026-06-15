@@ -74,6 +74,8 @@ export AI_RISK_TOOL_HTTP_RETRY_ATTEMPTS=2
 export AI_RISK_TOOL_HTTP_RETRY_BACKOFF_SEC=0.1
 export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
 export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC=30
+export AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true
+export AI_RISK_TOOL_HTTP_AUDIT_PATH=.data/upstream-audit.jsonl
 ```
 
 Retries use exponential backoff and apply only to network errors, timeouts, HTTP
@@ -123,7 +125,8 @@ export AI_RISK_TOOL_HTTP_AUTH_HEADER=X-API-Key
 4. Verify config with `python3 cli.py runtime`
 5. Check `supported_capabilities`, `capability_contract`, and `http_endpoint_contract`
 6. Run one `knowledge` query and one query for each of `investigation`, `strategy`, `graph`, `copilot`
-7. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
+7. Check `/admin/audit-events` for redacted, correlated external-call records
+8. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
 ## Local verification
 
@@ -141,8 +144,8 @@ python3 cli.py ask copilot "请联合分析订单 O10001 和策略 STRAT-001，�
 ```
 
 The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode,
-timeout, retry and circuit-breaker policy, parameter mapping, registered tools,
-and the Phase 1 capability declaration.
+timeout, retry, circuit-breaker and audit policy, parameter mapping, registered
+tools, and the Phase 1 capability declaration.
 
 For rollout readiness, use:
 

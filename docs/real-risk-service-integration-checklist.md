@@ -42,6 +42,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Verify the API host can reach the external service
 - [ ] Verify error and retry behavior for timeout / 4xx / 5xx responses
 - [ ] Verify `GET /admin/runtime` shows the expected resilience policy
+- [ ] Confirm `AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true` and set the audit path
 
 ## 5. Functional verification
 
@@ -52,6 +53,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
 - [ ] Restart the API and verify session/case records remain available
 - [ ] Confirm Prometheus can scrape `GET /metrics`
+- [ ] Query `GET /admin/audit-events` and confirm credentials and entity IDs are redacted
 - [ ] Validate the SLO and alert baseline in `docs/observability-slo.md`
 - [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
 - [ ] Verify `capability_contract` and `http_endpoint_contract` match the agreed Phase 1 surface
@@ -79,7 +81,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [x] Add transactional single-instance persistence for sessions and cases
 - [x] Add Prometheus metrics and latency/state instrumentation
 - [ ] Replace SQLite with PostgreSQL before horizontal scaling
-- [ ] Add audit logging for external tool requests
+- [x] Add append-only, redacted audit logging for external tool requests
 - [x] Add reusable contract validation for a staging endpoint
 - [x] Add automated retry, circuit-breaker, and recovery drill
 - [ ] Run and sign off validation against the real staging endpoint
