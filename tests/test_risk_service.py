@@ -94,6 +94,50 @@ class RiskServiceApiTests(unittest.TestCase):
         self.assertEqual(order_response.status_code, 404)
         self.assertEqual(graph_response.status_code, 404)
 
+    def test_fault_control_endpoint_is_disabled_by_default(self) -> None:
+        response = self.client.get("/admin/faults")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_enabled_fault_rule_is_finite_and_clearable(self) -> None:
+        client = TestClient(
+            create_risk_service_app(
+                AppConfig(
+                    risk_service_fault_injection_enabled=True,
+                    metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
+                    case_record_path=Path("data/risk/case_records.json"),
+                    order_profile_path=Path("data/risk/order_profiles.json"),
+                    strategy_profile_path=Path("data/risk/strategy_profiles.json"),
+                    strategy_simulation_path=Path("data/risk/strategy_simulations.json"),
+                    graph_relation_path=Path("data/risk/graph_relations.json"),
+                )
+            )
+        )
+        configured = client.post(
+            "/admin/faults",
+            json={
+                "target_path": "/metric-snapshots",
+                "status_code": 503,
+                "remaining": 1,
+            },
+        )
+
+        injected = client.get(
+            "/metric-snapshots",
+            params={"country": "BR", "channel": "credit_card"},
+        )
+        recovered = client.get(
+            "/metric-snapshots",
+            params={"country": "BR", "channel": "credit_card"},
+        )
+        cleared = client.delete("/admin/faults")
+
+        self.assertEqual(configured.status_code, 200)
+        self.assertEqual(injected.status_code, 503)
+        self.assertEqual(injected.headers["X-Fault-Injected"], "true")
+        self.assertEqual(recovered.status_code, 200)
+        self.assertEqual(cleared.json(), {"status": "cleared"})
+
 
 if __name__ == "__main__":
     unittest.main()

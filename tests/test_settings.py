@@ -78,6 +78,16 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.case_store_backend, "sqlite")
         self.assertEqual(config.database_path, Path("/tmp/ai-risk-platform.db"))
 
+    def test_fault_injection_requires_explicit_environment_flag(self) -> None:
+        self.assertFalse(AppConfig().risk_service_fault_injection_enabled)
+        with patch.dict(
+            "os.environ",
+            {"AI_RISK_RISK_SERVICE_FAULT_INJECTION_ENABLED": "true"},
+        ):
+            config = AppConfig.from_env()
+
+        self.assertTrue(config.risk_service_fault_injection_enabled)
+
     def test_supported_capabilities_cover_phase1_surface(self) -> None:
         config = AppConfig.local_http_stack()
 

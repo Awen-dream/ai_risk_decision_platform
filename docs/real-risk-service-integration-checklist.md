@@ -45,6 +45,9 @@ Use this checklist when replacing the local mock risk service with a real extern
 
 ## 5. Functional verification
 
+- [ ] Run staging contract validation with `make validate-staging RISK_BASE_URL=... AGENT_BASE_URL=...`
+- [ ] Archive the generated staging validation JSON report
+- [ ] Run `make recovery-drill` and archive the recovery report
 - [ ] Run `python3 cli.py runtime`
 - [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
 - [ ] Restart the API and verify session/case records remain available
@@ -77,4 +80,6 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [x] Add Prometheus metrics and latency/state instrumentation
 - [ ] Replace SQLite with PostgreSQL before horizontal scaling
 - [ ] Add audit logging for external tool requests
-- [ ] Add integration tests against a staging endpoint
+- [x] Add reusable contract validation for a staging endpoint
+- [x] Add automated retry, circuit-breaker, and recovery drill
+- [ ] Run and sign off validation against the real staging endpoint

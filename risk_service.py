@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from clients.file import (
     JsonCaseRecordClient,
@@ -13,6 +15,7 @@ from clients.file import (
     JsonStrategyProfileClient,
     JsonStrategySimulationClient,
 )
+from services.fault_injection import FaultController, FaultRule
 from settings import AppConfig
 
 
@@ -83,6 +86,13 @@ class GraphRelationResponse(BaseModel):
     risk_reason: str
 
 
+class FaultRuleRequest(BaseModel):
+    target_path: str = Field(..., min_length=1)
+    status_code: int = Field(default=503, ge=400, le=599)
+    remaining: int = Field(default=1, ge=1, le=1000)
+    delay_sec: float = Field(default=0.0, ge=0.0, le=30.0)
+
+
 def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     config = config or AppConfig.from_env()
     metric_client = JsonMetricSnapshotSqlClient(config.metric_snapshot_path)
@@ -91,12 +101,56 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     strategy_client = JsonStrategyProfileClient(config.strategy_profile_path)
     simulation_client = JsonStrategySimulationClient(config.strategy_simulation_path)
     graph_client = JsonGraphRelationClient(config.graph_relation_path)
+    fault_controller = FaultController()
 
     fastapi_app = FastAPI(
         title="AI Risk Mock Service",
         version="0.1.0",
         description="Mock risk data service for local HTTP backend integration.",
     )
+
+    if config.risk_service_fault_injection_enabled:
+        @fastapi_app.middleware("http")
+        async def fault_injection_middleware(request: Request, call_next):
+            rule = fault_controller.consume(request.url.path)
+            if rule is None:
+                return await call_next(request)
+            if rule.delay_sec:
+                await asyncio.sleep(rule.delay_sec)
+            return JSONResponse(
+                status_code=rule.status_code,
+                content={
+                    "detail": "Injected fault for recovery drill",
+                    "target_path": rule.target_path,
+                    "remaining": rule.remaining,
+                },
+                headers={"X-Fault-Injected": "true"},
+            )
+
+        @fastapi_app.get("/admin/faults")
+        def list_faults() -> Dict[str, Any]:
+            return {"faults": fault_controller.snapshot()}
+
+        @fastapi_app.post("/admin/faults")
+        def configure_fault(payload: FaultRuleRequest) -> Dict[str, Any]:
+            if not payload.target_path.startswith("/"):
+                raise HTTPException(status_code=400, detail="target_path must start with /")
+            if payload.target_path.startswith("/admin/faults"):
+                raise HTTPException(status_code=400, detail="cannot fault the control endpoint")
+            rule = fault_controller.configure(
+                FaultRule(
+                    target_path=payload.target_path,
+                    status_code=payload.status_code,
+                    remaining=payload.remaining,
+                    delay_sec=payload.delay_sec,
+                )
+            )
+            return {"fault": rule.__dict__}
+
+        @fastapi_app.delete("/admin/faults")
+        def clear_faults() -> Dict[str, str]:
+            fault_controller.clear()
+            return {"status": "cleared"}
 
     @fastapi_app.get("/healthz")
     def healthz() -> Dict[str, str]:

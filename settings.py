@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 SUPPORTED_AGENT_CAPABILITIES = (
     "knowledge",
     "investigation",
@@ -86,6 +93,7 @@ class AppConfig:
     api_port: int = 8000
     risk_service_host: str = "127.0.0.1"
     risk_service_port: int = 8090
+    risk_service_fault_injection_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -195,6 +203,10 @@ class AppConfig:
             api_port=int(os.getenv("AI_RISK_API_PORT", "8000")),
             risk_service_host=os.getenv("AI_RISK_RISK_SERVICE_HOST", "127.0.0.1"),
             risk_service_port=int(os.getenv("AI_RISK_RISK_SERVICE_PORT", "8090")),
+            risk_service_fault_injection_enabled=_env_bool(
+                "AI_RISK_RISK_SERVICE_FAULT_INJECTION_ENABLED",
+                False,
+            ),
         )
 
     @classmethod
@@ -235,6 +247,7 @@ class AppConfig:
             api_port=8000,
             risk_service_host="127.0.0.1",
             risk_service_port=8090,
+            risk_service_fault_injection_enabled=False,
         )
 
     def tool_http_headers(self) -> Dict[str, str]:

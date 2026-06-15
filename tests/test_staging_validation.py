@@ -1,0 +1,102 @@
+from __future__ import annotations
+
+import unittest
+
+from validation.staging import (
+    ValidationRunner,
+    _validate_copilot,
+    _validate_fields,
+    _validate_runtime,
+)
+
+
+class StubAgentClient:
+    def __init__(self, response: dict[str, object]) -> None:
+        self.response = response
+
+    def post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        return self.response
+
+
+class StagingValidationTests(unittest.TestCase):
+    def test_validation_runner_reports_failed_check(self) -> None:
+        runner = ValidationRunner()
+
+        runner.check("missing.field", lambda: _validate_fields({}, {"required"}, is_list=False))
+
+        report = runner.report()
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["summary"]["failed"], 1)
+        self.assertIn("missing fields", report["checks"][0]["detail"])
+
+    def test_runtime_contract_requires_exact_phase1_surface(self) -> None:
+        payload = {
+            "supported_capabilities": [
+                "knowledge",
+                "investigation",
+                "strategy",
+                "graph",
+                "copilot",
+            ],
+            "registered_tools": [
+                "metric_snapshot",
+                "case_lookup",
+                "order_profile",
+                "strategy_profile",
+                "strategy_simulation",
+                "graph_relation",
+            ],
+            "readiness": {"status": "ready"},
+        }
+
+        detail = _validate_runtime(payload)
+
+        self.assertIn("match", detail)
+
+    def test_copilot_contract_validates_orchestration_surface(self) -> None:
+        client = StubAgentClient(
+            {
+                "agent_name": "copilot",
+                "intent": "composite",
+                "plan_steps": ["调查", "策略", "图谱"],
+                "planner_trace": [
+                    {"step": "调查", "selected": True},
+                    {"step": "策略", "selected": True},
+                    {"step": "图谱", "selected": True},
+                ],
+                "tool_traces": [
+                    {"name": "调查::order_profile", "status": "success", "summary": "ok"},
+                    {"name": "策略::strategy_profile", "status": "success", "summary": "ok"},
+                    {"name": "图谱::graph_relation", "status": "success", "summary": "ok"},
+                ],
+            }
+        )
+
+        detail = _validate_copilot(client, {"order_id": "O10001"})
+
+        self.assertIn("completed", detail)
+
+    def test_copilot_contract_rejects_missing_orchestration_branch(self) -> None:
+        client = StubAgentClient(
+            {
+                "agent_name": "copilot",
+                "intent": "composite",
+                "plan_steps": ["调查", "策略", "图谱"],
+                "planner_trace": [
+                    {"step": "调查", "selected": True},
+                    {"step": "策略", "selected": True},
+                    {"step": "图谱", "selected": True},
+                ],
+                "tool_traces": [
+                    {"name": "调查::order_profile", "status": "success", "summary": "ok"},
+                    {"name": "策略::strategy_profile", "status": "success", "summary": "ok"},
+                ],
+            }
+        )
+
+        with self.assertRaisesRegex(AssertionError, "missing orchestrated tool traces"):
+            _validate_copilot(client, {"order_id": "O10001"})
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UVICORN ?= $(PYTHON) -m uvicorn
 
-.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli
+.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli validate-staging recovery-drill
 
 test:
 	$(PYTHON) -m unittest discover -v
@@ -20,3 +20,9 @@ run-local-stack:
 
 run-cli:
 	$(PYTHON) cli.py --help
+
+validate-staging:
+	$(PYTHON) -m validation.staging --risk-base-url $(RISK_BASE_URL) --agent-base-url $(AGENT_BASE_URL)
+
+recovery-drill:
+	bash scripts/run_recovery_drill.sh
