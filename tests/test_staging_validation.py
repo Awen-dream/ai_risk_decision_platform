@@ -9,6 +9,8 @@ from validation.staging import (
     ValidationRunner,
     _build_admin_headers,
     _validate_copilot,
+    _central_recovery_audit_evidence_check,
+    _validate_central_audit_events,
     _validate_fields,
     _validate_runtime,
     _validate_upstream_audit,
@@ -135,6 +137,43 @@ class StagingValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "integrity"):
             _validate_upstream_audit_integrity(client)
+
+    def test_central_audit_contract_requires_hashes_and_redaction(self) -> None:
+        client = StubAgentClient(
+            {
+                "events": [
+                    {
+                        "event_id": "event-1",
+                        "target_url": "https://risk.example.com/orders/{order_id}",
+                        "outcome": "success",
+                        "audit_previous_hash": "",
+                        "audit_hash": "a" * 64,
+                    }
+                ]
+            }
+        )
+
+        detail = _validate_central_audit_events(client)
+
+        self.assertIn("tamper-evident", detail)
+
+    def test_central_recovery_audit_requires_recovery_outcomes(self) -> None:
+        client = StubAgentClient(
+            {
+                "events": [
+                    {"upstream_client": "HttpMetricSnapshotClient", "outcome": "success"},
+                    {"upstream_client": "HttpMetricSnapshotClient", "outcome": "http_error"},
+                    {
+                        "upstream_client": "HttpMetricSnapshotClient",
+                        "outcome": "circuit_rejected",
+                    },
+                ]
+            }
+        )
+
+        detail = _central_recovery_audit_evidence_check(client)
+
+        self.assertIn("central audit sink captured", detail)
 
     def test_build_admin_headers_reads_token_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

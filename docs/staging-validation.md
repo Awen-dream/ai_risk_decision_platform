@@ -46,8 +46,8 @@ make recovery-drill
 ```
 
 The script starts an isolated local stack on ports `18080` and `18090`, enables
-admin protection for the agent API, enables fault injection only for the mock
-risk service, and verifies:
+admin protection for the agent API, starts a mock central audit sink on port
+`18091`, enables fault injection only for the mock risk service, and verifies:
 
 1. A transient 503 recovers through retry.
 2. Repeated exhausted requests open the circuit.
@@ -59,11 +59,14 @@ risk service, and verifies:
 6. Retained audit records expose a verifiable hash chain.
 7. Central audit sink and PostgreSQL readiness are declared through runtime
    configuration when enabled.
+8. The mock central audit sink receives tamper-evident, redacted records during
+   both the contract run and the recovery drill.
 
 The default report is written to `.data/reports/recovery-drill.json`.
 The readiness gate report is written to `.data/reports/readiness-drill.json`.
 The drill refuses to start if either isolated port is already in use. Override
-them with `AI_RISK_DRILL_API_PORT` and `AI_RISK_DRILL_RISK_PORT` when needed.
+them with `AI_RISK_DRILL_API_PORT`, `AI_RISK_DRILL_RISK_PORT`, and
+`AI_RISK_DRILL_AUDIT_SINK_PORT` when needed.
 
 `AI_RISK_RISK_SERVICE_FAULT_INJECTION_ENABLED` defaults to `false`. Never enable
 the mock fault-control endpoints on a shared or real risk service.

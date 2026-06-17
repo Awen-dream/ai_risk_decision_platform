@@ -127,9 +127,16 @@ def run_contract_validation(
     agent_base_url: str,
     *,
     agent_headers: dict[str, str] | None = None,
+    central_audit_base_url: str | None = None,
+    central_audit_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     risk = JsonHttpClient(risk_base_url)
     agent = JsonHttpClient(agent_base_url, headers=agent_headers)
+    central_audit = (
+        JsonHttpClient(central_audit_base_url, headers=central_audit_headers)
+        if central_audit_base_url
+        else None
+    )
     runner = ValidationRunner()
     runner.check("risk.health", lambda: _expect_equal(risk.get("/healthz")["status"], "ok"))
     runner.check("agent.health", lambda: _expect_equal(agent.get("/healthz")["status"], "ok"))
@@ -277,6 +284,11 @@ def run_contract_validation(
         "agent.upstream_audit_integrity",
         lambda: _validate_upstream_audit_integrity(agent),
     )
+    if central_audit is not None:
+        runner.check(
+            "central_audit.mirrored_events",
+            lambda: _validate_central_audit_events(central_audit),
+        )
     runner.check(
         "agent.prometheus",
         lambda: _validate_prometheus(agent_base_url, headers=agent_headers),
@@ -290,9 +302,16 @@ def run_recovery_drill(
     *,
     reset_wait_sec: float = 0.5,
     agent_headers: dict[str, str] | None = None,
+    central_audit_base_url: str | None = None,
+    central_audit_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     risk = JsonHttpClient(risk_base_url)
     agent = JsonHttpClient(agent_base_url, headers=agent_headers)
+    central_audit = (
+        JsonHttpClient(central_audit_base_url, headers=central_audit_headers)
+        if central_audit_base_url
+        else None
+    )
     runner = ValidationRunner()
     risk.delete("/admin/faults")
 
@@ -314,6 +333,11 @@ def run_recovery_drill(
         "recovery.audit_evidence",
         lambda: _recovery_audit_evidence_check(agent),
     )
+    if central_audit is not None:
+        runner.check(
+            "recovery.central_audit_evidence",
+            lambda: _central_recovery_audit_evidence_check(central_audit),
+        )
     risk.delete("/admin/faults")
     return runner.report()
 
@@ -368,6 +392,23 @@ def _recovery_audit_evidence_check(agent: JsonHttpClient) -> str:
     if missing:
         raise AssertionError(f"recovery audit evidence missing outcomes: {sorted(missing)}")
     return "retry, circuit rejection, and recovery outcomes are auditable"
+
+
+def _central_recovery_audit_evidence_check(central_audit: JsonHttpClient) -> str:
+    payload = central_audit.get("/admin/events?limit=1000")
+    events = [
+        event
+        for event in payload.get("events", [])
+        if event.get("upstream_client") == "HttpMetricSnapshotClient"
+    ]
+    outcomes = {event.get("outcome") for event in events}
+    required = {"success", "http_error", "circuit_rejected"}
+    missing = required - outcomes
+    if missing:
+        raise AssertionError(
+            f"central audit evidence missing recovery outcomes: {sorted(missing)}"
+        )
+    return "central audit sink captured retry, circuit rejection, and recovery outcomes"
 
 
 def _invoke_investigation(agent: JsonHttpClient) -> dict[str, Any]:
@@ -520,6 +561,29 @@ def _validate_upstream_audit_integrity(agent: JsonHttpClient) -> str:
     )
 
 
+def _validate_central_audit_events(central_audit: JsonHttpClient) -> str:
+    payload = central_audit.get("/admin/events?limit=500")
+    events = payload.get("events", [])
+    if not events:
+        raise AssertionError("no mirrored central audit events found")
+    for event in events:
+        event_hash = event.get("audit_hash")
+        previous_hash = event.get("audit_previous_hash")
+        if not isinstance(event_hash, str) or len(event_hash) != 64:
+            raise AssertionError("central audit event missing audit_hash")
+        if not isinstance(previous_hash, str):
+            raise AssertionError("central audit event missing audit_previous_hash")
+    rendered = json.dumps(
+        [unquote(str(event.get("target_url", ""))) for event in events],
+        ensure_ascii=False,
+    )
+    sensitive_values = ("O10001", "U10001", "STRAT-001", "credit_card", "BR")
+    leaked = [value for value in sensitive_values if value in rendered]
+    if leaked:
+        raise AssertionError(f"central audit events contain unredacted values: {leaked}")
+    return f"central audit sink received {len(events)} tamper-evident records"
+
+
 def _tool_trace(response: dict[str, Any], name: str) -> dict[str, Any]:
     return next(trace for trace in response["tool_traces"] if trace["name"] == name)
 
@@ -560,6 +624,19 @@ def main(argv: list[str] | None = None) -> int:
         "--agent-admin-token-file",
         default=os.getenv("AI_RISK_ADMIN_AUTH_TOKEN_FILE", ""),
     )
+    parser.add_argument("--central-audit-base-url")
+    parser.add_argument(
+        "--central-audit-header",
+        default=os.getenv("AI_RISK_AUDIT_CENTRAL_AUTH_HEADER", "Authorization"),
+    )
+    parser.add_argument(
+        "--central-audit-token",
+        default=os.getenv("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN", ""),
+    )
+    parser.add_argument(
+        "--central-audit-token-file",
+        default=os.getenv("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE", ""),
+    )
     parser.add_argument("--output")
     args = parser.parse_args(argv)
 
@@ -572,6 +649,12 @@ def main(argv: list[str] | None = None) -> int:
         args.risk_base_url,
         args.agent_base_url,
         agent_headers=agent_headers,
+        central_audit_base_url=args.central_audit_base_url,
+        central_audit_headers=_build_admin_headers(
+            args.central_audit_header,
+            args.central_audit_token,
+            args.central_audit_token_file,
+        ),
     )
     if args.fault_drill:
         recovery = run_recovery_drill(
@@ -579,6 +662,12 @@ def main(argv: list[str] | None = None) -> int:
             args.agent_base_url,
             reset_wait_sec=args.reset_wait_sec,
             agent_headers=agent_headers,
+            central_audit_base_url=args.central_audit_base_url,
+            central_audit_headers=_build_admin_headers(
+                args.central_audit_header,
+                args.central_audit_token,
+                args.central_audit_token_file,
+            ),
         )
         report["recovery_drill"] = recovery
         if recovery["status"] != "passed":

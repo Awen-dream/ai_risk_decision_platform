@@ -50,6 +50,10 @@ first, then mirrors the same tamper-evident event to
 `AI_RISK_AUDIT_CENTRAL_URL`. Central sink failures do not break user traffic,
 but they emit the existing audit failure metric and alert.
 
+`make recovery-drill` starts `audit_sink_service:audit_sink_app` as a local
+central audit receiver and verifies both normal contract calls and recovery
+failure outcomes are mirrored with hash fields and redaction intact.
+
 The JSONL store is the local recovery baseline. Shared environments should ship
 these events to a centralized immutable audit store with access control,
 retention policy, integrity protection, and alerting on audit-write failures.
