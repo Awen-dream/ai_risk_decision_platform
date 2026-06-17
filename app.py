@@ -38,6 +38,7 @@ from core.runtime import AgentRuntime
 from core.session_store import (
     FileSessionStore,
     InMemorySessionStore,
+    PostgresSessionStore,
     SessionStore,
     SQLiteSessionStore,
 )
@@ -54,9 +55,16 @@ from services.case_service import (
     CaseService,
     FileCaseService,
     InMemoryCaseService,
+    PostgresCaseService,
     SQLiteCaseService,
 )
-from services.audit import AuditLog, JsonLinesAuditLog, NoopAuditLog
+from services.audit import (
+    AuditLog,
+    CompositeAuditLog,
+    HttpAuditSink,
+    JsonLinesAuditLog,
+    NoopAuditLog,
+)
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
 from settings import AppConfig
@@ -204,6 +212,8 @@ def build_tool_adapters(
 
 
 def build_session_store(config: AppConfig) -> SessionStore:
+    if config.session_store_backend == "postgres":
+        return PostgresSessionStore(config.postgres_dsn)
     if config.session_store_backend == "sqlite":
         return SQLiteSessionStore(config.database_path)
     if config.session_store_backend == "file":
@@ -212,6 +222,8 @@ def build_session_store(config: AppConfig) -> SessionStore:
 
 
 def build_case_service(config: AppConfig) -> CaseService:
+    if config.case_store_backend == "postgres":
+        return PostgresCaseService(config.postgres_dsn)
     if config.case_store_backend == "sqlite":
         return SQLiteCaseService(config.database_path)
     if config.case_store_backend == "file":
@@ -221,11 +233,24 @@ def build_case_service(config: AppConfig) -> CaseService:
 
 def build_audit_log(config: AppConfig) -> AuditLog:
     if config.tool_http_audit_enabled:
-        return JsonLinesAuditLog(
+        local_audit = JsonLinesAuditLog(
             config.tool_http_audit_path,
             max_bytes=config.tool_http_audit_max_bytes,
             max_files=config.tool_http_audit_max_files,
+            integrity_enabled=config.tool_http_audit_integrity_enabled,
         )
+        mirrors: list[AuditLog] = []
+        if config.audit_central_enabled and config.audit_central_url:
+            mirrors.append(
+                HttpAuditSink(
+                    config.audit_central_url,
+                    headers=config.audit_central_headers(),
+                    timeout_sec=config.audit_central_timeout_sec,
+                )
+            )
+        if mirrors:
+            return CompositeAuditLog(local_audit, mirrors)
+        return local_audit
     return NoopAuditLog()
 
 

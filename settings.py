@@ -94,6 +94,13 @@ class AppConfig:
     tool_http_audit_path: Path = Path(".data/upstream-audit.jsonl")
     tool_http_audit_max_bytes: int = 10 * 1024 * 1024
     tool_http_audit_max_files: int = 5
+    tool_http_audit_integrity_enabled: bool = True
+    audit_central_enabled: bool = False
+    audit_central_url: str = ""
+    audit_central_timeout_sec: float = 3.0
+    audit_central_auth_header: str = "Authorization"
+    audit_central_auth_token: str = ""
+    audit_central_auth_token_file: Optional[Path] = None
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
@@ -107,6 +114,8 @@ class AppConfig:
     case_store_backend: str = "memory"
     case_store_path: Path = Path(".data/cases.json")
     database_path: Path = Path(".data/platform.db")
+    postgres_dsn: str = ""
+    postgres_dsn_file: Optional[Path] = None
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     risk_service_host: str = "127.0.0.1"
@@ -121,6 +130,8 @@ class AppConfig:
     def from_env(cls) -> "AppConfig":
         tool_http_auth_token_file = _env_path("AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE")
         admin_auth_token_file = _env_path("AI_RISK_ADMIN_AUTH_TOKEN_FILE")
+        audit_central_auth_token_file = _env_path("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE")
+        postgres_dsn_file = _env_path("AI_RISK_POSTGRES_DSN_FILE")
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
@@ -194,6 +205,24 @@ class AppConfig:
             tool_http_audit_max_files=int(
                 os.getenv("AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES", "5")
             ),
+            tool_http_audit_integrity_enabled=_env_bool(
+                "AI_RISK_TOOL_HTTP_AUDIT_INTEGRITY_ENABLED",
+                True,
+            ),
+            audit_central_enabled=_env_bool("AI_RISK_AUDIT_CENTRAL_ENABLED", False),
+            audit_central_url=os.getenv("AI_RISK_AUDIT_CENTRAL_URL", ""),
+            audit_central_timeout_sec=float(
+                os.getenv("AI_RISK_AUDIT_CENTRAL_TIMEOUT_SEC", "3.0")
+            ),
+            audit_central_auth_header=os.getenv(
+                "AI_RISK_AUDIT_CENTRAL_AUTH_HEADER",
+                "Authorization",
+            ),
+            audit_central_auth_token=_load_secret(
+                os.getenv("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN", ""),
+                audit_central_auth_token_file,
+            ),
+            audit_central_auth_token_file=audit_central_auth_token_file,
             tool_http_metric_path=os.getenv(
                 "AI_RISK_TOOL_HTTP_METRIC_PATH",
                 "/metric-snapshots",
@@ -243,6 +272,11 @@ class AppConfig:
             database_path=Path(
                 os.getenv("AI_RISK_DATABASE_PATH", ".data/platform.db")
             ),
+            postgres_dsn=_load_secret(
+                os.getenv("AI_RISK_POSTGRES_DSN", ""),
+                postgres_dsn_file,
+            ),
+            postgres_dsn_file=postgres_dsn_file,
             api_host=os.getenv("AI_RISK_API_HOST", "127.0.0.1"),
             api_port=int(os.getenv("AI_RISK_API_PORT", "8000")),
             risk_service_host=os.getenv("AI_RISK_RISK_SERVICE_HOST", "127.0.0.1"),
@@ -286,6 +320,13 @@ class AppConfig:
             tool_http_audit_path=Path(".data/upstream-audit.jsonl"),
             tool_http_audit_max_bytes=10 * 1024 * 1024,
             tool_http_audit_max_files=5,
+            tool_http_audit_integrity_enabled=True,
+            audit_central_enabled=False,
+            audit_central_url="",
+            audit_central_timeout_sec=3.0,
+            audit_central_auth_header="Authorization",
+            audit_central_auth_token="",
+            audit_central_auth_token_file=None,
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",
@@ -299,6 +340,8 @@ class AppConfig:
             case_store_backend="memory",
             case_store_path=Path(".data/cases.json"),
             database_path=Path(".data/platform.db"),
+            postgres_dsn="",
+            postgres_dsn_file=None,
             api_host="127.0.0.1",
             api_port=8000,
             risk_service_host="127.0.0.1",
@@ -328,6 +371,25 @@ class AppConfig:
         if self.admin_auth_token_file is not None:
             return "file"
         if self.admin_auth_token:
+            return "env"
+        return "none"
+
+    def audit_central_headers(self) -> Dict[str, str]:
+        if not self.audit_central_auth_token:
+            return {}
+        return {self.audit_central_auth_header: self.audit_central_auth_token}
+
+    def audit_central_auth_token_source(self) -> str:
+        if self.audit_central_auth_token_file is not None:
+            return "file"
+        if self.audit_central_auth_token:
+            return "env"
+        return "none"
+
+    def postgres_dsn_source(self) -> str:
+        if self.postgres_dsn_file is not None:
+            return "file"
+        if self.postgres_dsn:
             return "env"
         return "none"
 

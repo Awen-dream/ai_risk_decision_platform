@@ -54,6 +54,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Verify `GET /admin/runtime` shows the expected resilience policy
 - [ ] Confirm `AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true` and set the audit path
 - [ ] Set `AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES` and `AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES`
+- [ ] Set `AI_RISK_TOOL_HTTP_AUDIT_INTEGRITY_ENABLED=true`
+- [ ] Configure `AI_RISK_AUDIT_CENTRAL_ENABLED=true`, `AI_RISK_AUDIT_CENTRAL_URL`, and central audit token file for shared environments
 
 ## 5. Functional verification
 
@@ -61,11 +63,13 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Archive the generated staging validation JSON report
 - [ ] Run `make recovery-drill` and archive the recovery report
 - [ ] Run `python3 cli.py runtime`
-- [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
+- [ ] Confirm session and case backends are `postgres` with DSN from file for shared or horizontally scaled environments
 - [ ] Restart the API and verify session/case records remain available
 - [ ] Confirm Prometheus can scrape `GET /metrics` with the admin token header when protection is enabled
 - [ ] Query `GET /admin/audit-events` and confirm credentials and entity IDs are redacted
 - [ ] Confirm `/admin/runtime` reports bounded audit rotation and retention settings
+- [ ] Query `GET /admin/audit-integrity` and confirm status is not `failed`
+- [ ] Confirm `/admin/runtime` reports central audit sink configuration without exposing secrets
 - [ ] Validate the SLO and alert baseline in `docs/observability-slo.md`
 - [ ] Confirm `config/prometheus/ai-risk-alerts.yml` is loaded by Prometheus
 - [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
@@ -95,7 +99,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [x] Add transactional single-instance persistence for sessions and cases
 - [x] Add Prometheus metrics and latency/state instrumentation
 - [x] Add deployable Prometheus alert rules and readiness gate
-- [ ] Replace SQLite with PostgreSQL before horizontal scaling
+- [x] Add PostgreSQL session/case store baseline before horizontal scaling
+- [x] Add centralized audit sink support with local fallback
 - [x] Add append-only, redacted audit logging for external tool requests
 - [x] Add reusable contract validation for a staging endpoint
 - [x] Add automated retry, circuit-breaker, and recovery drill

@@ -20,6 +20,7 @@ In shared environments, set `AI_RISK_ADMIN_AUTH_ENABLED=true`; `/admin/*` and
 | Upstream HTTP p95 latency | <= 1.5 seconds over 5 minutes |
 | API 5xx ratio | < 1% over 5 minutes |
 | SQLite readiness | Must remain `1` |
+| PostgreSQL readiness | Must remain `1` when enabled |
 
 Counters ending in `requests_total` and `executions_total` count started
 operations exactly once. Completion and failure counters are separate, so they
@@ -64,6 +65,10 @@ Database failure or unhealthy state:
 increase(ai_risk_database_sqlite_transactions_failed_total[5m]) > 0
 or
 ai_risk_database_sqlite_ready == 0
+or
+increase(ai_risk_database_postgres_transactions_failed_total[5m]) > 0
+or
+ai_risk_database_postgres_ready == 0
 ```
 
 Any circuit remaining open:
@@ -77,11 +82,16 @@ request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.
 The local trial-run store must also declare bounded rotation with
 `AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES` and `AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES`.
+Enable `AI_RISK_TOOL_HTTP_AUDIT_INTEGRITY_ENABLED` so each retained record can
+be checked through `/admin/audit-integrity`.
+Enable `AI_RISK_AUDIT_CENTRAL_ENABLED` in shared environments to mirror the
+same hash-chained events to a centralized immutable audit sink.
 See `docs/upstream-audit.md` for operating guidance.
 
-SQLite remains the single-instance persistence baseline. Before horizontal
-scaling, move persistence to PostgreSQL and add instance-level labels and
-cross-instance dashboards.
+SQLite remains the local single-instance baseline. Shared or horizontally
+scaled environments should use `AI_RISK_SESSION_STORE_BACKEND=postgres` and
+`AI_RISK_CASE_STORE_BACKEND=postgres`, with the DSN loaded from a secret file.
+Add instance-level labels and cross-instance dashboards before production scale.
 
 ## Readiness Gate
 
@@ -95,4 +105,5 @@ python3 -m validation.readiness \
 
 The gate verifies health, admin endpoint protection, runtime readiness,
 admin-token file usage, audit enablement, audit retention bounds,
-authenticated Prometheus scraping, and the required alert rule pack.
+audit integrity verification, authenticated Prometheus scraping, and the
+required alert rule pack.

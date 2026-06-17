@@ -12,6 +12,7 @@ from core.models import (
     WorkflowCase,
     WorkflowCaseHistoryEntry,
 )
+from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
 from services.presentation import build_severity, build_turn_title
 
@@ -477,6 +478,211 @@ class SQLiteCaseService(CaseService):
         return case
 
 
+class PostgresCaseService(CaseService):
+    """Stores workflow cases transactionally with indexed PostgreSQL queries."""
+
+    _SORT_COLUMNS = SQLiteCaseService._SORT_COLUMNS
+
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        database: PostgresDatabase | None = None,
+    ) -> None:
+        self._database = database or PostgresDatabase(dsn)
+        self._database.migrate(
+            102,
+            "create_postgres_workflow_cases",
+            (
+                """
+                CREATE TABLE IF NOT EXISTS workflow_cases (
+                    case_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    source_agent TEXT NOT NULL,
+                    intent TEXT,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL,
+                    payload_json JSONB NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(session_id, turn_index)
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_updated_at
+                ON workflow_cases(updated_at DESC)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_created_at
+                ON workflow_cases(created_at DESC)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_status
+                ON workflow_cases(status)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_severity
+                ON workflow_cases(severity)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_source_agent
+                ON workflow_cases(source_agent)
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_cases_session_id
+                ON workflow_cases(session_id)
+                """,
+            ),
+        )
+
+    def create_case_from_session(
+        self,
+        session: SessionRecord,
+        turn_index: int | None = None,
+    ) -> WorkflowCase:
+        case = _build_case_from_session(session, turn_index=turn_index)
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json FROM workflow_cases
+                WHERE session_id = %s AND turn_index = %s
+                FOR UPDATE
+                """,
+                (case.session_id, case.turn_index),
+            ).fetchone()
+            existing = _case_from_row(row)
+            if existing is not None:
+                return existing
+            connection.execute(
+                """
+                INSERT INTO workflow_cases(
+                    case_id, session_id, turn_index, status, severity,
+                    source_agent, intent, created_at, updated_at, payload_json,
+                    revision
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, 0)
+                """,
+                _case_row_values(case),
+            )
+        return case
+
+    def get_case(self, case_id: str) -> WorkflowCase | None:
+        with self._database.connection() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = %s",
+                (case_id,),
+            ).fetchone()
+        return _case_from_row(row)
+
+    def list_cases(
+        self,
+        *,
+        status: str | None = None,
+        source_agent: str | None = None,
+        intent: str | None = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[WorkflowCase]:
+        where_sql, params = _build_case_where(
+            status=status,
+            source_agent=source_agent,
+            intent=intent,
+            session_id=session_id,
+            severity=severity,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            placeholder="%s",
+        )
+        sort_column = self._SORT_COLUMNS.get(sort_by, "updated_at")
+        direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+        pagination_sql = ""
+        if limit is not None:
+            pagination_sql = " LIMIT %s OFFSET %s"
+            params.extend((limit, offset))
+        elif offset:
+            pagination_sql = " OFFSET %s"
+            params.append(offset)
+        with self._database.connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT payload_json FROM workflow_cases
+                {where_sql}
+                ORDER BY {sort_column} {direction}, case_id {direction}
+                {pagination_sql}
+                """,
+                params,
+            ).fetchall()
+        return [_case_from_row(row) for row in rows]
+
+    def count_cases(
+        self,
+        *,
+        status: str | None = None,
+        source_agent: str | None = None,
+        intent: str | None = None,
+        session_id: str | None = None,
+        severity: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+    ) -> int:
+        where_sql, params = _build_case_where(
+            status=status,
+            source_agent=source_agent,
+            intent=intent,
+            session_id=session_id,
+            severity=severity,
+            updated_after=updated_after,
+            updated_before=updated_before,
+            placeholder="%s",
+        )
+        with self._database.connection() as connection:
+            row = connection.execute(
+                f"SELECT COUNT(*) AS total FROM workflow_cases {where_sql}",
+                params,
+            ).fetchone()
+        return int(row["total"])
+
+    def update_case_status(
+        self,
+        case_id: str,
+        status: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        if status not in ALLOWED_CASE_STATUSES:
+            raise ValueError(f"Unsupported case status: {status}")
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = %s FOR UPDATE",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_status_update(case, status, note)
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET status = %s, updated_at = %s, payload_json = %s::jsonb,
+                    revision = revision + 1
+                WHERE case_id = %s
+                """,
+                (
+                    case.status,
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
+
 def _build_case_from_session(
     session: SessionRecord,
     *,
@@ -734,7 +940,12 @@ def _case_row_values(case: WorkflowCase) -> tuple[object, ...]:
 def _case_from_row(row) -> WorkflowCase | None:
     if row is None:
         return None
-    return _deserialize_case(json.loads(row["payload_json"]))
+    payload = row["payload_json"]
+    if isinstance(payload, str):
+        return _deserialize_case(json.loads(payload))
+    if isinstance(payload, dict):
+        return _deserialize_case(payload)
+    raise TypeError("Unsupported case payload type")
 
 
 def _find_case_for_session_turn(
@@ -761,6 +972,7 @@ def _build_case_where(
     severity: str | None,
     updated_after: str | None,
     updated_before: str | None,
+    placeholder: str = "?",
 ) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
@@ -772,13 +984,13 @@ def _build_case_where(
         ("severity", severity),
     ):
         if value is not None:
-            clauses.append(f"{column} = ?")
+            clauses.append(f"{column} = {placeholder}")
             params.append(value)
     if updated_after is not None:
-        clauses.append("updated_at >= ?")
+        clauses.append(f"updated_at >= {placeholder}")
         params.append(_normalize_timestamp(updated_after))
     if updated_before is not None:
-        clauses.append("updated_at <= ?")
+        clauses.append(f"updated_at <= {placeholder}")
         params.append(_normalize_timestamp(updated_before))
     if not clauses:
         return "", params

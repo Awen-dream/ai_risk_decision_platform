@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.models import AgentRequest, AgentResponse, PlannerTraceStep, SessionRecord, SessionTurn
+from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
 
 
@@ -234,6 +235,117 @@ class SQLiteSessionStore(SessionStore):
         return session
 
 
+class PostgresSessionStore(SessionStore):
+    """Stores session records transactionally in PostgreSQL."""
+
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        database: PostgresDatabase | None = None,
+    ) -> None:
+        self._database = database or PostgresDatabase(dsn)
+        self._database.migrate(
+            101,
+            "create_postgres_sessions",
+            (
+                """
+                CREATE TABLE IF NOT EXISTS sessions (
+                    session_id TEXT PRIMARY KEY,
+                    payload_json JSONB NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL
+                )
+                """,
+                """
+                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                ON sessions(updated_at DESC)
+                """,
+            ),
+        )
+
+    def create_session(self) -> SessionRecord:
+        session = SessionRecord(session_id=str(uuid.uuid4()))
+        timestamp = _current_timestamp()
+        with self._database.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO sessions(
+                    session_id, payload_json, revision, created_at, updated_at
+                ) VALUES (%s, %s::jsonb, 0, %s, %s)
+                """,
+                (
+                    session.session_id,
+                    _session_json(session),
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return session
+
+    def get_session(self, session_id: str) -> SessionRecord | None:
+        with self._database.connection() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM sessions WHERE session_id = %s",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return _deserialize_session_payload(row["payload_json"])
+
+    def ensure_session(self, session_id: str | None) -> SessionRecord:
+        if session_id:
+            existing = self.get_session(session_id)
+            if existing:
+                return existing
+        return self.create_session()
+
+    def append_turn(
+        self,
+        session_id: str,
+        request: AgentRequest,
+        response: AgentResponse,
+    ) -> SessionRecord:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM sessions WHERE session_id = %s FOR UPDATE",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                session = SessionRecord(session_id=session_id or str(uuid.uuid4()))
+                timestamp = _current_timestamp()
+                connection.execute(
+                    """
+                    INSERT INTO sessions(
+                        session_id, payload_json, revision, created_at, updated_at
+                    ) VALUES (%s, %s::jsonb, 0, %s, %s)
+                    """,
+                    (
+                        session.session_id,
+                        _session_json(session),
+                        timestamp,
+                        timestamp,
+                    ),
+                )
+            else:
+                session = _deserialize_session_payload(row["payload_json"])
+            session.turns.append(build_session_turn(request, response))
+            connection.execute(
+                """
+                UPDATE sessions
+                SET payload_json = %s::jsonb, revision = revision + 1, updated_at = %s
+                WHERE session_id = %s
+                """,
+                (
+                    _session_json(session),
+                    _current_timestamp(),
+                    session.session_id,
+                ),
+            )
+        return session
+
+
 def build_session_turn(request: AgentRequest, response: AgentResponse) -> SessionTurn:
     return SessionTurn(
         agent_name=response.agent_name,
@@ -310,6 +422,14 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
             )
         )
     return SessionRecord(session_id=str(payload["session_id"]), turns=turns)
+
+
+def _deserialize_session_payload(payload: object) -> SessionRecord:
+    if isinstance(payload, str):
+        return _deserialize_session_record(json.loads(payload))
+    if isinstance(payload, dict):
+        return _deserialize_session_record(payload)
+    raise TypeError("Unsupported session payload type")
 
 
 def _session_json(session: SessionRecord) -> str:

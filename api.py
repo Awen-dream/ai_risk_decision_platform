@@ -17,6 +17,7 @@ from core.models import (
     WorkflowCase,
     WorkflowCaseHistoryEntry,
 )
+from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
 from services.case_service import ALLOWED_CASE_STATUSES
 from services.observability import (
@@ -159,6 +160,8 @@ class RuntimeInfoResponse(BaseModel):
     case_store_backend: str
     case_store_path: str
     database_path: str
+    postgres_dsn_configured: bool
+    postgres_dsn_source: str
     knowledge_dir: str
     tool_http_base_url: str
     tool_http_timeout_sec: float
@@ -173,6 +176,12 @@ class RuntimeInfoResponse(BaseModel):
     tool_http_audit_path: str
     tool_http_audit_max_bytes: int
     tool_http_audit_max_files: int
+    tool_http_audit_integrity_enabled: bool
+    audit_central_enabled: bool
+    audit_central_url_configured: bool
+    audit_central_timeout_sec: float
+    audit_central_auth_header: str
+    audit_central_auth_token_source: str
     admin_auth_enabled: bool
     admin_auth_header: str
     admin_auth_token_source: str
@@ -219,6 +228,20 @@ class UpstreamAuditEventPayload(BaseModel):
     session_id: Optional[str] = None
     agent_name: Optional[str] = None
     request_header_names: List[str] = Field(default_factory=list)
+    audit_previous_hash: Optional[str] = None
+    audit_hash: Optional[str] = None
+
+
+class AuditIntegrityResponse(BaseModel):
+    status: str
+    integrity_enabled: bool
+    total_records: int
+    verified_records: int
+    legacy_records: int
+    invalid_records: int
+    broken_links: int
+    first_event_hash: Optional[str] = None
+    last_event_hash: Optional[str] = None
 
 
 class StrategyRecommendationPayload(BaseModel):
@@ -339,6 +362,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             case_store_backend=container.config.case_store_backend,
             case_store_path=str(container.config.case_store_path),
             database_path=str(container.config.database_path),
+            postgres_dsn_configured=bool(container.config.postgres_dsn),
+            postgres_dsn_source=container.config.postgres_dsn_source(),
             knowledge_dir=str(container.config.knowledge_dir),
             tool_http_base_url=container.config.tool_http_base_url,
             tool_http_timeout_sec=container.config.tool_http_timeout_sec,
@@ -357,6 +382,16 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_http_audit_path=str(container.config.tool_http_audit_path),
             tool_http_audit_max_bytes=container.config.tool_http_audit_max_bytes,
             tool_http_audit_max_files=container.config.tool_http_audit_max_files,
+            tool_http_audit_integrity_enabled=(
+                container.config.tool_http_audit_integrity_enabled
+            ),
+            audit_central_enabled=container.config.audit_central_enabled,
+            audit_central_url_configured=bool(container.config.audit_central_url),
+            audit_central_timeout_sec=container.config.audit_central_timeout_sec,
+            audit_central_auth_header=container.config.audit_central_auth_header,
+            audit_central_auth_token_source=(
+                container.config.audit_central_auth_token_source()
+            ),
             admin_auth_enabled=container.config.admin_auth_enabled,
             admin_auth_header=container.config.admin_auth_header,
             admin_auth_token_source=container.config.admin_auth_token_source(),
@@ -382,11 +417,12 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             ],
             observability={
                 "json_metrics_path": "/admin/metrics",
-                "prometheus_metrics_path": "/metrics",
-                "upstream_audit_path": "/admin/audit-events",
-                "duration_histograms": [
-                    "http.request.duration_seconds",
-                    "agent.execution.duration_seconds",
+            "prometheus_metrics_path": "/metrics",
+            "upstream_audit_path": "/admin/audit-events",
+            "upstream_audit_integrity_path": "/admin/audit-integrity",
+            "duration_histograms": [
+                "http.request.duration_seconds",
+                "agent.execution.duration_seconds",
                     "upstream.http.request.duration_seconds",
                     "database.sqlite.transaction.duration_seconds",
                 ],
@@ -428,6 +464,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 request_id=request_id,
             )
         ]
+
+    @fastapi_app.get("/admin/audit-integrity", response_model=AuditIntegrityResponse)
+    def upstream_audit_integrity() -> AuditIntegrityResponse:
+        return AuditIntegrityResponse(**container.audit_log.verify_integrity())
 
     @fastapi_app.post("/sessions", response_model=SessionResponse)
     def create_session() -> SessionResponse:
@@ -688,15 +728,16 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
         for capability in container.config.capability_contract()
         for tool_name in capability["required_tools"]
     }
-    sqlite_enabled = (
-        container.config.session_store_backend == "sqlite"
-        or container.config.case_store_backend == "sqlite"
-    )
-    database_ready = (
-        SQLiteDatabase(container.config.database_path).is_ready()
-        if sqlite_enabled
-        else True
-    )
+    sqlite_enabled = _database_backend_enabled(container, "sqlite")
+    postgres_enabled = _database_backend_enabled(container, "postgres")
+    database_ready = True
+    if sqlite_enabled:
+        database_ready = SQLiteDatabase(container.config.database_path).is_ready()
+    if postgres_enabled:
+        database_ready = (
+            bool(container.config.postgres_dsn)
+            and PostgresDatabase(container.config.postgres_dsn).is_ready()
+        )
     set_gauge("runtime.readiness.database", 1.0 if database_ready else 0.0)
     session_store_ready = _store_ready(
         container.config.session_store_backend,
@@ -756,7 +797,7 @@ def _build_runtime_readiness(container) -> Dict[str, Any]:
 
 
 def _store_ready(backend: str, file_path, database_ready: bool) -> bool:
-    if backend == "sqlite":
+    if backend in {"sqlite", "postgres"}:
         return database_ready
     if backend == "file":
         return file_path.parent.exists()
@@ -766,7 +807,16 @@ def _store_ready(backend: str, file_path, database_ready: bool) -> bool:
 def _store_path(config: AppConfig, backend: str, file_path) -> str:
     if backend == "sqlite":
         return str(config.database_path)
+    if backend == "postgres":
+        return "<postgres-dsn-configured>" if config.postgres_dsn else "<postgres-dsn-missing>"
     return str(file_path)
+
+
+def _database_backend_enabled(container, backend: str) -> bool:
+    return (
+        container.config.session_store_backend == backend
+        or container.config.case_store_backend == backend
+    )
 
 
 def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:

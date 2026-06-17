@@ -78,6 +78,10 @@ export AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true
 export AI_RISK_TOOL_HTTP_AUDIT_PATH=.data/upstream-audit.jsonl
 export AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES=10485760
 export AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES=5
+export AI_RISK_TOOL_HTTP_AUDIT_INTEGRITY_ENABLED=true
+export AI_RISK_AUDIT_CENTRAL_ENABLED=false
+export AI_RISK_AUDIT_CENTRAL_URL=
+export AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE=
 ```
 
 Retries use exponential backoff and apply only to network errors, timeouts, HTTP
@@ -86,7 +90,9 @@ failed requests, the per-client circuit breaker opens and allows one half-open
 probe after the reset interval.
 
 The SQLite settings provide the transactional single-instance persistence
-baseline described in `docs/sqlite-persistence.md`.
+baseline described in `docs/sqlite-persistence.md`. For shared or horizontally
+scaled environments, switch both stores to PostgreSQL and provide
+`AI_RISK_POSTGRES_DSN_FILE`.
 
 If the external service uses custom endpoint paths or query parameter names:
 
@@ -138,7 +144,7 @@ export AI_RISK_ADMIN_AUTH_TOKEN_FILE=/run/secrets/ai-risk-admin-token
 4. Verify config with `python3 cli.py --admin-token-file /run/secrets/ai-risk-admin-token runtime`
 5. Check `supported_capabilities`, `capability_contract`, and `http_endpoint_contract`
 6. Run one `knowledge` query and one query for each of `investigation`, `strategy`, `graph`, `copilot`
-7. Check `/admin/audit-events` for redacted, correlated external-call records and verify audit rotation/retention settings
+7. Check `/admin/audit-events` and `/admin/audit-integrity` for redacted, correlated, tamper-evident external-call records
 8. Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
 9. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 

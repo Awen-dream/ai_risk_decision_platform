@@ -217,6 +217,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["case_store_backend"], "memory")
         self.assertEqual(payload["case_store_path"], ".data/cases.json")
         self.assertEqual(payload["database_path"], ".data/platform.db")
+        self.assertFalse(payload["postgres_dsn_configured"])
+        self.assertEqual(payload["postgres_dsn_source"], "none")
         self.assertEqual(payload["tool_http_timeout_sec"], 5.0)
         self.assertEqual(payload["tool_http_retry_attempts"], 2)
         self.assertEqual(payload["tool_http_retry_backoff_sec"], 0.1)
@@ -229,6 +231,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_audit_path"], ".data/upstream-audit.jsonl")
         self.assertEqual(payload["tool_http_audit_max_bytes"], 10 * 1024 * 1024)
         self.assertEqual(payload["tool_http_audit_max_files"], 5)
+        self.assertTrue(payload["tool_http_audit_integrity_enabled"])
+        self.assertFalse(payload["audit_central_enabled"])
+        self.assertFalse(payload["audit_central_url_configured"])
+        self.assertEqual(payload["audit_central_timeout_sec"], 3.0)
+        self.assertEqual(payload["audit_central_auth_header"], "Authorization")
+        self.assertEqual(payload["audit_central_auth_token_source"], "none")
         self.assertFalse(payload["admin_auth_enabled"])
         self.assertEqual(payload["admin_auth_header"], "X-Admin-Token")
         self.assertEqual(payload["admin_auth_token_source"], "none")
@@ -273,6 +281,10 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["observability"]["prometheus_metrics_path"], "/metrics")
         self.assertEqual(payload["observability"]["upstream_audit_path"], "/admin/audit-events")
+        self.assertEqual(
+            payload["observability"]["upstream_audit_integrity_path"],
+            "/admin/audit-integrity",
+        )
         self.assertIn(
             "http.request.duration_seconds",
             payload["observability"]["duration_histograms"],
@@ -311,6 +323,33 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["outcome"], "success")
         self.assertNotIn("O10001", payload[0]["target_url"])
+        self.assertEqual(len(payload[0]["audit_hash"]), 64)
+
+    def test_audit_integrity_endpoint_reports_hash_chain_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_path = Path(tmp_dir) / "audit.jsonl"
+            audit_log = JsonLinesAuditLog(audit_path)
+            audit_log.record(
+                build_upstream_audit_event(
+                    upstream_client="HttpOrderProfileClient",
+                    method="GET",
+                    url="https://risk.example.com/orders/O10001",
+                    outcome="success",
+                    attempt=1,
+                    total_attempts=1,
+                    status_code=200,
+                )
+            )
+            app = create_app(AppConfig(tool_http_audit_path=audit_path))
+            client = TestClient(app)
+
+            response = client.get("/admin/audit-integrity")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "passed")
+        self.assertEqual(payload["verified_records"], 1)
+        self.assertEqual(payload["invalid_records"], 0)
 
     def test_admin_endpoints_require_token_when_enabled(self) -> None:
         app = create_app(

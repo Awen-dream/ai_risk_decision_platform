@@ -5,13 +5,14 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from api import create_app
 from app import build_app_container, build_case_service
 from core.models import AgentRequest
-from services.case_service import FileCaseService, SQLiteCaseService
+from services.case_service import FileCaseService, PostgresCaseService, SQLiteCaseService
 from settings import AppConfig
 
 
@@ -26,6 +27,17 @@ class CaseServiceTests(unittest.TestCase):
             store = build_case_service(config)
 
             self.assertIsInstance(store, SQLiteCaseService)
+
+    def test_build_case_service_returns_postgres_store_for_postgres_backend(self) -> None:
+        config = AppConfig(
+            case_store_backend="postgres",
+            postgres_dsn="postgresql://risk:secret@db/risk",
+        )
+
+        with patch("services.case_service.PostgresDatabase.migrate"):
+            store = build_case_service(config)
+
+        self.assertIsInstance(store, PostgresCaseService)
 
     def test_build_case_service_returns_file_store_for_file_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

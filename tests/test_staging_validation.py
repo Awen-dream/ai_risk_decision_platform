@@ -12,6 +12,7 @@ from validation.staging import (
     _validate_fields,
     _validate_runtime,
     _validate_upstream_audit,
+    _validate_upstream_audit_integrity,
 )
 
 
@@ -122,6 +123,18 @@ class StagingValidationTests(unittest.TestCase):
         detail = _validate_upstream_audit(client)
 
         self.assertIn("redacted records", detail)
+
+    def test_upstream_audit_integrity_rejects_failed_status(self) -> None:
+        client = StubAgentClient(
+            {
+                "status": "failed",
+                "integrity_enabled": True,
+                "verified_records": 1,
+            }
+        )
+
+        with self.assertRaisesRegex(AssertionError, "integrity"):
+            _validate_upstream_audit_integrity(client)
 
     def test_build_admin_headers_reads_token_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

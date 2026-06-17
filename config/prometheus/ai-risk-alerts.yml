@@ -60,6 +60,17 @@ groups:
         annotations:
           summary: "AI Risk SQLite persistence is unhealthy"
 
+      - alert: AIRiskPostgresUnhealthy
+        expr: |
+          increase(ai_risk_database_postgres_transactions_failed_total[5m]) > 0
+          or
+          ai_risk_database_postgres_ready == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk PostgreSQL persistence is unhealthy"
+
       - alert: AIRiskUpstreamCircuitOpen
         expr: |
           max({__name__=~"ai_risk_upstream_circuit_.*_open"}) > 0

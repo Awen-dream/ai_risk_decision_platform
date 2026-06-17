@@ -19,6 +19,7 @@ REQUIRED_ALERTS = [
     "AIRiskAgentHighP95Latency",
     "AIRiskUpstreamHighP95Latency",
     "AIRiskSQLiteUnhealthy",
+    "AIRiskPostgresUnhealthy",
     "AIRiskUpstreamCircuitOpen",
     "AIRiskAuditWriteFailure",
     "AIRiskAdminUnauthorizedSpike",
@@ -126,6 +127,7 @@ def run_readiness_gate(
 
     runner.check("runtime.security_contract", runtime_check)
     runner.check("runtime.readiness", lambda: _validate_runtime_readiness(runtime_payload))
+    runner.check("audit.integrity", lambda: _validate_audit_integrity(admin))
     runner.check("metrics.prometheus", lambda: _validate_prometheus(admin))
     runner.check("alerts.rules_file", lambda: validate_alert_rules_file(alert_rules_path))
     return runner.report()
@@ -167,6 +169,21 @@ def _validate_runtime_security(payload: dict[str, Any]) -> str:
         raise AssertionError("external HTTP audit max bytes is too small")
     if payload["tool_http_audit_max_files"] < 2:
         raise AssertionError("external HTTP audit must retain at least two files")
+    if not payload["tool_http_audit_integrity_enabled"]:
+        raise AssertionError("external HTTP audit integrity chain is not enabled")
+    if payload["audit_central_enabled"]:
+        if not payload["audit_central_url_configured"]:
+            raise AssertionError("central audit sink is enabled but URL is not configured")
+        if payload["audit_central_auth_token_source"] == "env":
+            raise AssertionError("central audit token must come from a token file")
+    if "postgres" in {
+        payload.get("session_store_backend"),
+        payload.get("case_store_backend"),
+    }:
+        if not payload.get("postgres_dsn_configured"):
+            raise AssertionError("PostgreSQL DSN is not configured")
+        if payload.get("postgres_dsn_source") != "file":
+            raise AssertionError("PostgreSQL DSN must come from a secret file")
     if payload["tool_backend"] == "http" and payload["tool_http_auth_mode"] != "none":
         if payload["tool_http_auth_token_source"] != "file":
             raise AssertionError("external HTTP token must come from a token file")
@@ -177,6 +194,19 @@ def _validate_runtime_readiness(payload: dict[str, Any]) -> str:
     if payload["readiness"]["status"] != "ready":
         raise AssertionError(f"runtime is not ready: {payload['readiness']}")
     return "runtime readiness is ready"
+
+
+def _validate_audit_integrity(admin: JsonHttpClient) -> str:
+    payload = admin.get("/admin/audit-integrity")
+    if payload["status"] == "failed":
+        raise AssertionError(f"audit integrity verification failed: {payload}")
+    if not payload["integrity_enabled"]:
+        raise AssertionError("audit integrity verification is disabled")
+    return (
+        "audit integrity status="
+        f"{payload['status']} verified={payload['verified_records']} "
+        f"legacy={payload['legacy_records']}"
+    )
 
 
 def _validate_prometheus(admin: JsonHttpClient) -> str:

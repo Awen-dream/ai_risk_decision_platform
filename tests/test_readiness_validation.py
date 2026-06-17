@@ -7,9 +7,19 @@ from pathlib import Path
 from validation.readiness import (
     REQUIRED_ALERTS,
     _build_admin_headers,
+    _validate_audit_integrity,
     _validate_runtime_security,
     validate_alert_rules_file,
 )
+
+
+class StubAdminClient:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def get(self, path: str) -> dict[str, object]:
+        self.assert_path = path
+        return self.payload
 
 
 class ReadinessValidationTests(unittest.TestCase):
@@ -26,6 +36,10 @@ class ReadinessValidationTests(unittest.TestCase):
             "tool_http_audit_enabled": True,
             "tool_http_audit_max_bytes": 10 * 1024 * 1024,
             "tool_http_audit_max_files": 5,
+            "tool_http_audit_integrity_enabled": True,
+            "audit_central_enabled": False,
+            "audit_central_url_configured": False,
+            "audit_central_auth_token_source": "none",
             "tool_backend": "http",
             "tool_http_auth_mode": "api_key",
             "tool_http_auth_token_source": "file",
@@ -42,6 +56,10 @@ class ReadinessValidationTests(unittest.TestCase):
             "tool_http_audit_enabled": True,
             "tool_http_audit_max_bytes": 10 * 1024 * 1024,
             "tool_http_audit_max_files": 5,
+            "tool_http_audit_integrity_enabled": True,
+            "audit_central_enabled": False,
+            "audit_central_url_configured": False,
+            "audit_central_auth_token_source": "none",
             "tool_backend": "http",
             "tool_http_auth_mode": "api_key",
             "tool_http_auth_token_source": "env",
@@ -49,6 +67,19 @@ class ReadinessValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "external HTTP token"):
             _validate_runtime_security(payload)
+
+    def test_audit_integrity_rejects_failed_status(self) -> None:
+        client = StubAdminClient(
+            {
+                "status": "failed",
+                "integrity_enabled": True,
+                "verified_records": 1,
+                "legacy_records": 0,
+            }
+        )
+
+        with self.assertRaisesRegex(AssertionError, "integrity"):
+            _validate_audit_integrity(client)  # type: ignore[arg-type]
 
     def test_build_admin_headers_reads_token_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

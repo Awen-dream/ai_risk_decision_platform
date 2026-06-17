@@ -56,6 +56,9 @@ risk service, and verifies:
 4. Retry failures, circuit rejection, and recovery success remain available as
    redacted audit evidence.
 5. Audit logging remains bounded by configured local rotation and retention.
+6. Retained audit records expose a verifiable hash chain.
+7. Central audit sink and PostgreSQL readiness are declared through runtime
+   configuration when enabled.
 
 The default report is written to `.data/reports/recovery-drill.json`.
 The readiness gate report is written to `.data/reports/readiness-drill.json`.

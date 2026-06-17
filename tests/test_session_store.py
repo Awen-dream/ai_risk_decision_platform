@@ -4,10 +4,11 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from app import build_runtime, build_session_store
 from core.models import AgentRequest, AgentResponse
-from core.session_store import FileSessionStore, SQLiteSessionStore
+from core.session_store import FileSessionStore, PostgresSessionStore, SQLiteSessionStore
 from services.observability import (
     get_gauges_snapshot,
     get_histograms_snapshot,
@@ -27,6 +28,17 @@ class SessionStoreTests(unittest.TestCase):
             store = build_session_store(config)
 
             self.assertIsInstance(store, SQLiteSessionStore)
+
+    def test_build_session_store_returns_postgres_store_for_postgres_backend(self) -> None:
+        config = AppConfig(
+            session_store_backend="postgres",
+            postgres_dsn="postgresql://risk:secret@db/risk",
+        )
+
+        with patch("core.session_store.PostgresDatabase.migrate"):
+            store = build_session_store(config)
+
+        self.assertIsInstance(store, PostgresSessionStore)
 
     def test_build_session_store_returns_file_store_for_file_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

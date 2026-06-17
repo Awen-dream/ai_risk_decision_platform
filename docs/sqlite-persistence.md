@@ -26,6 +26,19 @@ records schema migrations automatically at startup.
 - `GET /admin/runtime` exposes the active database path and checks database
   connectivity in readiness.
 
-SQLite is the local and single-instance database baseline. A multi-instance
-production deployment should implement the same store contracts on PostgreSQL
-before horizontal scaling.
+SQLite is the local and single-instance database baseline.
+
+## PostgreSQL For Shared Deployments
+
+Use PostgreSQL before horizontal scaling:
+
+```bash
+export AI_RISK_SESSION_STORE_BACKEND=postgres
+export AI_RISK_CASE_STORE_BACKEND=postgres
+export AI_RISK_POSTGRES_DSN_FILE=/run/secrets/ai-risk-postgres-dsn
+```
+
+The application uses the same session and case contracts, creates the required
+tables and indexes through schema migrations, and exposes PostgreSQL readiness
+without returning the DSN. Install the optional `psycopg` driver in the
+deployment image before enabling the `postgres` backends.

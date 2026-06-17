@@ -98,6 +98,7 @@ class SettingsTests(unittest.TestCase):
                 "AI_RISK_TOOL_HTTP_AUDIT_PATH": "/tmp/upstream-audit.jsonl",
                 "AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES": "2048",
                 "AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES": "7",
+                "AI_RISK_TOOL_HTTP_AUDIT_INTEGRITY_ENABLED": "false",
             },
         ):
             config = AppConfig.from_env()
@@ -106,6 +107,29 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.tool_http_audit_path, Path("/tmp/upstream-audit.jsonl"))
         self.assertEqual(config.tool_http_audit_max_bytes, 2048)
         self.assertEqual(config.tool_http_audit_max_files, 7)
+        self.assertFalse(config.tool_http_audit_integrity_enabled)
+
+    def test_central_audit_settings_load_secret_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            token_path = Path(tmp_dir) / "central-audit-token"
+            token_path.write_text("central-secret\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_AUDIT_CENTRAL_ENABLED": "true",
+                    "AI_RISK_AUDIT_CENTRAL_URL": "https://audit.example.com/events",
+                    "AI_RISK_AUDIT_CENTRAL_TIMEOUT_SEC": "4.5",
+                    "AI_RISK_AUDIT_CENTRAL_AUTH_HEADER": "X-Audit-Token",
+                    "AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE": str(token_path),
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertTrue(config.audit_central_enabled)
+        self.assertEqual(config.audit_central_url, "https://audit.example.com/events")
+        self.assertEqual(config.audit_central_timeout_sec, 4.5)
+        self.assertEqual(config.audit_central_headers(), {"X-Audit-Token": "central-secret"})
+        self.assertEqual(config.audit_central_auth_token_source(), "file")
 
     def test_sqlite_persistence_settings_load_from_environment(self) -> None:
         with patch.dict(
@@ -121,6 +145,25 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.session_store_backend, "sqlite")
         self.assertEqual(config.case_store_backend, "sqlite")
         self.assertEqual(config.database_path, Path("/tmp/ai-risk-platform.db"))
+
+    def test_postgres_persistence_settings_load_dsn_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            dsn_path = Path(tmp_dir) / "postgres-dsn"
+            dsn_path.write_text("postgresql://risk:secret@db/risk\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_SESSION_STORE_BACKEND": "postgres",
+                    "AI_RISK_CASE_STORE_BACKEND": "postgres",
+                    "AI_RISK_POSTGRES_DSN_FILE": str(dsn_path),
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.session_store_backend, "postgres")
+        self.assertEqual(config.case_store_backend, "postgres")
+        self.assertEqual(config.postgres_dsn, "postgresql://risk:secret@db/risk")
+        self.assertEqual(config.postgres_dsn_source(), "file")
 
     def test_fault_injection_requires_explicit_environment_flag(self) -> None:
         self.assertFalse(AppConfig().risk_service_fault_injection_enabled)

@@ -274,6 +274,10 @@ def run_contract_validation(
     )
     runner.check("agent.upstream_audit", lambda: _validate_upstream_audit(agent))
     runner.check(
+        "agent.upstream_audit_integrity",
+        lambda: _validate_upstream_audit_integrity(agent),
+    )
+    runner.check(
         "agent.prometheus",
         lambda: _validate_prometheus(agent_base_url, headers=agent_headers),
     )
@@ -502,6 +506,18 @@ def _validate_upstream_audit(agent: JsonHttpClient) -> str:
     if leaked:
         raise AssertionError(f"audit events contain unredacted values: {leaked}")
     return f"upstream audit query returned {len(events)} redacted records"
+
+
+def _validate_upstream_audit_integrity(agent: JsonHttpClient) -> str:
+    payload = agent.get("/admin/audit-integrity")
+    if payload["status"] == "failed":
+        raise AssertionError(f"upstream audit integrity failed: {payload}")
+    if not payload["integrity_enabled"]:
+        raise AssertionError("upstream audit integrity is disabled")
+    return (
+        "upstream audit integrity status="
+        f"{payload['status']} verified={payload['verified_records']}"
+    )
 
 
 def _tool_trace(response: dict[str, Any], name: str) -> dict[str, Any]:
