@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -11,6 +11,19 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_path(name: str) -> Optional[Path]:
+    value = os.getenv(name)
+    if not value:
+        return None
+    return Path(value)
+
+
+def _load_secret(value: str, file_path: Optional[Path]) -> str:
+    if file_path is None:
+        return value
+    return file_path.read_text(encoding="utf-8").strip()
 
 
 SUPPORTED_AGENT_CAPABILITIES = (
@@ -75,9 +88,12 @@ class AppConfig:
     tool_http_circuit_breaker_reset_sec: float = 30.0
     tool_http_auth_mode: str = "none"
     tool_http_auth_token: str = ""
+    tool_http_auth_token_file: Optional[Path] = None
     tool_http_auth_header: str = "Authorization"
     tool_http_audit_enabled: bool = True
     tool_http_audit_path: Path = Path(".data/upstream-audit.jsonl")
+    tool_http_audit_max_bytes: int = 10 * 1024 * 1024
+    tool_http_audit_max_files: int = 5
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
@@ -96,9 +112,15 @@ class AppConfig:
     risk_service_host: str = "127.0.0.1"
     risk_service_port: int = 8090
     risk_service_fault_injection_enabled: bool = False
+    admin_auth_enabled: bool = False
+    admin_auth_header: str = "X-Admin-Token"
+    admin_auth_token: str = ""
+    admin_auth_token_file: Optional[Path] = None
 
     @classmethod
     def from_env(cls) -> "AppConfig":
+        tool_http_auth_token_file = _env_path("AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE")
+        admin_auth_token_file = _env_path("AI_RISK_ADMIN_AUTH_TOKEN_FILE")
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
@@ -147,7 +169,11 @@ class AppConfig:
                 os.getenv("AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC", "30.0")
             ),
             tool_http_auth_mode=os.getenv("AI_RISK_TOOL_HTTP_AUTH_MODE", "none"),
-            tool_http_auth_token=os.getenv("AI_RISK_TOOL_HTTP_AUTH_TOKEN", ""),
+            tool_http_auth_token=_load_secret(
+                os.getenv("AI_RISK_TOOL_HTTP_AUTH_TOKEN", ""),
+                tool_http_auth_token_file,
+            ),
+            tool_http_auth_token_file=tool_http_auth_token_file,
             tool_http_auth_header=os.getenv(
                 "AI_RISK_TOOL_HTTP_AUTH_HEADER",
                 "Authorization",
@@ -161,6 +187,12 @@ class AppConfig:
                     "AI_RISK_TOOL_HTTP_AUDIT_PATH",
                     ".data/upstream-audit.jsonl",
                 )
+            ),
+            tool_http_audit_max_bytes=int(
+                os.getenv("AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES", str(10 * 1024 * 1024))
+            ),
+            tool_http_audit_max_files=int(
+                os.getenv("AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES", "5")
             ),
             tool_http_metric_path=os.getenv(
                 "AI_RISK_TOOL_HTTP_METRIC_PATH",
@@ -219,6 +251,13 @@ class AppConfig:
                 "AI_RISK_RISK_SERVICE_FAULT_INJECTION_ENABLED",
                 False,
             ),
+            admin_auth_enabled=_env_bool("AI_RISK_ADMIN_AUTH_ENABLED", False),
+            admin_auth_header=os.getenv("AI_RISK_ADMIN_AUTH_HEADER", "X-Admin-Token"),
+            admin_auth_token=_load_secret(
+                os.getenv("AI_RISK_ADMIN_AUTH_TOKEN", ""),
+                admin_auth_token_file,
+            ),
+            admin_auth_token_file=admin_auth_token_file,
         )
 
     @classmethod
@@ -241,9 +280,12 @@ class AppConfig:
             tool_http_circuit_breaker_reset_sec=30.0,
             tool_http_auth_mode="none",
             tool_http_auth_token="",
+            tool_http_auth_token_file=None,
             tool_http_auth_header="Authorization",
             tool_http_audit_enabled=True,
             tool_http_audit_path=Path(".data/upstream-audit.jsonl"),
+            tool_http_audit_max_bytes=10 * 1024 * 1024,
+            tool_http_audit_max_files=5,
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",
@@ -262,6 +304,10 @@ class AppConfig:
             risk_service_host="127.0.0.1",
             risk_service_port=8090,
             risk_service_fault_injection_enabled=False,
+            admin_auth_enabled=False,
+            admin_auth_header="X-Admin-Token",
+            admin_auth_token="",
+            admin_auth_token_file=None,
         )
 
     def tool_http_headers(self) -> Dict[str, str]:
@@ -270,6 +316,20 @@ class AppConfig:
         if self.tool_http_auth_mode == "api_key" and self.tool_http_auth_token:
             return {self.tool_http_auth_header: self.tool_http_auth_token}
         return {}
+
+    def tool_http_auth_token_source(self) -> str:
+        if self.tool_http_auth_token_file is not None:
+            return "file"
+        if self.tool_http_auth_token:
+            return "env"
+        return "none"
+
+    def admin_auth_token_source(self) -> str:
+        if self.admin_auth_token_file is not None:
+            return "file"
+        if self.admin_auth_token:
+            return "env"
+        return "none"
 
     def supported_agent_capabilities(self) -> list[str]:
         return list(SUPPORTED_AGENT_CAPABILITIES)

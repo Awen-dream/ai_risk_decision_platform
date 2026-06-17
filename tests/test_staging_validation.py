@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from validation.staging import (
     ValidationRunner,
+    _build_admin_headers,
     _validate_copilot,
     _validate_fields,
     _validate_runtime,
@@ -119,6 +122,19 @@ class StagingValidationTests(unittest.TestCase):
         detail = _validate_upstream_audit(client)
 
         self.assertIn("redacted records", detail)
+
+    def test_build_admin_headers_reads_token_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            token_path = Path(tmp_dir) / "admin-token"
+            token_path.write_text("file-admin-secret\n", encoding="utf-8")
+
+            headers = _build_admin_headers(
+                "X-Admin-Token",
+                "",
+                str(token_path),
+            )
+
+        self.assertEqual(headers, {"X-Admin-Token": "file-admin-secret"})
 
 
 if __name__ == "__main__":

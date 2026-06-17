@@ -1,0 +1,88 @@
+groups:
+  - name: ai-risk-platform-slo
+    rules:
+      - alert: AIRiskApiHigh5xxRatio
+        expr: |
+          sum(rate(ai_risk_http_responses_status_5xx_total[5m]))
+          /
+          clamp_min(sum(rate(ai_risk_http_requests_total[5m])), 1)
+          > 0.01
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk API 5xx ratio is above 1%"
+
+      - alert: AIRiskApiHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(ai_risk_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk API p95 latency is above 2 seconds"
+
+      - alert: AIRiskAgentHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(ai_risk_agent_execution_duration_seconds_bucket[5m])) by (le)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk agent execution p95 latency is above 5 seconds"
+
+      - alert: AIRiskUpstreamHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(ai_risk_upstream_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 1.5
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk upstream HTTP p95 latency is above 1.5 seconds"
+
+      - alert: AIRiskSQLiteUnhealthy
+        expr: |
+          increase(ai_risk_database_sqlite_transactions_failed_total[5m]) > 0
+          or
+          ai_risk_database_sqlite_ready == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk SQLite persistence is unhealthy"
+
+      - alert: AIRiskUpstreamCircuitOpen
+        expr: |
+          max({__name__=~"ai_risk_upstream_circuit_.*_open"}) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk upstream circuit breaker remains open"
+
+      - alert: AIRiskAuditWriteFailure
+        expr: |
+          increase(ai_risk_events_upstream_http_audit_failed_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk upstream audit writes are failing"
+
+      - alert: AIRiskAdminUnauthorizedSpike
+        expr: |
+          increase(ai_risk_events_admin_request_unauthorized_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk admin endpoint unauthorized requests spiked"

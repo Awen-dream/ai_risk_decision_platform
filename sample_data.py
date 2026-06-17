@@ -105,12 +105,16 @@ def build_case_records() -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
         ("BR", "credit_card"): [
             {
                 "case_id": "BR-2025-112",
+                "country": "BR",
+                "channel": "credit_card",
                 "title": "巴西信用卡失败率因阈值过严而放大",
             }
         ],
         ("ID", "wallet"): [
             {
                 "case_id": "ID-2026-021",
+                "country": "ID",
+                "channel": "wallet",
                 "title": "印尼钱包路由更新导致挑战率上升",
             }
         ],

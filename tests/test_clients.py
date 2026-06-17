@@ -45,6 +45,8 @@ class MockClientTests(unittest.TestCase):
         records = client.fetch_case_records("BR", "credit_card")
 
         self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["country"], "BR")
+        self.assertEqual(records[0]["channel"], "credit_card")
         self.assertIn("阈值过严", records[0]["title"])
 
     def test_order_profile_client_returns_none_for_missing_order(self) -> None:

@@ -31,8 +31,18 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Decide auth mode: `none`, `bearer`, or `api_key`
 - [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_MODE`
 - [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_HEADER`
-- [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_TOKEN`
+- [ ] Fill `AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE` through a mounted secret
+- [ ] Avoid raw `AI_RISK_TOOL_HTTP_AUTH_TOKEN` outside local development
 - [ ] Verify `GET /admin/runtime` shows the expected auth mode, auth header, and timeout
+
+## 3.5. Admin endpoint protection
+
+- [ ] Set `AI_RISK_ADMIN_AUTH_ENABLED=true`
+- [ ] Fill `AI_RISK_ADMIN_AUTH_HEADER`
+- [ ] Fill `AI_RISK_ADMIN_AUTH_TOKEN_FILE` through a mounted secret
+- [ ] Verify `/admin/runtime`, `/admin/metrics`, `/admin/audit-events`, and `/metrics` reject missing tokens
+- [ ] Verify CLI and Prometheus/staging checks pass with the admin token header
+- [ ] Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
 
 ## 4. Timeouts and networking
 
@@ -43,6 +53,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Verify error and retry behavior for timeout / 4xx / 5xx responses
 - [ ] Verify `GET /admin/runtime` shows the expected resilience policy
 - [ ] Confirm `AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true` and set the audit path
+- [ ] Set `AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES` and `AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES`
 
 ## 5. Functional verification
 
@@ -52,9 +63,11 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Run `python3 cli.py runtime`
 - [ ] Confirm session and case backends are `sqlite` and use the expected `database_path`
 - [ ] Restart the API and verify session/case records remain available
-- [ ] Confirm Prometheus can scrape `GET /metrics`
+- [ ] Confirm Prometheus can scrape `GET /metrics` with the admin token header when protection is enabled
 - [ ] Query `GET /admin/audit-events` and confirm credentials and entity IDs are redacted
+- [ ] Confirm `/admin/runtime` reports bounded audit rotation and retention settings
 - [ ] Validate the SLO and alert baseline in `docs/observability-slo.md`
+- [ ] Confirm `config/prometheus/ai-risk-alerts.yml` is loaded by Prometheus
 - [ ] Verify `supported_capabilities` is exactly `knowledge`, `investigation`, `strategy`, `graph`, `copilot`
 - [ ] Verify `capability_contract` and `http_endpoint_contract` match the agreed Phase 1 surface
 - [ ] Run `python3 cli.py agents`
@@ -76,10 +89,12 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 7. Production hardening follow-ups
 
 - [x] Add structured request IDs / trace IDs between agent API and risk service
-- [ ] Add secret management instead of raw env token injection
+- [x] Add token-file based secret loading for external and admin tokens
+- [x] Add admin protection for `/admin/*` and `/metrics`
 - [x] Add retry / circuit-breaker policy for transient upstream failures
 - [x] Add transactional single-instance persistence for sessions and cases
 - [x] Add Prometheus metrics and latency/state instrumentation
+- [x] Add deployable Prometheus alert rules and readiness gate
 - [ ] Replace SQLite with PostgreSQL before horizontal scaling
 - [x] Add append-only, redacted audit logging for external tool requests
 - [x] Add reusable contract validation for a staging endpoint

@@ -70,6 +70,26 @@ class AuditTests(unittest.TestCase):
 
         self.assertEqual([event["event_id"] for event in events], ["2"])
 
+    def test_json_lines_audit_log_rotates_and_queries_retained_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "audit.jsonl"
+            audit_log = JsonLinesAuditLog(path, max_bytes=120, max_files=3)
+            for index in range(5):
+                audit_log.record(
+                    {
+                        "event_id": str(index),
+                        "outcome": "success",
+                        "request_id": "req",
+                        "padding": "x" * 40,
+                    }
+                )
+
+            events = audit_log.list_events(limit=5)
+
+        self.assertLessEqual(len(events), 3)
+        self.assertEqual(events[0]["event_id"], "4")
+        self.assertTrue(any(event["event_id"] == "2" for event in events))
+
 
 if __name__ == "__main__":
     unittest.main()

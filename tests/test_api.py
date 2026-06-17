@@ -224,8 +224,15 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_circuit_breaker_reset_sec"], 30.0)
         self.assertEqual(payload["tool_http_auth_mode"], "none")
         self.assertEqual(payload["tool_http_auth_header"], "Authorization")
+        self.assertEqual(payload["tool_http_auth_token_source"], "none")
         self.assertTrue(payload["tool_http_audit_enabled"])
         self.assertEqual(payload["tool_http_audit_path"], ".data/upstream-audit.jsonl")
+        self.assertEqual(payload["tool_http_audit_max_bytes"], 10 * 1024 * 1024)
+        self.assertEqual(payload["tool_http_audit_max_files"], 5)
+        self.assertFalse(payload["admin_auth_enabled"])
+        self.assertEqual(payload["admin_auth_header"], "X-Admin-Token")
+        self.assertEqual(payload["admin_auth_token_source"], "none")
+        self.assertFalse(payload["admin_auth_configured"])
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
         self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
@@ -304,6 +311,40 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(len(payload), 1)
         self.assertEqual(payload[0]["outcome"], "success")
         self.assertNotIn("O10001", payload[0]["target_url"])
+
+    def test_admin_endpoints_require_token_when_enabled(self) -> None:
+        app = create_app(
+            AppConfig(
+                admin_auth_enabled=True,
+                admin_auth_token="admin-secret",
+            )
+        )
+        client = TestClient(app)
+
+        runtime_without_token = client.get("/admin/runtime")
+        metrics_without_token = client.get("/metrics")
+        reload_without_token = client.post("/admin/knowledge/reload")
+        public_health = client.get("/healthz")
+        runtime_with_token = client.get(
+            "/admin/runtime",
+            headers={"X-Admin-Token": "admin-secret"},
+        )
+        runtime_with_bad_token = client.get(
+            "/admin/runtime",
+            headers={"X-Admin-Token": "wrong"},
+        )
+
+        self.assertEqual(runtime_without_token.status_code, 401)
+        self.assertEqual(metrics_without_token.status_code, 401)
+        self.assertEqual(reload_without_token.status_code, 401)
+        self.assertEqual(public_health.status_code, 200)
+        self.assertEqual(runtime_with_bad_token.status_code, 401)
+        self.assertEqual(runtime_with_token.status_code, 200)
+        payload = runtime_with_token.json()
+        self.assertTrue(payload["admin_auth_enabled"])
+        self.assertTrue(payload["admin_auth_configured"])
+        self.assertEqual(payload["admin_auth_token_source"], "env")
+        self.assertNotIn("admin-secret", json.dumps(payload))
 
     def test_runtime_info_checks_sqlite_database_readiness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

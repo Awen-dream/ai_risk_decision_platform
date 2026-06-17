@@ -7,6 +7,9 @@ The API exposes:
 - `GET /admin/runtime`: active observability contract and readiness details.
 - `GET /admin/audit-events`: redacted external-tool audit records with bounded filtering.
 
+In shared environments, set `AI_RISK_ADMIN_AUTH_ENABLED=true`; `/admin/*` and
+`/metrics` then require the configured admin header.
+
 ## Trial-run SLOs
 
 | Signal | Trial-run objective |
@@ -23,6 +26,10 @@ operations exactly once. Completion and failure counters are separate, so they
 can safely be used as SLO numerators without double-counting the denominator.
 
 ## Prometheus Alert Baseline
+
+Deployable alert rules live in
+`config/prometheus/ai-risk-alerts.yml`. The readiness gate verifies that this
+file contains the required alert set before a trial run is accepted.
 
 API 5xx ratio:
 
@@ -68,8 +75,24 @@ max({__name__=~"ai_risk_upstream_circuit_.*_open"}) > 0
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.
+The local trial-run store must also declare bounded rotation with
+`AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES` and `AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES`.
 See `docs/upstream-audit.md` for operating guidance.
 
 SQLite remains the single-instance persistence baseline. Before horizontal
 scaling, move persistence to PostgreSQL and add instance-level labels and
 cross-instance dashboards.
+
+## Readiness Gate
+
+Run the gate against an API with admin protection enabled:
+
+```bash
+python3 -m validation.readiness \
+  --agent-base-url http://127.0.0.1:8000 \
+  --admin-token-file /run/secrets/ai-risk-admin-token
+```
+
+The gate verifies health, admin endpoint protection, runtime readiness,
+admin-token file usage, audit enablement, audit retention bounds,
+authenticated Prometheus scraping, and the required alert rule pack.

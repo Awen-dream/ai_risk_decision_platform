@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -31,6 +32,32 @@ class SettingsTests(unittest.TestCase):
             config.tool_http_headers(),
             {"X-API-Key": "secret-key"},
         )
+
+    def test_auth_tokens_can_load_from_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tool_token_path = Path(tmp_dir) / "tool-token"
+            admin_token_path = Path(tmp_dir) / "admin-token"
+            tool_token_path.write_text("file-tool-secret\n", encoding="utf-8")
+            admin_token_path.write_text("file-admin-secret\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_TOOL_HTTP_AUTH_MODE": "api_key",
+                    "AI_RISK_TOOL_HTTP_AUTH_HEADER": "X-API-Key",
+                    "AI_RISK_TOOL_HTTP_AUTH_TOKEN": "env-tool-secret",
+                    "AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE": str(tool_token_path),
+                    "AI_RISK_ADMIN_AUTH_ENABLED": "true",
+                    "AI_RISK_ADMIN_AUTH_TOKEN": "env-admin-secret",
+                    "AI_RISK_ADMIN_AUTH_TOKEN_FILE": str(admin_token_path),
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.tool_http_headers(), {"X-API-Key": "file-tool-secret"})
+        self.assertEqual(config.tool_http_auth_token_source(), "file")
+        self.assertTrue(config.admin_auth_enabled)
+        self.assertEqual(config.admin_auth_token, "file-admin-secret")
+        self.assertEqual(config.admin_auth_token_source(), "file")
 
     def test_local_http_stack_profile(self) -> None:
         config = AppConfig.local_http_stack()
@@ -69,12 +96,16 @@ class SettingsTests(unittest.TestCase):
             {
                 "AI_RISK_TOOL_HTTP_AUDIT_ENABLED": "false",
                 "AI_RISK_TOOL_HTTP_AUDIT_PATH": "/tmp/upstream-audit.jsonl",
+                "AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES": "2048",
+                "AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES": "7",
             },
         ):
             config = AppConfig.from_env()
 
         self.assertFalse(config.tool_http_audit_enabled)
         self.assertEqual(config.tool_http_audit_path, Path("/tmp/upstream-audit.jsonl"))
+        self.assertEqual(config.tool_http_audit_max_bytes, 2048)
+        self.assertEqual(config.tool_http_audit_max_files, 7)
 
     def test_sqlite_persistence_settings_load_from_environment(self) -> None:
         with patch.dict(

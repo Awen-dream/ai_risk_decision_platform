@@ -76,6 +76,8 @@ export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
 export AI_RISK_TOOL_HTTP_CIRCUIT_BREAKER_RESET_SEC=30
 export AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true
 export AI_RISK_TOOL_HTTP_AUDIT_PATH=.data/upstream-audit.jsonl
+export AI_RISK_TOOL_HTTP_AUDIT_MAX_BYTES=10485760
+export AI_RISK_TOOL_HTTP_AUDIT_MAX_FILES=5
 ```
 
 Retries use exponential backoff and apply only to network errors, timeouts, HTTP
@@ -105,28 +107,40 @@ Bearer token:
 
 ```bash
 export AI_RISK_TOOL_HTTP_AUTH_MODE=bearer
-export AI_RISK_TOOL_HTTP_AUTH_TOKEN=your-token
 export AI_RISK_TOOL_HTTP_AUTH_HEADER=Authorization
+export AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE=/run/secrets/risk-api-bearer-token
 ```
 
 API key header:
 
 ```bash
 export AI_RISK_TOOL_HTTP_AUTH_MODE=api_key
-export AI_RISK_TOOL_HTTP_AUTH_TOKEN=your-api-key
 export AI_RISK_TOOL_HTTP_AUTH_HEADER=X-API-Key
+export AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE=/run/secrets/risk-api-key
+```
+
+Raw `AI_RISK_TOOL_HTTP_AUTH_TOKEN` is still supported for local testing, but
+shared environments should mount the value through `AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE`.
+
+Protect operator endpoints in shared environments:
+
+```bash
+export AI_RISK_ADMIN_AUTH_ENABLED=true
+export AI_RISK_ADMIN_AUTH_HEADER=X-Admin-Token
+export AI_RISK_ADMIN_AUTH_TOKEN_FILE=/run/secrets/ai-risk-admin-token
 ```
 
 ## Recommended rollout flow
 
 1. Copy the closest env template into `.env.local`
-2. Fill real base URL, endpoint paths, parameter names, and auth token
+2. Fill real base URL, endpoint paths, parameter names, and token-file paths
 3. Start the API with `make run-api-http`
-4. Verify config with `python3 cli.py runtime`
+4. Verify config with `python3 cli.py --admin-token-file /run/secrets/ai-risk-admin-token runtime`
 5. Check `supported_capabilities`, `capability_contract`, and `http_endpoint_contract`
 6. Run one `knowledge` query and one query for each of `investigation`, `strategy`, `graph`, `copilot`
-7. Check `/admin/audit-events` for redacted, correlated external-call records
-8. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
+7. Check `/admin/audit-events` for redacted, correlated external-call records and verify audit rotation/retention settings
+8. Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
+9. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
 ## Local verification
 
@@ -142,6 +156,10 @@ python3 cli.py ask strategy "请评估策略 STRAT-001 是否应该调整阈值"
 python3 cli.py ask graph "请分析用户 U10001 是否属于团伙网络" --entity-id U10001
 python3 cli.py ask copilot "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议" --order-id O10001 --strategy-id STRAT-001 --entity-id U10001
 ```
+
+If `AI_RISK_ADMIN_AUTH_ENABLED=true`, add
+`--admin-token-file /run/secrets/ai-risk-admin-token` to `runtime` and
+`reload-knowledge` CLI calls.
 
 The `GET /admin/runtime` endpoint also shows the active HTTP paths, auth mode,
 timeout, retry, circuit-breaker and audit policy, parameter mapping, registered

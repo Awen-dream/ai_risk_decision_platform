@@ -14,6 +14,15 @@ make validate-staging \
   AGENT_BASE_URL=http://127.0.0.1:8000
 ```
 
+If the agent API protects `/admin/*` and `/metrics`, pass the admin token:
+
+```bash
+python3 -m validation.staging \
+  --risk-base-url https://risk-staging.example.com \
+  --agent-base-url http://127.0.0.1:8000 \
+  --agent-admin-token-file /run/secrets/ai-risk-admin-token
+```
+
 The suite validates:
 
 - Health and the six required risk-service endpoint schemas.
@@ -37,7 +46,8 @@ make recovery-drill
 ```
 
 The script starts an isolated local stack on ports `18080` and `18090`, enables
-fault injection only for the mock risk service, and verifies:
+admin protection for the agent API, enables fault injection only for the mock
+risk service, and verifies:
 
 1. A transient 503 recovers through retry.
 2. Repeated exhausted requests open the circuit.
@@ -45,8 +55,10 @@ fault injection only for the mock risk service, and verifies:
    closes the circuit.
 4. Retry failures, circuit rejection, and recovery success remain available as
    redacted audit evidence.
+5. Audit logging remains bounded by configured local rotation and retention.
 
 The default report is written to `.data/reports/recovery-drill.json`.
+The readiness gate report is written to `.data/reports/readiness-drill.json`.
 The drill refuses to start if either isolated port is already in use. Override
 them with `AI_RISK_DRILL_API_PORT` and `AI_RISK_DRILL_RISK_PORT` when needed.
 

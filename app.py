@@ -221,7 +221,11 @@ def build_case_service(config: AppConfig) -> CaseService:
 
 def build_audit_log(config: AppConfig) -> AuditLog:
     if config.tool_http_audit_enabled:
-        return JsonLinesAuditLog(config.tool_http_audit_path)
+        return JsonLinesAuditLog(
+            config.tool_http_audit_path,
+            max_bytes=config.tool_http_audit_max_bytes,
+            max_files=config.tool_http_audit_max_files,
+        )
     return NoopAuditLog()
 
 

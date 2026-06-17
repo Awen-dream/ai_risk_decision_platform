@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
 from urllib.request import Request
@@ -43,6 +45,18 @@ class CliTests(unittest.TestCase):
         self.assertIsInstance(request, Request)
         self.assertIn("/agents/knowledge", request.full_url)
 
+    def test_api_client_sends_admin_header(self) -> None:
+        client = ApiClient(
+            "http://127.0.0.1:8000",
+            headers={"X-Admin-Token": "secret"},
+        )
+
+        with patch("cli.urlopen", return_value=_FakeResponse({"status": "ok"})) as mocked:
+            client.runtime_info()
+
+        request = mocked.call_args[0][0]
+        self.assertEqual(request.headers["X-admin-token"], "secret")
+
     def test_main_healthz_prints_json(self) -> None:
         with patch("cli.urlopen", return_value=_FakeResponse({"status": "ok"})):
             with patch("sys.stdout", new_callable=io.StringIO) as stdout:
@@ -50,6 +64,26 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn('"status": "ok"', stdout.getvalue())
+
+    def test_main_reads_admin_token_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            token_path = Path(tmp_dir) / "admin-token"
+            token_path.write_text("file-admin-secret\n", encoding="utf-8")
+            with patch("cli.urlopen", return_value=_FakeResponse({"status": "ok"})) as mocked:
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    exit_code = main(
+                        [
+                            "--base-url",
+                            "http://127.0.0.1:8000",
+                            "--admin-token-file",
+                            str(token_path),
+                            "runtime",
+                        ]
+                    )
+
+        self.assertEqual(exit_code, 0)
+        request = mocked.call_args[0][0]
+        self.assertEqual(request.headers["X-admin-token"], "file-admin-secret")
 
     def test_main_ask_builds_context(self) -> None:
         response_payload = {"session_id": "s1", "agent_name": "investigation"}

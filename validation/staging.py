@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -38,9 +39,16 @@ class ValidationCheck:
 
 
 class JsonHttpClient:
-    def __init__(self, base_url: str, *, timeout_sec: float = 10.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout_sec: float = 10.0,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_sec = timeout_sec
+        self._headers = headers or {}
 
     def get(self, path: str) -> Any:
         return self._request("GET", path)
@@ -58,7 +66,10 @@ class JsonHttpClient:
         payload: dict[str, Any] | None = None,
     ) -> Any:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
-        headers = {"Content-Type": "application/json"} if data is not None else {}
+        headers = {
+            **self._headers,
+            **({"Content-Type": "application/json"} if data is not None else {}),
+        }
         request = Request(
             f"{self._base_url}{path}",
             data=data,
@@ -114,9 +125,11 @@ class ValidationRunner:
 def run_contract_validation(
     risk_base_url: str,
     agent_base_url: str,
+    *,
+    agent_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     risk = JsonHttpClient(risk_base_url)
-    agent = JsonHttpClient(agent_base_url)
+    agent = JsonHttpClient(agent_base_url, headers=agent_headers)
     runner = ValidationRunner()
     runner.check("risk.health", lambda: _expect_equal(risk.get("/healthz")["status"], "ok"))
     runner.check("agent.health", lambda: _expect_equal(agent.get("/healthz")["status"], "ok"))
@@ -260,7 +273,10 @@ def run_contract_validation(
         ),
     )
     runner.check("agent.upstream_audit", lambda: _validate_upstream_audit(agent))
-    runner.check("agent.prometheus", lambda: _validate_prometheus(agent_base_url))
+    runner.check(
+        "agent.prometheus",
+        lambda: _validate_prometheus(agent_base_url, headers=agent_headers),
+    )
     return runner.report()
 
 
@@ -269,9 +285,10 @@ def run_recovery_drill(
     agent_base_url: str,
     *,
     reset_wait_sec: float = 0.5,
+    agent_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     risk = JsonHttpClient(risk_base_url)
-    agent = JsonHttpClient(agent_base_url)
+    agent = JsonHttpClient(agent_base_url, headers=agent_headers)
     runner = ValidationRunner()
     risk.delete("/admin/faults")
 
@@ -443,8 +460,16 @@ def _validate_fields(payload: Any, fields: set[str], *, is_list: bool) -> str:
     return f"required fields present: {len(fields)}"
 
 
-def _validate_prometheus(agent_base_url: str) -> str:
-    request = Request(f"{agent_base_url.rstrip('/')}/metrics", method="GET")
+def _validate_prometheus(
+    agent_base_url: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> str:
+    request = Request(
+        f"{agent_base_url.rstrip('/')}/metrics",
+        headers=headers or {},
+        method="GET",
+    )
     with urlopen(request, timeout=10.0) as response:
         payload = response.read().decode("utf-8")
     if "ai_risk_http_requests_total" not in payload:
@@ -489,21 +514,55 @@ def _expect_equal(actual: Any, expected: Any) -> str:
     return f"value matched: {expected!r}"
 
 
+def _build_admin_headers(
+    header_name: str,
+    token: str,
+    token_file: str,
+) -> dict[str, str]:
+    if token_file:
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+    if not token:
+        return {}
+    return {header_name: token}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate staging contracts and recovery.")
     parser.add_argument("--risk-base-url", required=True)
     parser.add_argument("--agent-base-url", required=True)
     parser.add_argument("--fault-drill", action="store_true")
     parser.add_argument("--reset-wait-sec", type=float, default=0.5)
+    parser.add_argument(
+        "--agent-admin-header",
+        default=os.getenv("AI_RISK_ADMIN_AUTH_HEADER", "X-Admin-Token"),
+    )
+    parser.add_argument(
+        "--agent-admin-token",
+        default=os.getenv("AI_RISK_ADMIN_AUTH_TOKEN", ""),
+    )
+    parser.add_argument(
+        "--agent-admin-token-file",
+        default=os.getenv("AI_RISK_ADMIN_AUTH_TOKEN_FILE", ""),
+    )
     parser.add_argument("--output")
     args = parser.parse_args(argv)
 
-    report = run_contract_validation(args.risk_base_url, args.agent_base_url)
+    agent_headers = _build_admin_headers(
+        args.agent_admin_header,
+        args.agent_admin_token,
+        args.agent_admin_token_file,
+    )
+    report = run_contract_validation(
+        args.risk_base_url,
+        args.agent_base_url,
+        agent_headers=agent_headers,
+    )
     if args.fault_drill:
         recovery = run_recovery_drill(
             args.risk_base_url,
             args.agent_base_url,
             reset_wait_sec=args.reset_wait_sec,
+            agent_headers=agent_headers,
         )
         report["recovery_drill"] = recovery
         if recovery["status"] != "passed":

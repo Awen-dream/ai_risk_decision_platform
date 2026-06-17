@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional, TextIO
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -18,10 +19,12 @@ class ApiClient:
         base_url: str,
         debug: bool = False,
         debug_stream: Optional[TextIO] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._debug = debug
         self._debug_stream = debug_stream or sys.stderr
+        self._headers = headers or {}
 
     def healthz(self) -> Dict[str, Any]:
         return self._get("/healthz")
@@ -59,7 +62,11 @@ class ApiClient:
         return self._post(f"/agents/{agent_name}", payload)
 
     def _get(self, path: str) -> Dict[str, Any]:
-        request = Request(f"{self._base_url}{path}", method="GET")
+        request = Request(
+            f"{self._base_url}{path}",
+            headers=self._headers,
+            method="GET",
+        )
         self._log_request(request)
         with urlopen(request) as response:
             payload = json.load(response)
@@ -71,7 +78,7 @@ class ApiClient:
         request = Request(
             f"{self._base_url}{path}",
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={**self._headers, "Content-Type": "application/json"},
             method="POST",
         )
         self._log_request(request, payload)
@@ -113,6 +120,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print HTTP request and response details to stderr.",
     )
+    parser.add_argument(
+        "--admin-header",
+        default=config.admin_auth_header,
+        help="Header name used for protected admin endpoints.",
+    )
+    parser.add_argument(
+        "--admin-token",
+        default=None,
+        help="Admin token for protected admin endpoints. Prefer --admin-token-file.",
+    )
+    parser.add_argument(
+        "--admin-token-file",
+        default=None,
+        help="Path to a file containing the admin token.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("healthz", help="Check API health")
@@ -143,7 +165,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    client = ApiClient(args.base_url, debug=args.debug)
+    config = AppConfig.from_env()
+    client = ApiClient(
+        args.base_url,
+        debug=args.debug,
+        headers=_build_admin_headers(
+            header_name=args.admin_header,
+            token=args.admin_token or config.admin_auth_token,
+            token_file=args.admin_token_file,
+        ),
+    )
 
     try:
         if args.command == "healthz":
@@ -214,6 +245,19 @@ def main(argv: Optional[list[str]] = None) -> int:
 def _print_json(payload: Dict[str, Any]) -> None:
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
+
+
+def _build_admin_headers(
+    *,
+    header_name: str,
+    token: str,
+    token_file: Optional[str],
+) -> Dict[str, str]:
+    if token_file:
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+    if not token:
+        return {}
+    return {header_name: token}
 
 
 if __name__ == "__main__":

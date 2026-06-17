@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
+from secrets import compare_digest
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from app import build_app_container
@@ -167,8 +168,15 @@ class RuntimeInfoResponse(BaseModel):
     tool_http_circuit_breaker_reset_sec: float
     tool_http_auth_mode: str
     tool_http_auth_header: str
+    tool_http_auth_token_source: str
     tool_http_audit_enabled: bool
     tool_http_audit_path: str
+    tool_http_audit_max_bytes: int
+    tool_http_audit_max_files: int
+    admin_auth_enabled: bool
+    admin_auth_header: str
+    admin_auth_token_source: str
+    admin_auth_configured: bool
     tool_http_metric_path: str
     tool_http_case_path: str
     tool_http_order_path_template: str
@@ -271,6 +279,28 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             http_path=request.url.path,
         ):
             emit_event("http_request_started")
+            if _requires_admin_auth(request.url.path) and not _is_admin_authorized(
+                request,
+                container.config,
+            ):
+                emit_event(
+                    "admin_request_unauthorized",
+                    admin_path=request.url.path,
+                    admin_auth_enabled=container.config.admin_auth_enabled,
+                    admin_auth_configured=bool(container.config.admin_auth_token),
+                )
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": "Admin authentication required"},
+                )
+                response.headers[REQUEST_ID_HEADER] = request_id
+                response.headers[TRACE_ID_HEADER] = trace_id
+                emit_event(
+                    "http_request_completed",
+                    status_code=401,
+                    duration_seconds=time.perf_counter() - started_at,
+                )
+                return response
             try:
                 response = await call_next(request)
             except Exception as exc:
@@ -322,8 +352,15 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             ),
             tool_http_auth_mode=container.config.tool_http_auth_mode,
             tool_http_auth_header=container.config.tool_http_auth_header,
+            tool_http_auth_token_source=container.config.tool_http_auth_token_source(),
             tool_http_audit_enabled=container.config.tool_http_audit_enabled,
             tool_http_audit_path=str(container.config.tool_http_audit_path),
+            tool_http_audit_max_bytes=container.config.tool_http_audit_max_bytes,
+            tool_http_audit_max_files=container.config.tool_http_audit_max_files,
+            admin_auth_enabled=container.config.admin_auth_enabled,
+            admin_auth_header=container.config.admin_auth_header,
+            admin_auth_token_source=container.config.admin_auth_token_source(),
+            admin_auth_configured=bool(container.config.admin_auth_token),
             tool_http_metric_path=container.config.tool_http_metric_path,
             tool_http_case_path=container.config.tool_http_case_path,
             tool_http_order_path_template=container.config.tool_http_order_path_template,
@@ -535,6 +572,22 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         return _to_response_model(session_id, response)
 
     return fastapi_app
+
+
+def _requires_admin_auth(path: str) -> bool:
+    return path.startswith("/admin/") or path == "/metrics"
+
+
+def _is_admin_authorized(request: Request, config: AppConfig) -> bool:
+    if not config.admin_auth_enabled:
+        return True
+    expected = config.admin_auth_token
+    if not expected:
+        return False
+    provided = request.headers.get(config.admin_auth_header)
+    if provided is None:
+        return False
+    return compare_digest(provided, expected)
 
 
 def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeResponse:

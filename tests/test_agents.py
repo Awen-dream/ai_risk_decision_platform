@@ -32,6 +32,9 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("BR", response.summary)
         self.assertTrue(any("异常开始时间" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "metric_snapshot" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "case_lookup" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "case_lookup" and trace.status == "success" for trace in response.tool_traces))
+        self.assertTrue(any("历史相似案例" in finding for finding in response.findings))
 
     def test_metric_investigation_uses_time_range_context(self) -> None:
         _, response = self.runtime.execute(

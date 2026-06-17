@@ -16,6 +16,8 @@ RISK_PORT="${AI_RISK_DRILL_RISK_PORT:-18090}"
 REPORT_PATH="${AI_RISK_DRILL_REPORT_PATH:-.data/reports/recovery-drill.json}"
 DATABASE_PATH="${AI_RISK_DRILL_DATABASE_PATH:-.data/recovery-drill.db}"
 AUDIT_PATH="${AI_RISK_DRILL_AUDIT_PATH:-.data/recovery-drill-audit-$$.jsonl}"
+ADMIN_TOKEN_PATH="${AI_RISK_DRILL_ADMIN_TOKEN_PATH:-.data/recovery-drill-admin-token-$$}"
+ADMIN_TOKEN="${AI_RISK_DRILL_ADMIN_TOKEN:-recovery-drill-admin-token}"
 
 cleanup() {
   if [[ -n "${API_PID:-}" ]]; then
@@ -54,7 +56,8 @@ wait_for_health() {
 
 trap cleanup EXIT INT TERM
 cd "$ROOT_DIR"
-mkdir -p .data "$(dirname "$REPORT_PATH")" "$(dirname "$DATABASE_PATH")"
+mkdir -p .data "$(dirname "$REPORT_PATH")" "$(dirname "$DATABASE_PATH")" "$(dirname "$ADMIN_TOKEN_PATH")"
+printf "%s\n" "$ADMIN_TOKEN" >"$ADMIN_TOKEN_PATH"
 ensure_port_available "$RISK_HOST" "$RISK_PORT"
 ensure_port_available "$API_HOST" "$API_PORT"
 
@@ -75,6 +78,8 @@ AI_RISK_CASE_STORE_BACKEND=sqlite \
 AI_RISK_DATABASE_PATH="$DATABASE_PATH" \
 AI_RISK_TOOL_HTTP_AUDIT_ENABLED=true \
 AI_RISK_TOOL_HTTP_AUDIT_PATH="$AUDIT_PATH" \
+AI_RISK_ADMIN_AUTH_ENABLED=true \
+AI_RISK_ADMIN_AUTH_TOKEN_FILE="$ADMIN_TOKEN_PATH" \
   "$PYTHON_BIN" -m uvicorn api:fastapi_app \
   --host "$API_HOST" --port "$API_PORT" >.data/recovery-drill-api.log 2>&1 &
 API_PID=$!
@@ -82,9 +87,15 @@ API_PID=$!
 wait_for_health "http://${RISK_HOST}:${RISK_PORT}/healthz"
 wait_for_health "http://${API_HOST}:${API_PORT}/healthz"
 
+"$PYTHON_BIN" -m validation.readiness \
+  --agent-base-url "http://${API_HOST}:${API_PORT}" \
+  --admin-token-file "$ADMIN_TOKEN_PATH" \
+  --output .data/reports/readiness-drill.json
+
 "$PYTHON_BIN" -m validation.staging \
   --risk-base-url "http://${RISK_HOST}:${RISK_PORT}" \
   --agent-base-url "http://${API_HOST}:${API_PORT}" \
+  --agent-admin-token-file "$ADMIN_TOKEN_PATH" \
   --fault-drill \
   --reset-wait-sec 0.5 \
   --output "$REPORT_PATH"
