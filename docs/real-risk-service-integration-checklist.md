@@ -64,6 +64,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Run `make recovery-drill` and archive the recovery report
 - [ ] Run `python3 cli.py runtime`
 - [ ] Confirm session and case backends are `postgres` with DSN from file for shared or horizontally scaled environments
+- [ ] Run `python3 -m validation.postgres_smoke --dsn-file ...`
 - [ ] Restart the API and verify session/case records remain available
 - [ ] Confirm Prometheus can scrape `GET /metrics` with the admin token header when protection is enabled
 - [ ] Query `GET /admin/audit-events` and confirm credentials and entity IDs are redacted

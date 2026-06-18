@@ -42,3 +42,21 @@ The application uses the same session and case contracts, creates the required
 tables and indexes through schema migrations, and exposes PostgreSQL readiness
 without returning the DSN. Install the optional `psycopg` driver in the
 deployment image before enabling the `postgres` backends.
+
+Run the persistence smoke gate after configuring the DSN:
+
+```bash
+make validate-postgres
+```
+
+or explicitly:
+
+```bash
+python3 -m validation.postgres_smoke \
+  --dsn-file /run/secrets/ai-risk-postgres-dsn \
+  --output .data/reports/postgres-smoke.json
+```
+
+The smoke gate creates a session, appends a turn, creates a workflow case,
+checks idempotent case creation, updates the case status, and verifies indexed
+list/count queries.

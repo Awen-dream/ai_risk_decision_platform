@@ -30,6 +30,15 @@ The suite validates:
 - One functional request for every Phase 1 agent.
 - Prometheus scrape availability.
 
+If staging uses PostgreSQL persistence, run the persistence smoke gate before
+the contract suite:
+
+```bash
+python3 -m validation.postgres_smoke \
+  --dsn-file /run/secrets/ai-risk-postgres-dsn \
+  --output .data/reports/postgres-smoke.json
+```
+
 To save the report explicitly:
 
 ```bash

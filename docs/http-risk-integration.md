@@ -146,8 +146,9 @@ export AI_RISK_ADMIN_AUTH_TOKEN_FILE=/run/secrets/ai-risk-admin-token
 6. Run one `knowledge` query and one query for each of `investigation`, `strategy`, `graph`, `copilot`
 7. Check `/admin/audit-events` and `/admin/audit-integrity` for redacted, correlated, tamper-evident external-call records
 8. For environments with queryable central audit, run `validation.staging` with `--central-audit-base-url ...`
-9. Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
-10. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
+9. If using PostgreSQL, run `python3 -m validation.postgres_smoke --dsn-file ...`
+10. Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
+11. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
 ## Local verification
 
