@@ -4,6 +4,8 @@ The validation suite turns the Phase 1 contract and resilience requirements
 into repeatable checks. It produces a machine-readable JSON report and exits
 non-zero when any check fails.
 
+For the full P0 signoff sequence, use `docs/staging-signoff-runbook.md`.
+
 ## Validate a real staging environment
 
 Start the agent API configured for the real staging risk service, then run:

@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UVICORN ?= $(PYTHON) -m uvicorn
 
-.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli validate-staging validate-readiness validate-postgres recovery-drill
+.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli validate-staging validate-readiness validate-postgres signoff-staging recovery-drill
 
 test:
 	$(PYTHON) -m unittest discover -v
@@ -29,6 +29,9 @@ validate-readiness:
 
 validate-postgres:
 	$(PYTHON) -m validation.postgres_smoke
+
+signoff-staging:
+	bash scripts/run_real_staging_signoff.sh
 
 recovery-drill:
 	bash scripts/run_recovery_drill.sh

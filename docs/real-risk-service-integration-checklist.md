@@ -59,6 +59,8 @@ Use this checklist when replacing the local mock risk service with a real extern
 
 ## 5. Functional verification
 
+- [ ] Run the full signoff flow in `docs/staging-signoff-runbook.md`
+- [ ] Archive `.data/reports/staging-signoff-*/signoff-summary.json`
 - [ ] Run staging contract validation with `make validate-staging RISK_BASE_URL=... AGENT_BASE_URL=...`
 - [ ] Archive the generated staging validation JSON report
 - [ ] Run `make recovery-drill` and archive the recovery report

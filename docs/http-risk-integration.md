@@ -150,6 +150,9 @@ export AI_RISK_ADMIN_AUTH_TOKEN_FILE=/run/secrets/ai-risk-admin-token
 10. Run `python3 -m validation.readiness --agent-base-url ... --admin-token-file ...`
 11. Use `docs/real-risk-service-integration-checklist.md` to complete the final validation
 
+For full P0 staging signoff, prefer the consolidated flow in
+`docs/staging-signoff-runbook.md`.
+
 ## Local verification
 
 Use these commands to inspect the running configuration:
