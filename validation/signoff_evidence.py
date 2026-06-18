@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 
 REQUIRED_REPORTS = {
+    "signoff_preflight": "signoff-preflight.json",
     "signoff_summary": "signoff-summary.json",
     "postgres_smoke": "postgres-smoke.json",
     "readiness": "readiness.json",
@@ -19,6 +20,7 @@ REQUIRED_REPORTS = {
     "signoff_manifest": "signoff-manifest.json",
 }
 MINIMUM_CHECK_TOTALS = {
+    "signoff_preflight": 4,
     "postgres_smoke": 4,
     "readiness": 7,
     "staging_validation": 17,
@@ -168,7 +170,7 @@ def _validate_summary_status(payloads: dict[str, Any]) -> str:
     reports = summary.get("reports", {})
     missing = [
         name
-        for name in ("postgres_smoke", "readiness", "staging_validation")
+        for name in ("signoff_preflight", "postgres_smoke", "readiness", "staging_validation")
         if name not in reports
     ]
     if missing:
@@ -182,7 +184,7 @@ def _validate_report_statuses(
     allow_postgres_skipped: bool,
 ) -> str:
     failures = []
-    for name in ("postgres_smoke", "readiness", "staging_validation"):
+    for name in ("signoff_preflight", "postgres_smoke", "readiness", "staging_validation"):
         report = _payload(payloads, name)
         status = report.get("status")
         if name == "postgres_smoke" and status == "skipped" and allow_postgres_skipped:
@@ -224,6 +226,7 @@ def _validate_manifest(report_dir: Path, payloads: dict[str, Any]) -> str:
         raise AssertionError("signoff manifest has no file entries")
     entries = {entry.get("path"): entry for entry in files if isinstance(entry, dict)}
     expected = {
+        "signoff-preflight.json",
         "postgres-smoke.json",
         "readiness.json",
         "staging-validation.json",

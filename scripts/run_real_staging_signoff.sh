@@ -53,12 +53,36 @@ require_value "RISK_BASE_URL or AI_RISK_SIGNOFF_RISK_BASE_URL" "$RISK_BASE_URL"
 require_value "AGENT_BASE_URL or AI_RISK_SIGNOFF_AGENT_BASE_URL" "$AGENT_BASE_URL"
 require_value "AI_RISK_ADMIN_AUTH_TOKEN_FILE" "$ADMIN_TOKEN_FILE"
 
+PREFLIGHT_ARGS=(
+  "--risk-base-url" "$RISK_BASE_URL"
+  "--agent-base-url" "$AGENT_BASE_URL"
+  "--admin-token-file" "$ADMIN_TOKEN_FILE"
+  "--output" "${REPORT_DIR}/signoff-preflight.json"
+)
+if [[ -n "$POSTGRES_DSN_FILE" ]]; then
+  PREFLIGHT_ARGS+=("--postgres-dsn-file" "$POSTGRES_DSN_FILE")
+fi
+if [[ "$REQUIRE_POSTGRES" == "true" ]]; then
+  PREFLIGHT_ARGS+=("--postgres-required")
+fi
+if [[ -n "$CENTRAL_AUDIT_BASE_URL" ]]; then
+  PREFLIGHT_ARGS+=("--central-audit-base-url" "$CENTRAL_AUDIT_BASE_URL")
+fi
+if [[ -n "$CENTRAL_AUDIT_TOKEN_FILE" ]]; then
+  PREFLIGHT_ARGS+=("--central-audit-token-file" "$CENTRAL_AUDIT_TOKEN_FILE")
+fi
+if [[ "$REQUIRE_CENTRAL_AUDIT" == "true" ]]; then
+  PREFLIGHT_ARGS+=("--central-audit-required")
+fi
+
+run_step "signoff-preflight" \
+  "$PYTHON_BIN" -m validation.signoff_preflight "${PREFLIGHT_ARGS[@]}"
+
 POSTGRES_ARGS=("--output" "${REPORT_DIR}/postgres-smoke.json")
 if [[ -n "$POSTGRES_DSN_FILE" ]]; then
   POSTGRES_ARGS=("--dsn-file" "$POSTGRES_DSN_FILE" "${POSTGRES_ARGS[@]}")
 elif [[ "$REQUIRE_POSTGRES" == "true" ]]; then
-  echo "Missing required value: AI_RISK_POSTGRES_DSN_FILE" >&2
-  exit 2
+  echo "Missing value: AI_RISK_POSTGRES_DSN_FILE; continuing to produce failed signoff evidence" >&2
 else
   POSTGRES_ARGS=("--skip-if-unconfigured" "${POSTGRES_ARGS[@]}")
 fi
@@ -77,8 +101,7 @@ if [[ -n "$CENTRAL_AUDIT_BASE_URL" ]]; then
     STAGING_ARGS+=("--central-audit-token-file" "$CENTRAL_AUDIT_TOKEN_FILE")
   fi
 elif [[ "$REQUIRE_CENTRAL_AUDIT" == "true" ]]; then
-  echo "Missing required value: AI_RISK_SIGNOFF_CENTRAL_AUDIT_BASE_URL" >&2
-  exit 2
+  echo "Missing value: AI_RISK_SIGNOFF_CENTRAL_AUDIT_BASE_URL; continuing to produce failed signoff evidence" >&2
 fi
 
 run_step "postgres-smoke" \
@@ -94,7 +117,8 @@ run_step "readiness" \
 run_step "staging-contract" \
   "$PYTHON_BIN" -m validation.staging "${STAGING_ARGS[@]}"
 
-"$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" <<'PY'
+run_step "signoff-summary" \
+  "$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -109,6 +133,7 @@ command_failed = sys.argv[6] != "0"
 
 reports = {}
 for name, filename in (
+    ("signoff_preflight", "signoff-preflight.json"),
     ("postgres_smoke", "postgres-smoke.json"),
     ("readiness", "readiness.json"),
     ("staging_validation", "staging-validation.json"),

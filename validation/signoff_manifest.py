@@ -11,6 +11,7 @@ from typing import Any
 
 MANIFEST_VERSION = 1
 DEFAULT_MANIFEST_FILES = (
+    "signoff-preflight.json",
     "postgres-smoke.json",
     "readiness.json",
     "staging-validation.json",

@@ -61,6 +61,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 
 - [ ] Run the full signoff flow in `docs/staging-signoff-runbook.md`
 - [ ] Run local dry-run with `make signoff-local` before using staging secrets
+- [ ] Verify `.data/reports/staging-signoff-*/signoff-preflight.json` is passed
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-manifest.json` contains SHA256 entries
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-evidence.json` is passed
 - [ ] Archive `.data/reports/staging-signoff-*/*.json`

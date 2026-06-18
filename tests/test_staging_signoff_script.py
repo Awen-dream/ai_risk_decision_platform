@@ -9,11 +9,13 @@ class StagingSignoffScriptTests(unittest.TestCase):
         payload = Path("scripts/run_real_staging_signoff.sh").read_text(encoding="utf-8")
 
         for marker in (
+            "validation.signoff_preflight",
             "validation.postgres_smoke",
             "validation.readiness",
             "validation.staging",
             "validation.signoff_manifest",
             "validation.signoff_evidence",
+            "signoff-preflight.json",
             "signoff-summary.json",
             "signoff-manifest.json",
             "signoff-evidence.json",

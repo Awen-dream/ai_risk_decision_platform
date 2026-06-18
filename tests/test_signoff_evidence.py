@@ -89,6 +89,7 @@ def _write_signoff_reports(
     extra_summary_inputs: dict[str, object] | None = None,
 ) -> None:
     postgres_summary = _summary(total=0 if postgres_status == "skipped" else 4, status=postgres_status)
+    preflight = _report(total=4)
     readiness = _report(total=7)
     staging_checks = [_check(f"staging.check.{index}") for index in range(17)]
     if include_central_audit_check:
@@ -107,6 +108,10 @@ def _write_signoff_reports(
         "report_dir": str(report_dir),
         "inputs": inputs,
         "reports": {
+            "signoff_preflight": {
+                "status": "passed",
+                "summary": preflight["summary"],
+            },
             "postgres_smoke": {
                 "status": postgres_status,
                 "summary": postgres_summary,
@@ -122,6 +127,7 @@ def _write_signoff_reports(
         },
         "failed_reports": [],
     }
+    _write_json(report_dir / "signoff-preflight.json", preflight)
     _write_json(report_dir / "signoff-summary.json", summary)
     _write_json(
         report_dir / "postgres-smoke.json",

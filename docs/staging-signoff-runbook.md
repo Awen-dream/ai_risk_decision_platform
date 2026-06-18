@@ -66,6 +66,7 @@ Local dry-run reports use:
 
 Expected files:
 
+- `signoff-preflight.json`
 - `postgres-smoke.json`
 - `readiness.json`
 - `staging-validation.json`
@@ -103,6 +104,7 @@ make validate-signoff-evidence \
 
 ## Done criteria
 
+- `signoff-preflight.json` has `"status": "passed"`.
 - `signoff-summary.json` has `"status": "passed"`.
 - `signoff-manifest.json` has SHA256 entries for the required report files.
 - `signoff-evidence.json` has `"status": "passed"`.
