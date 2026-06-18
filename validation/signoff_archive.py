@@ -67,13 +67,17 @@ def build_signoff_archive(
 
 
 def verify_signoff_archive(
-    report_dir: Path,
+    report_dir: Path | None = None,
     *,
     archive_path: Path | None = None,
     checksum_path: Path | None = None,
 ) -> dict[str, Any]:
-    archive_path = archive_path or report_dir / "signoff-archive.tar.gz"
-    checksum_path = checksum_path or report_dir / "signoff-archive.sha256"
+    if report_dir is None and archive_path is None:
+        raise ValueError("report_dir or archive_path is required")
+    archive_path = archive_path or report_dir / "signoff-archive.tar.gz"  # type: ignore[operator]
+    checksum_path = checksum_path or archive_path.with_name("signoff-archive.sha256")
+    source_report_dir = report_dir
+    display_report_dir = report_dir or archive_path.parent
     failures: list[str] = []
     verified_files: list[str] = []
 
@@ -84,12 +88,13 @@ def verify_signoff_archive(
     if failures:
         return _verification_report(
             status="failed",
-            report_dir=report_dir,
+            report_dir=display_report_dir,
             archive_path=archive_path,
             checksum_path=checksum_path,
             archive_sha256="",
             verified_files=verified_files,
             failures=failures,
+            source_comparison="required" if source_report_dir else "skipped",
         )
 
     archive_payload = archive_path.read_bytes()
@@ -122,25 +127,37 @@ def verify_signoff_archive(
                 if extracted is None:
                     failures.append(f"archive member could not be read: {member.name}")
                     continue
-                source_path = report_dir / member.name
-                if not source_path.is_file():
-                    failures.append(f"source report missing: {member.name}")
+                extracted_payload = extracted.read()
+                try:
+                    json.loads(extracted_payload.decode("utf-8"))
+                except json.JSONDecodeError as exc:
+                    failures.append(f"archive member is not valid JSON: {member.name}: {exc}")
                     continue
-                if extracted.read() != source_path.read_bytes():
-                    failures.append(f"archive member differs from source report: {member.name}")
-                    continue
+                if source_report_dir is not None:
+                    source_path = source_report_dir / member.name
+                    if not source_path.is_file():
+                        failures.append(f"source report missing: {member.name}")
+                        continue
+                    if extracted_payload != source_path.read_bytes():
+                        failures.append(f"archive member differs from source report: {member.name}")
+                        continue
                 verified_files.append(member.name)
     except tarfile.TarError as exc:
         failures.append(f"archive could not be read: {exc}")
 
     return _verification_report(
         status="passed" if not failures else "failed",
-        report_dir=report_dir,
+        report_dir=display_report_dir,
         archive_path=archive_path,
         checksum_path=checksum_path,
         archive_sha256=archive_sha256,
         verified_files=verified_files,
         failures=failures,
+        source_comparison=(
+            "skipped"
+            if source_report_dir is None
+            else ("passed" if not failures else "failed")
+        ),
     )
 
 
@@ -190,6 +207,7 @@ def _verification_report(
     archive_sha256: str,
     verified_files: list[str],
     failures: list[str],
+    source_comparison: str,
 ) -> dict[str, Any]:
     return {
         "status": status,
@@ -200,12 +218,13 @@ def _verification_report(
         "archive_sha256": archive_sha256,
         "verified_files": verified_files,
         "failures": failures,
+        "source_comparison": source_comparison,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create or verify a staging signoff archive.")
-    parser.add_argument("--report-dir", required=True)
+    parser.add_argument("--report-dir")
     parser.add_argument("--output")
     parser.add_argument("--checksum-output")
     parser.add_argument("--verify", action="store_true")
@@ -214,12 +233,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.verify:
+        if not args.report_dir and not args.archive:
+            parser.error("--verify requires --report-dir or --archive")
         report = verify_signoff_archive(
-            Path(args.report_dir),
+            Path(args.report_dir) if args.report_dir else None,
             archive_path=Path(args.archive) if args.archive else None,
             checksum_path=Path(args.checksum) if args.checksum else None,
         )
     else:
+        if not args.report_dir:
+            parser.error("--report-dir is required when creating an archive")
         report = build_signoff_archive(
             Path(args.report_dir),
             output_path=Path(args.output) if args.output else None,

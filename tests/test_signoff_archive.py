@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import tarfile
 import tempfile
 import unittest
@@ -17,8 +18,7 @@ class SignoffArchiveTests(unittest.TestCase):
     def test_archive_contains_required_reports_and_checksum(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)
-            for filename in ARCHIVE_FILES:
-                (report_dir / filename).write_text(f"{filename}\n", encoding="utf-8")
+            _write_archive_reports(report_dir)
 
             report = build_signoff_archive(report_dir)
 
@@ -36,6 +36,7 @@ class SignoffArchiveTests(unittest.TestCase):
         self.assertEqual(report["archive_sha256"], archive_hash)
         self.assertEqual(verification["status"], "passed")
         self.assertEqual(verification["verified_files"], list(ARCHIVE_FILES))
+        self.assertEqual(verification["source_comparison"], "passed")
 
     def test_archive_fails_when_required_report_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -50,10 +51,12 @@ class SignoffArchiveTests(unittest.TestCase):
     def test_archive_verification_detects_source_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)
-            for filename in ARCHIVE_FILES:
-                (report_dir / filename).write_text(f"{filename}\n", encoding="utf-8")
+            _write_archive_reports(report_dir)
             build_signoff_archive(report_dir)
-            (report_dir / "signoff-evidence.json").write_text("tampered\n", encoding="utf-8")
+            (report_dir / "signoff-evidence.json").write_text(
+                json.dumps({"status": "tampered"}) + "\n",
+                encoding="utf-8",
+            )
 
             report = verify_signoff_archive(report_dir)
 
@@ -63,8 +66,7 @@ class SignoffArchiveTests(unittest.TestCase):
     def test_archive_verification_detects_checksum_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)
-            for filename in ARCHIVE_FILES:
-                (report_dir / filename).write_text(f"{filename}\n", encoding="utf-8")
+            _write_archive_reports(report_dir)
             build_signoff_archive(report_dir)
             (report_dir / "signoff-archive.sha256").write_text(
                 "0" * 64 + "  signoff-archive.tar.gz\n",
@@ -75,6 +77,31 @@ class SignoffArchiveTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertIn("checksum", "\n".join(report["failures"]))
+
+    def test_archive_verification_supports_archive_only_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_archive_reports(report_dir)
+            archive_report = build_signoff_archive(report_dir)
+            for filename in ARCHIVE_FILES:
+                (report_dir / filename).unlink()
+
+            report = verify_signoff_archive(
+                archive_path=Path(archive_report["archive_path"]),
+                checksum_path=Path(archive_report["checksum_path"]),
+            )
+
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["verified_files"], list(ARCHIVE_FILES))
+        self.assertEqual(report["source_comparison"], "skipped")
+
+
+def _write_archive_reports(report_dir: Path) -> None:
+    for filename in ARCHIVE_FILES:
+        (report_dir / filename).write_text(
+            json.dumps({"status": "passed", "file": filename}) + "\n",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":
