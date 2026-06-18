@@ -1,7 +1,7 @@
 PYTHON ?= python3
 UVICORN ?= $(PYTHON) -m uvicorn
 
-.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli validate-staging validate-readiness validate-postgres validate-signoff-evidence signoff-staging signoff-local recovery-drill
+.PHONY: test run-api run-risk-service run-local-stack run-api-http run-cli validate-staging validate-readiness validate-postgres validate-signoff-evidence archive-signoff signoff-staging signoff-local recovery-drill
 
 test:
 	$(PYTHON) -m unittest discover -v
@@ -32,6 +32,9 @@ validate-postgres:
 
 validate-signoff-evidence:
 	$(PYTHON) -m validation.signoff_evidence --report-dir $(REPORT_DIR) $(SIGNOFF_EVIDENCE_ARGS)
+
+archive-signoff:
+	$(PYTHON) -m validation.signoff_archive --report-dir $(REPORT_DIR) $(SIGNOFF_ARCHIVE_ARGS)
 
 signoff-staging:
 	bash scripts/run_real_staging_signoff.sh

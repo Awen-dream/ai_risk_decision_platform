@@ -73,11 +73,20 @@ Expected files:
 - `signoff-summary.json`
 - `signoff-manifest.json`
 - `signoff-evidence.json`
+- `signoff-archive.tar.gz`
+- `signoff-archive.sha256`
 
 To re-check an archived or copied report directory before release signoff:
 
 ```bash
 make validate-signoff-evidence \
+  REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
+```
+
+To create or re-create the distributable archive for a copied report directory:
+
+```bash
+make archive-signoff \
   REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
 ```
 
@@ -108,6 +117,7 @@ make validate-signoff-evidence \
 - `signoff-summary.json` has `"status": "passed"`.
 - `signoff-manifest.json` has SHA256 entries for the required report files.
 - `signoff-evidence.json` has `"status": "passed"`.
+- `signoff-archive.sha256` matches `signoff-archive.tar.gz`.
 - `postgres-smoke.json`, `readiness.json`, and `staging-validation.json` are
   archived with the release or staging signoff record.
 - `docs/real-risk-service-integration-checklist.md` has the relevant P0 items

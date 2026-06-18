@@ -202,4 +202,10 @@ fi
 run_step "signoff-evidence" \
   "$PYTHON_BIN" -m validation.signoff_evidence "${EVIDENCE_ARGS[@]}"
 
+run_step "signoff-archive" \
+  "$PYTHON_BIN" -m validation.signoff_archive \
+    --report-dir "$REPORT_DIR" \
+    --output "${REPORT_DIR}/signoff-archive.tar.gz" \
+    --checksum-output "${REPORT_DIR}/signoff-archive.sha256"
+
 exit "$SIGNOFF_FAILED"

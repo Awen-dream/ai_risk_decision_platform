@@ -15,10 +15,13 @@ class StagingSignoffScriptTests(unittest.TestCase):
             "validation.staging",
             "validation.signoff_manifest",
             "validation.signoff_evidence",
+            "validation.signoff_archive",
             "signoff-preflight.json",
             "signoff-summary.json",
             "signoff-manifest.json",
             "signoff-evidence.json",
+            "signoff-archive.tar.gz",
+            "signoff-archive.sha256",
         ):
             self.assertIn(marker, payload)
 
