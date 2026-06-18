@@ -90,6 +90,13 @@ make archive-signoff \
   REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
 ```
 
+To verify an existing archive and checksum pair:
+
+```bash
+make verify-signoff-archive \
+  REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
+```
+
 For intentionally SQLite-only environments, the owner must explicitly accept the
 PostgreSQL skip:
 
@@ -118,6 +125,7 @@ make validate-signoff-evidence \
 - `signoff-manifest.json` has SHA256 entries for the required report files.
 - `signoff-evidence.json` has `"status": "passed"`.
 - `signoff-archive.sha256` matches `signoff-archive.tar.gz`.
+- `make verify-signoff-archive REPORT_DIR=...` has `"status": "passed"`.
 - `postgres-smoke.json`, `readiness.json`, and `staging-validation.json` are
   archived with the release or staging signoff record.
 - `docs/real-risk-service-integration-checklist.md` has the relevant P0 items

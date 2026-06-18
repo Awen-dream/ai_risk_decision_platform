@@ -65,6 +65,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-manifest.json` contains SHA256 entries
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-evidence.json` is passed
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-archive.sha256` matches the archive
+- [ ] Run `make verify-signoff-archive REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>`
 - [ ] Archive `.data/reports/staging-signoff-*/*.json`, `signoff-archive.tar.gz`, and `signoff-archive.sha256`
 - [ ] Run staging contract validation with `make validate-staging RISK_BASE_URL=... AGENT_BASE_URL=...`
 - [ ] Archive the generated staging validation JSON report

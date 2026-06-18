@@ -208,4 +208,11 @@ run_step "signoff-archive" \
     --output "${REPORT_DIR}/signoff-archive.tar.gz" \
     --checksum-output "${REPORT_DIR}/signoff-archive.sha256"
 
+run_step "verify-signoff-archive" \
+  "$PYTHON_BIN" -m validation.signoff_archive \
+    --verify \
+    --report-dir "$REPORT_DIR" \
+    --archive "${REPORT_DIR}/signoff-archive.tar.gz" \
+    --checksum "${REPORT_DIR}/signoff-archive.sha256"
+
 exit "$SIGNOFF_FAILED"

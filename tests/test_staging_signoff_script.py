@@ -22,6 +22,7 @@ class StagingSignoffScriptTests(unittest.TestCase):
             "signoff-evidence.json",
             "signoff-archive.tar.gz",
             "signoff-archive.sha256",
+            "verify-signoff-archive",
         ):
             self.assertIn(marker, payload)
 
