@@ -70,6 +70,7 @@ Expected files:
 - `readiness.json`
 - `staging-validation.json`
 - `signoff-summary.json`
+- `signoff-manifest.json`
 - `signoff-evidence.json`
 
 To re-check an archived or copied report directory before release signoff:
@@ -103,6 +104,7 @@ make validate-signoff-evidence \
 ## Done criteria
 
 - `signoff-summary.json` has `"status": "passed"`.
+- `signoff-manifest.json` has SHA256 entries for the required report files.
 - `signoff-evidence.json` has `"status": "passed"`.
 - `postgres-smoke.json`, `readiness.json`, and `staging-validation.json` are
   archived with the release or staging signoff record.

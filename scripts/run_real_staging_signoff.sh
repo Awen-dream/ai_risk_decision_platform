@@ -156,6 +156,11 @@ print(json.dumps(summary, ensure_ascii=False, indent=2))
 raise SystemExit(0 if status == "passed" else 1)
 PY
 
+run_step "signoff-manifest" \
+  "$PYTHON_BIN" -m validation.signoff_manifest \
+    --report-dir "$REPORT_DIR" \
+    --output "${REPORT_DIR}/signoff-manifest.json"
+
 EVIDENCE_ARGS=(
   "--report-dir" "$REPORT_DIR"
   "--expected-risk-base-url" "$RISK_BASE_URL"

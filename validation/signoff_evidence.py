@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import time
@@ -15,6 +16,7 @@ REQUIRED_REPORTS = {
     "postgres_smoke": "postgres-smoke.json",
     "readiness": "readiness.json",
     "staging_validation": "staging-validation.json",
+    "signoff_manifest": "signoff-manifest.json",
 }
 MINIMUM_CHECK_TOTALS = {
     "postgres_smoke": 4,
@@ -113,6 +115,10 @@ def validate_signoff_evidence(
         lambda: _validate_minimum_coverage(payloads),
     )
     runner.check(
+        "evidence.manifest",
+        lambda: _validate_manifest(report_dir, payloads),
+    )
+    runner.check(
         "evidence.central_audit",
         lambda: _validate_central_audit_requirement(
             payloads,
@@ -204,6 +210,46 @@ def _validate_minimum_coverage(payloads: dict[str, Any]) -> str:
     if failures:
         raise AssertionError(f"minimum coverage checks failed: {failures}")
     return "minimum signoff coverage is present"
+
+
+def _validate_manifest(report_dir: Path, payloads: dict[str, Any]) -> str:
+    manifest = _payload(payloads, "signoff_manifest")
+    if manifest.get("version") != 1:
+        raise AssertionError(f"unsupported signoff manifest version: {manifest.get('version')}")
+    missing_files = manifest.get("missing_files", [])
+    if missing_files:
+        raise AssertionError(f"signoff manifest lists missing files: {missing_files}")
+    files = manifest.get("files", [])
+    if not isinstance(files, list) or not files:
+        raise AssertionError("signoff manifest has no file entries")
+    entries = {entry.get("path"): entry for entry in files if isinstance(entry, dict)}
+    expected = {
+        "postgres-smoke.json",
+        "readiness.json",
+        "staging-validation.json",
+        "signoff-summary.json",
+    }
+    missing_entries = sorted(expected - set(entries))
+    if missing_entries:
+        raise AssertionError(f"signoff manifest missing checksum entries: {missing_entries}")
+    failures = []
+    for filename in sorted(expected):
+        path = report_dir / filename
+        if not path.exists():
+            failures.append(f"{filename}: file missing")
+            continue
+        payload = path.read_bytes()
+        entry = entries[filename]
+        if entry.get("sha256") != hashlib.sha256(payload).hexdigest():
+            failures.append(f"{filename}: sha256 mismatch")
+        if entry.get("bytes") != len(payload):
+            failures.append(f"{filename}: byte size mismatch")
+    if failures:
+        raise AssertionError(f"manifest checksum verification failed: {failures}")
+    provenance = manifest.get("provenance", {})
+    if not isinstance(provenance, dict) or "git_commit" not in provenance:
+        raise AssertionError("signoff manifest missing git provenance")
+    return f"manifest checksums verified: {len(expected)} files"
 
 
 def _validate_central_audit_requirement(

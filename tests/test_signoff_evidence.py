@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from validation.signoff_manifest import build_signoff_manifest
 from validation.signoff_evidence import validate_signoff_evidence
 
 
@@ -64,6 +65,20 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertIn("secret", _failed_details(report))
 
+    def test_manifest_detects_tampered_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_signoff_reports(report_dir)
+            (report_dir / "readiness.json").write_text(
+                json.dumps({"status": "passed", "summary": {"total": 0}}) + "\n",
+                encoding="utf-8",
+            )
+
+            report = validate_signoff_evidence(report_dir)
+
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("sha256 mismatch", _failed_details(report))
+
 
 def _write_signoff_reports(
     report_dir: Path,
@@ -119,6 +134,7 @@ def _write_signoff_reports(
     )
     _write_json(report_dir / "readiness.json", readiness)
     _write_json(report_dir / "staging-validation.json", staging)
+    _write_json(report_dir / "signoff-manifest.json", build_signoff_manifest(report_dir))
 
 
 def _report(
