@@ -60,6 +60,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 5. Functional verification
 
 - [ ] Run the full signoff flow in `docs/staging-signoff-runbook.md`
+- [ ] Run local dry-run with `make signoff-local` before using staging secrets
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-evidence.json` is passed
 - [ ] Archive `.data/reports/staging-signoff-*/*.json`
 - [ ] Run staging contract validation with `make validate-staging RISK_BASE_URL=... AGENT_BASE_URL=...`

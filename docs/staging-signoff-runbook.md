@@ -36,6 +36,18 @@ export AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT=true
 
 ## Run signoff
 
+Before using real staging credentials, run the local dry-run. It starts the mock
+risk service, agent API, and central audit sink, then exercises the same signoff
+script with PostgreSQL explicitly skipped:
+
+```bash
+make signoff-local
+```
+
+The local dry-run is only a harness check. It does not replace real staging
+signoff because it does not prove real upstream data, network, auth, or
+PostgreSQL connectivity.
+
 ```bash
 make signoff-staging
 ```
@@ -44,6 +56,12 @@ The script writes reports under:
 
 ```text
 .data/reports/staging-signoff-<UTC timestamp>/
+```
+
+Local dry-run reports use:
+
+```text
+.data/reports/local-signoff-<UTC timestamp>/
 ```
 
 Expected files:
