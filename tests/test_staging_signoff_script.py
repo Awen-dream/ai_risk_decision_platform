@@ -12,7 +12,9 @@ class StagingSignoffScriptTests(unittest.TestCase):
             "validation.postgres_smoke",
             "validation.readiness",
             "validation.staging",
+            "validation.signoff_evidence",
             "signoff-summary.json",
+            "signoff-evidence.json",
         ):
             self.assertIn(marker, payload)
 

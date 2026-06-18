@@ -155,3 +155,21 @@ summary = {
 print(json.dumps(summary, ensure_ascii=False, indent=2))
 raise SystemExit(0 if status == "passed" else 1)
 PY
+
+EVIDENCE_ARGS=(
+  "--report-dir" "$REPORT_DIR"
+  "--expected-risk-base-url" "$RISK_BASE_URL"
+  "--expected-agent-base-url" "$AGENT_BASE_URL"
+  "--output" "${REPORT_DIR}/signoff-evidence.json"
+)
+if [[ "$REQUIRE_POSTGRES" != "true" ]]; then
+  EVIDENCE_ARGS+=("--allow-postgres-skipped")
+fi
+if [[ "$REQUIRE_CENTRAL_AUDIT" == "true" ]]; then
+  EVIDENCE_ARGS+=("--require-central-audit")
+fi
+
+run_step "signoff-evidence" \
+  "$PYTHON_BIN" -m validation.signoff_evidence "${EVIDENCE_ARGS[@]}"
+
+exit "$SIGNOFF_FAILED"

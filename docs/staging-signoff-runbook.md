@@ -52,6 +52,23 @@ Expected files:
 - `readiness.json`
 - `staging-validation.json`
 - `signoff-summary.json`
+- `signoff-evidence.json`
+
+To re-check an archived or copied report directory before release signoff:
+
+```bash
+make validate-signoff-evidence \
+  REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
+```
+
+For intentionally SQLite-only environments, the owner must explicitly accept the
+PostgreSQL skip:
+
+```bash
+make validate-signoff-evidence \
+  REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp> \
+  SIGNOFF_EVIDENCE_ARGS="--allow-postgres-skipped"
+```
 
 ## What the signoff checks
 
@@ -68,6 +85,7 @@ Expected files:
 ## Done criteria
 
 - `signoff-summary.json` has `"status": "passed"`.
+- `signoff-evidence.json` has `"status": "passed"`.
 - `postgres-smoke.json`, `readiness.json`, and `staging-validation.json` are
   archived with the release or staging signoff record.
 - `docs/real-risk-service-integration-checklist.md` has the relevant P0 items
