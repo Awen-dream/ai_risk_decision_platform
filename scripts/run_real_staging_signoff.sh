@@ -23,15 +23,6 @@ REQUIRE_POSTGRES="${AI_RISK_SIGNOFF_REQUIRE_POSTGRES:-true}"
 REQUIRE_CENTRAL_AUDIT="${AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT:-false}"
 SIGNOFF_FAILED=0
 
-require_value() {
-  local name="$1"
-  local value="$2"
-  if [[ -z "$value" ]]; then
-    echo "Missing required value: ${name}" >&2
-    exit 2
-  fi
-}
-
 run_step() {
   local name="$1"
   shift
@@ -48,10 +39,6 @@ run_step() {
 
 cd "$ROOT_DIR"
 mkdir -p "$REPORT_DIR"
-
-require_value "RISK_BASE_URL or AI_RISK_SIGNOFF_RISK_BASE_URL" "$RISK_BASE_URL"
-require_value "AGENT_BASE_URL or AI_RISK_SIGNOFF_AGENT_BASE_URL" "$AGENT_BASE_URL"
-require_value "AI_RISK_ADMIN_AUTH_TOKEN_FILE" "$ADMIN_TOKEN_FILE"
 
 PREFLIGHT_ARGS=(
   "--risk-base-url" "$RISK_BASE_URL"

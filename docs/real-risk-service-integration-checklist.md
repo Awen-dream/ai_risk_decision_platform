@@ -60,7 +60,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 5. Functional verification
 
 - [ ] Run the full signoff flow in `docs/staging-signoff-runbook.md`
-- [ ] Run local dry-run with `make signoff-local` before using staging secrets
+- [x] Run local dry-run with `make signoff-local` before using staging secrets. Latest local baseline: `.data/reports/local-signoff-20260618T124036Z`.
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-preflight.json` is passed
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-manifest.json` contains SHA256 entries
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-evidence.json` is passed
@@ -68,6 +68,7 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [ ] Run `make verify-signoff-archive REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>`
 - [ ] Run archive-only verification if only `signoff-archive.tar.gz` and `.sha256` are handed off
 - [ ] Archive `.data/reports/staging-signoff-*/*.json`, `signoff-archive.tar.gz`, and `signoff-archive.sha256`
+- [ ] If signoff fails, retain the failed signoff package for troubleshooting evidence
 - [ ] Run staging contract validation with `make validate-staging RISK_BASE_URL=... AGENT_BASE_URL=...`
 - [ ] Archive the generated staging validation JSON report
 - [ ] Run `make recovery-drill` and archive the recovery report

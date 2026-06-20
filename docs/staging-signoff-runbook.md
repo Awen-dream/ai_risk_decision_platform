@@ -52,6 +52,10 @@ PostgreSQL connectivity.
 make signoff-staging
 ```
 
+If preflight or downstream validation fails, the script still writes a failed
+signoff package whenever possible. Archive the failed package as troubleshooting
+evidence; do not treat it as a release signoff.
+
 The script writes reports under:
 
 ```text
@@ -142,3 +146,5 @@ make validate-signoff-evidence \
   checked or linked to the archived evidence.
 - Any skipped check is explicitly accepted by the owner responsible for that
   environment.
+- Failed signoff packages are retained for incident/troubleshooting evidence but
+  are not accepted as release signoff artifacts.
