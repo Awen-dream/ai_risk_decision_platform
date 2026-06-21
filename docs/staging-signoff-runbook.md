@@ -21,6 +21,18 @@ export AI_RISK_AUDIT_CENTRAL_AUTH_HEADER=Authorization
 export AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE=/run/secrets/ai-risk-audit-token
 ```
 
+For release acceptance evidence, bind the signoff package to the release,
+change, owner, and approver:
+
+```bash
+export AI_RISK_SIGNOFF_REQUIRE_RELEASE_METADATA=true
+export AI_RISK_SIGNOFF_ENVIRONMENT=staging
+export AI_RISK_SIGNOFF_RELEASE_ID=risk-agent-2026.06.20
+export AI_RISK_SIGNOFF_CHANGE_ID=CHG-12345
+export AI_RISK_SIGNOFF_OWNER=risk-platform
+export AI_RISK_SIGNOFF_APPROVER=risk-ops
+```
+
 By default, PostgreSQL signoff is required. If the staging environment is
 intentionally single-instance SQLite, set:
 
@@ -36,17 +48,35 @@ export AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT=true
 
 ## Run signoff
 
-Before using real staging credentials, run the local dry-run. It starts the mock
-risk service, agent API, and central audit sink, then exercises the same signoff
+Before using real staging credentials, run the CI signoff gate. It runs the
+unit test suite, then runs the local signoff with release metadata enforcement
+enabled and writes a CI sidecar summary next to the signoff archive:
+
+```bash
+make ci-signoff
+```
+
+The CI gate writes reports under:
+
+```text
+.data/reports/ci-signoff-<UTC timestamp>/
+```
+
+The GitHub Actions template in `.github/workflows/ci-signoff.yml` runs the same
+gate on pull requests, pushes to `main`, and manual dispatches. It uploads the
+CI report directory as an artifact even when the gate fails, so failed runs still
+retain `ci-signoff-summary.json` for diagnosis.
+
+For a faster local harness check, run the local dry-run. It starts the mock risk
+service, agent API, and central audit sink, then exercises the same signoff
 script with PostgreSQL explicitly skipped:
 
 ```bash
 make signoff-local
 ```
 
-The local dry-run is only a harness check. It does not replace real staging
-signoff because it does not prove real upstream data, network, auth, or
-PostgreSQL connectivity.
+The CI gate and local dry-run do not replace real staging signoff because they
+do not prove real upstream data, network, auth, or PostgreSQL connectivity.
 
 ```bash
 make signoff-staging
@@ -79,6 +109,7 @@ Expected files:
 - `signoff-evidence.json`
 - `signoff-archive.tar.gz`
 - `signoff-archive.sha256`
+- `ci-signoff-summary.json` for `make ci-signoff` runs only
 
 To re-check an archived or copied report directory before release signoff:
 
@@ -134,6 +165,8 @@ make validate-signoff-evidence \
 
 - `signoff-preflight.json` has `"status": "passed"`.
 - `signoff-summary.json` has `"status": "passed"`.
+- `signoff-summary.json` includes complete `release` metadata when the package
+  is used as release acceptance evidence.
 - `signoff-manifest.json` has SHA256 entries for the required report files.
 - `signoff-evidence.json` has `"status": "passed"`.
 - `signoff-archive.sha256` matches `signoff-archive.tar.gz`.

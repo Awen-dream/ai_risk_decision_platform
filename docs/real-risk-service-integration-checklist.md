@@ -60,10 +60,14 @@ Use this checklist when replacing the local mock risk service with a real extern
 ## 5. Functional verification
 
 - [ ] Run the full signoff flow in `docs/staging-signoff-runbook.md`
-- [x] Run local dry-run with `make signoff-local` before using staging secrets. Latest local baseline: `.data/reports/local-signoff-20260618T124036Z`.
+- [x] Run CI signoff gate with `make ci-signoff` and archive `ci-signoff-summary.json`. Latest CI baseline: `.data/reports/ci-signoff-workflow-20260620T1512Z`.
+- [x] Run local dry-run with `make signoff-local` before using staging secrets. Latest local baseline: `.data/reports/local-signoff-20260620T021007Z`; release metadata smoke: `.data/reports/local-signoff-release-metadata-20260620T0210Z`.
+- [ ] Fill release signoff metadata: `AI_RISK_SIGNOFF_RELEASE_ID`, `AI_RISK_SIGNOFF_CHANGE_ID`, `AI_RISK_SIGNOFF_OWNER`, and `AI_RISK_SIGNOFF_APPROVER`
+- [ ] Set `AI_RISK_SIGNOFF_REQUIRE_RELEASE_METADATA=true` for release acceptance evidence
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-preflight.json` is passed
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-manifest.json` contains SHA256 entries
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-evidence.json` is passed
+- [ ] Verify `.data/reports/staging-signoff-*/signoff-summary.json` includes complete release metadata
 - [ ] Verify `.data/reports/staging-signoff-*/signoff-archive.sha256` matches the archive
 - [ ] Run `make verify-signoff-archive REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>`
 - [ ] Run archive-only verification if only `signoff-archive.tar.gz` and `.sha256` are handed off
@@ -115,4 +119,5 @@ Use this checklist when replacing the local mock risk service with a real extern
 - [x] Add append-only, redacted audit logging for external tool requests
 - [x] Add reusable contract validation for a staging endpoint
 - [x] Add automated retry, circuit-breaker, and recovery drill
+- [x] Add CI signoff gate and artifact upload workflow
 - [ ] Run and sign off validation against the real staging endpoint

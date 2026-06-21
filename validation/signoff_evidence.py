@@ -26,6 +26,8 @@ MINIMUM_CHECK_TOTALS = {
     "staging_validation": 17,
 }
 CENTRAL_AUDIT_CHECK = "central_audit.mirrored_events"
+RELEASE_METADATA_FIELDS = ("environment", "release_id", "change_id", "owner", "approver")
+RELEASE_BUSINESS_FIELDS = ("release_id", "change_id", "owner", "approver")
 SENSITIVE_KEY_FRAGMENTS = ("token", "secret", "password", "dsn", "api_key", "apikey")
 SENSITIVE_VALUE_PATTERNS = (
     re.compile(r"postgres(?:ql)?://[^\s\"']+:[^\s\"']+@", re.IGNORECASE),
@@ -92,6 +94,7 @@ def validate_signoff_evidence(
     *,
     allow_postgres_skipped: bool = False,
     require_central_audit: bool = False,
+    require_release_metadata: bool = False,
     expected_risk_base_url: str = "",
     expected_agent_base_url: str = "",
 ) -> dict[str, Any]:
@@ -133,6 +136,13 @@ def validate_signoff_evidence(
             payloads,
             expected_risk_base_url=expected_risk_base_url,
             expected_agent_base_url=expected_agent_base_url,
+        ),
+    )
+    runner.check(
+        "evidence.release_metadata",
+        lambda: _validate_release_metadata(
+            payloads,
+            require_release_metadata=require_release_metadata,
         ),
     )
     runner.check(
@@ -295,6 +305,35 @@ def _validate_environment_binding(
     return "signoff evidence is bound to the expected environment"
 
 
+def _validate_release_metadata(
+    payloads: dict[str, Any],
+    *,
+    require_release_metadata: bool,
+) -> str:
+    summary = _payload(payloads, "signoff_summary")
+    inputs = summary.get("inputs", {})
+    release_required = bool(inputs.get("release_metadata_required")) or require_release_metadata
+    metadata = summary.get("release")
+    if not isinstance(metadata, dict):
+        if release_required:
+            raise AssertionError("release metadata is required but missing")
+        return "release metadata is not required"
+    has_business_metadata = any(
+        str(metadata.get(field, "")).strip()
+        for field in RELEASE_BUSINESS_FIELDS
+    )
+    if not release_required and not has_business_metadata:
+        return "release metadata is not required"
+    missing = [
+        field
+        for field in RELEASE_METADATA_FIELDS
+        if not str(metadata.get(field, "")).strip()
+    ]
+    if missing:
+        raise AssertionError(f"release metadata is incomplete: missing {missing}")
+    return "release metadata is complete"
+
+
 def _validate_no_secret_leakage(payloads: dict[str, Any]) -> str:
     leaks: list[str] = []
     for name, payload in payloads.items():
@@ -345,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report-dir", required=True)
     parser.add_argument("--allow-postgres-skipped", action="store_true")
     parser.add_argument("--require-central-audit", action="store_true")
+    parser.add_argument("--require-release-metadata", action="store_true")
     parser.add_argument("--expected-risk-base-url", default="")
     parser.add_argument("--expected-agent-base-url", default="")
     parser.add_argument("--output")
@@ -354,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.report_dir),
         allow_postgres_skipped=args.allow_postgres_skipped,
         require_central_audit=args.require_central_audit,
+        require_release_metadata=args.require_release_metadata,
         expected_risk_base_url=args.expected_risk_base_url,
         expected_agent_base_url=args.expected_agent_base_url,
     )

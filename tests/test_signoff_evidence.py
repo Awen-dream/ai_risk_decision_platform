@@ -50,6 +50,38 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertIn("central audit", _failed_details(report))
 
+    def test_release_metadata_can_be_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_signoff_reports(report_dir)
+
+            rejected = validate_signoff_evidence(
+                report_dir,
+                require_release_metadata=True,
+            )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_signoff_reports(
+                report_dir,
+                release_metadata={
+                    "environment": "staging",
+                    "release_id": "risk-agent-2026.06.20",
+                    "change_id": "CHG-12345",
+                    "owner": "risk-platform",
+                    "approver": "risk-ops",
+                },
+            )
+
+            accepted = validate_signoff_evidence(
+                report_dir,
+                require_release_metadata=True,
+            )
+
+        self.assertEqual(rejected["status"], "failed")
+        self.assertIn("release metadata", _failed_details(rejected))
+        self.assertEqual(accepted["status"], "passed")
+
     def test_secret_like_values_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)
@@ -87,6 +119,7 @@ def _write_signoff_reports(
     central_audit_required: bool = False,
     include_central_audit_check: bool = False,
     extra_summary_inputs: dict[str, object] | None = None,
+    release_metadata: dict[str, object] | None = None,
 ) -> None:
     postgres_summary = _summary(total=0 if postgres_status == "skipped" else 4, status=postgres_status)
     preflight = _report(total=4)
@@ -127,6 +160,8 @@ def _write_signoff_reports(
         },
         "failed_reports": [],
     }
+    if release_metadata is not None:
+        summary["release"] = release_metadata
     _write_json(report_dir / "signoff-preflight.json", preflight)
     _write_json(report_dir / "signoff-summary.json", summary)
     _write_json(

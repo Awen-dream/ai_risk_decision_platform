@@ -27,6 +27,8 @@ class StagingSignoffScriptTests(unittest.TestCase):
             "signoff-archive.tar.gz",
             "signoff-archive.sha256",
             "verify-signoff-archive",
+            "AI_RISK_SIGNOFF_RELEASE_ID",
+            "--require-release-metadata",
         ):
             self.assertIn(marker, payload)
 

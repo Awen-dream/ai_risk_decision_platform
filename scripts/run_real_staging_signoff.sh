@@ -21,6 +21,12 @@ CENTRAL_AUDIT_HEADER="${AI_RISK_AUDIT_CENTRAL_AUTH_HEADER:-Authorization}"
 CENTRAL_AUDIT_TOKEN_FILE="${AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE:-}"
 REQUIRE_POSTGRES="${AI_RISK_SIGNOFF_REQUIRE_POSTGRES:-true}"
 REQUIRE_CENTRAL_AUDIT="${AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT:-false}"
+REQUIRE_RELEASE_METADATA="${AI_RISK_SIGNOFF_REQUIRE_RELEASE_METADATA:-false}"
+RELEASE_ENVIRONMENT="${AI_RISK_SIGNOFF_ENVIRONMENT:-staging}"
+RELEASE_ID="${AI_RISK_SIGNOFF_RELEASE_ID:-}"
+CHANGE_ID="${AI_RISK_SIGNOFF_CHANGE_ID:-}"
+SIGNOFF_OWNER="${AI_RISK_SIGNOFF_OWNER:-}"
+SIGNOFF_APPROVER="${AI_RISK_SIGNOFF_APPROVER:-}"
 SIGNOFF_FAILED=0
 
 run_step() {
@@ -105,7 +111,7 @@ run_step "staging-contract" \
   "$PYTHON_BIN" -m validation.staging "${STAGING_ARGS[@]}"
 
 run_step "signoff-summary" \
-  "$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" <<'PY'
+  "$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" "$REQUIRE_RELEASE_METADATA" "$RELEASE_ENVIRONMENT" "$RELEASE_ID" "$CHANGE_ID" "$SIGNOFF_OWNER" "$SIGNOFF_APPROVER" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -117,6 +123,12 @@ agent_base_url = sys.argv[3]
 require_postgres = sys.argv[4] == "true"
 require_central_audit = sys.argv[5] == "true"
 command_failed = sys.argv[6] != "0"
+release_metadata_required = sys.argv[7] == "true"
+release_environment = sys.argv[8]
+release_id = sys.argv[9]
+change_id = sys.argv[10]
+signoff_owner = sys.argv[11]
+signoff_approver = sys.argv[12]
 
 reports = {}
 for name, filename in (
@@ -150,6 +162,14 @@ summary = {
         "agent_base_url": agent_base_url,
         "postgres_required": require_postgres,
         "central_audit_query_required": require_central_audit,
+        "release_metadata_required": release_metadata_required,
+    },
+    "release": {
+        "environment": release_environment,
+        "release_id": release_id,
+        "change_id": change_id,
+        "owner": signoff_owner,
+        "approver": signoff_approver,
     },
     "reports": {
         name: {
@@ -184,6 +204,9 @@ if [[ "$REQUIRE_POSTGRES" != "true" ]]; then
 fi
 if [[ "$REQUIRE_CENTRAL_AUDIT" == "true" ]]; then
   EVIDENCE_ARGS+=("--require-central-audit")
+fi
+if [[ "$REQUIRE_RELEASE_METADATA" == "true" ]]; then
+  EVIDENCE_ARGS+=("--require-release-metadata")
 fi
 
 run_step "signoff-evidence" \

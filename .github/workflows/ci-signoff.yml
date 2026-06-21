@@ -1,0 +1,50 @@
+name: CI Signoff
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci-signoff:
+    name: Unit Tests And Local Signoff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AI_RISK_CI_SIGNOFF_REPORT_DIR: .data/reports/ci-signoff-${{ github.run_id }}-${{ github.run_attempt }}
+      AI_RISK_CI_SIGNOFF_RELEASE_ID: ci-${{ github.sha }}
+      AI_RISK_CI_SIGNOFF_CHANGE_ID: ${{ github.event.pull_request.number || github.run_id }}
+      AI_RISK_CI_SIGNOFF_OWNER: github-actions
+      AI_RISK_CI_SIGNOFF_APPROVER: github-actions
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run CI Signoff
+        run: make ci-signoff
+
+      - name: Upload Signoff Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-signoff-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .data/reports/ci-signoff-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: 30
