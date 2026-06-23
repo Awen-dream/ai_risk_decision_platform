@@ -253,6 +253,9 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(decision["recommended_action"], "manual_review")
         self.assertEqual(decision["evidence_strength"], "strong")
         self.assertIn("manual_review_queue", decision["policy_controls"])
+        self.assertEqual(decision["action_plan"]["queue"], "manual_review_queue")
+        self.assertEqual(decision["action_plan"]["priority"], "high")
+        self.assertEqual(decision["action_plan"]["sla_hours"], 4)
 
     def test_copilot_agent_only_runs_investigation_for_plain_metric_question(self) -> None:
         _, response = self.runtime.execute(
@@ -328,6 +331,15 @@ class AgentPlatformTests(unittest.TestCase):
                                 "policy_controls": ["l2_review_queue"],
                             }
                         },
+                        "action_plans": {
+                            "queue_l2_review": {
+                                "queue": "l2_review_queue",
+                                "priority": "high",
+                                "sla_hours": 2,
+                                "owner_role": "l2_risk_reviewer",
+                                "next_actions": ["二线复核图谱证据"],
+                            }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -345,6 +357,14 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(response.artifacts["risk_decision"]["decision"], "queue_l2_review")
         self.assertEqual(response.artifacts["risk_decision"]["risk_level"], "high")
         self.assertIn("l2_review_queue", response.artifacts["risk_decision"]["policy_controls"])
+        self.assertEqual(
+            response.artifacts["risk_decision"]["action_plan"]["queue"],
+            "l2_review_queue",
+        )
+        self.assertEqual(
+            response.artifacts["risk_decision"]["action_plan"]["sla_hours"],
+            2,
+        )
 
     def test_copilot_agent_preserves_strategy_recommendation_artifact(self) -> None:
         _, response = self.runtime.execute(

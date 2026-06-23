@@ -13,6 +13,7 @@ from app import build_app_container
 from core.models import (
     AgentRequest,
     AgentResponse,
+    RiskActionPlanRecord,
     RiskDecisionRecord,
     StrategyRecommendationRecord,
     WorkflowCase,
@@ -257,6 +258,14 @@ class StrategyRecommendationPayload(BaseModel):
     rationale: str
 
 
+class RiskActionPlanPayload(BaseModel):
+    queue: str
+    priority: str
+    sla_hours: int
+    owner_role: str
+    next_actions: List[str] = Field(default_factory=list)
+
+
 class RiskDecisionPayload(BaseModel):
     decision: str
     risk_level: str
@@ -267,6 +276,7 @@ class RiskDecisionPayload(BaseModel):
     escalation_reason: Optional[str] = None
     evidence: List[str] = Field(default_factory=list)
     policy_controls: List[str] = Field(default_factory=list)
+    action_plan: Optional[RiskActionPlanPayload] = None
 
 
 class CaseHistoryPayload(BaseModel):
@@ -897,6 +907,21 @@ def _to_risk_decision_payload(
         escalation_reason=decision.escalation_reason,
         evidence=list(decision.evidence),
         policy_controls=list(decision.policy_controls),
+        action_plan=_to_risk_action_plan_payload(decision.action_plan),
+    )
+
+
+def _to_risk_action_plan_payload(
+    action_plan: RiskActionPlanRecord | None,
+) -> RiskActionPlanPayload | None:
+    if action_plan is None:
+        return None
+    return RiskActionPlanPayload(
+        queue=action_plan.queue,
+        priority=action_plan.priority,
+        sla_hours=action_plan.sla_hours,
+        owner_role=action_plan.owner_role,
+        next_actions=list(action_plan.next_actions),
     )
 
 

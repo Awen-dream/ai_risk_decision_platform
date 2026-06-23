@@ -179,6 +179,15 @@ class StrategyRecommendationRecord:
 
 
 @dataclass
+class RiskActionPlanRecord:
+    queue: str
+    priority: str
+    sla_hours: int
+    owner_role: str
+    next_actions: list[str] = field(default_factory=list)
+
+
+@dataclass
 class RiskDecisionRecord:
     decision: str
     risk_level: str
@@ -189,6 +198,7 @@ class RiskDecisionRecord:
     escalation_reason: str | None = None
     evidence: list[str] = field(default_factory=list)
     policy_controls: list[str] = field(default_factory=list)
+    action_plan: RiskActionPlanRecord | None = None
 
 
 @dataclass

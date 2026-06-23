@@ -32,6 +32,34 @@ class DecisionOutcome:
 
 
 @dataclass(frozen=True)
+class DecisionActionPlan:
+    queue: str
+    priority: str
+    sla_hours: int
+    owner_role: str
+    next_actions: tuple[str, ...] = ()
+
+    @classmethod
+    def from_mapping(cls, payload: dict[str, Any]) -> "DecisionActionPlan":
+        return cls(
+            queue=str(payload["queue"]),
+            priority=str(payload["priority"]),
+            sla_hours=int(payload["sla_hours"]),
+            owner_role=str(payload["owner_role"]),
+            next_actions=tuple(str(item) for item in payload.get("next_actions", [])),
+        )
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "queue": self.queue,
+            "priority": self.priority,
+            "sla_hours": self.sla_hours,
+            "owner_role": self.owner_role,
+            "next_actions": list(self.next_actions),
+        }
+
+
+@dataclass(frozen=True)
 class EvidenceStrengthPolicy:
     strong_min_confidence: float = 0.75
     strong_min_evidence_count: int = 2
@@ -61,10 +89,11 @@ class RiskDecisionPolicy:
     review_order_actions: tuple[str, ...] = ("manual_review",)
     evidence_strength: EvidenceStrengthPolicy = field(default_factory=EvidenceStrengthPolicy)
     outcomes: dict[str, DecisionOutcome] = field(default_factory=dict)
+    action_plans: dict[str, DecisionActionPlan] = field(default_factory=dict)
 
     @classmethod
     def default(cls) -> "RiskDecisionPolicy":
-        return cls(outcomes=_default_outcomes())
+        return cls(outcomes=_default_outcomes(), action_plans=_default_action_plans())
 
     @classmethod
     def from_file(cls, path: Path) -> "RiskDecisionPolicy":
@@ -84,11 +113,19 @@ class RiskDecisionPolicy:
         outcomes_payload = payload.get("outcomes", {})
         if not isinstance(outcomes_payload, dict):
             raise ValueError("risk decision policy outcomes must be an object")
+        action_plans_payload = payload.get("action_plans", {})
+        if not isinstance(action_plans_payload, dict):
+            raise ValueError("risk decision policy action_plans must be an object")
         outcomes = _default_outcomes()
         for name, outcome_payload in outcomes_payload.items():
             if not isinstance(outcome_payload, dict):
                 raise ValueError(f"risk decision outcome must be an object: {name}")
             outcomes[str(name)] = DecisionOutcome.from_mapping(outcome_payload)
+        action_plans = _default_action_plans()
+        for name, action_plan_payload in action_plans_payload.items():
+            if not isinstance(action_plan_payload, dict):
+                raise ValueError(f"risk decision action plan must be an object: {name}")
+            action_plans[str(name)] = DecisionActionPlan.from_mapping(action_plan_payload)
         return cls(
             high_graph_levels=_normalized_tuple(signals.get("high_graph_levels", ("high",))),
             medium_graph_levels=_normalized_tuple(signals.get("medium_graph_levels", ("medium",))),
@@ -96,6 +133,7 @@ class RiskDecisionPolicy:
             review_order_actions=_normalized_tuple(signals.get("review_order_actions", ("manual_review",))),
             evidence_strength=EvidenceStrengthPolicy.from_mapping(evidence_strength_payload),
             outcomes=outcomes,
+            action_plans=action_plans,
         )
 
     def evaluate(
@@ -125,6 +163,7 @@ class RiskDecisionPolicy:
             evidence_count=len(evidence),
         )
         rationale = "；".join(evidence) if evidence else "当前证据不足，建议补充上游画像和历史案例后再决策。"
+        action_plan = self._action_plan_for(outcome)
         return {
             "decision": outcome.decision,
             "risk_level": outcome.risk_level,
@@ -135,6 +174,7 @@ class RiskDecisionPolicy:
             "escalation_reason": outcome.escalation_reason,
             "evidence": evidence,
             "policy_controls": self._policy_controls(outcome, has_strategy=has_strategy, has_graph=has_graph),
+            "action_plan": action_plan.to_payload(),
         }
 
     @staticmethod
@@ -182,6 +222,13 @@ class RiskDecisionPolicy:
             controls.append("manual_review_queue")
         return controls
 
+    def _action_plan_for(self, outcome: DecisionOutcome) -> DecisionActionPlan:
+        return (
+            self.action_plans.get(outcome.decision)
+            or self.action_plans.get(outcome.recommended_action)
+            or self.action_plans["monitor"]
+        )
+
 
 def _default_outcomes() -> dict[str, DecisionOutcome]:
     return {
@@ -210,6 +257,61 @@ def _default_outcomes() -> dict[str, DecisionOutcome]:
             decision="monitor",
             risk_level="low",
             recommended_action="monitor",
+        ),
+    }
+
+
+def _default_action_plans() -> dict[str, DecisionActionPlan]:
+    return {
+        "escalate_review": DecisionActionPlan(
+            queue="manual_review_queue",
+            priority="high",
+            sla_hours=4,
+            owner_role="risk_reviewer",
+            next_actions=(
+                "复核订单画像、图谱关系和历史案例证据",
+                "确认是否执行拒绝、放行或补充验证",
+            ),
+        ),
+        "manual_review": DecisionActionPlan(
+            queue="manual_review_queue",
+            priority="medium",
+            sla_hours=12,
+            owner_role="risk_reviewer",
+            next_actions=(
+                "复核核心风险证据和业务影响范围",
+                "补充验证后确认放行、拦截或继续观察",
+            ),
+        ),
+        "strategy_shadow_adjustment": DecisionActionPlan(
+            queue="strategy_shadow_queue",
+            priority="medium",
+            sla_hours=24,
+            owner_role="strategy_owner",
+            next_actions=(
+                "创建 shadow evaluation 实验并绑定推荐阈值",
+                "监控通过率、误杀率和风险捕获率",
+            ),
+        ),
+        "shadow_evaluation": DecisionActionPlan(
+            queue="strategy_shadow_queue",
+            priority="medium",
+            sla_hours=24,
+            owner_role="strategy_owner",
+            next_actions=(
+                "创建 shadow evaluation 实验并绑定推荐阈值",
+                "监控通过率、误杀率和风险捕获率",
+            ),
+        ),
+        "monitor": DecisionActionPlan(
+            queue="risk_monitoring_queue",
+            priority="low",
+            sla_hours=72,
+            owner_role="risk_ops",
+            next_actions=(
+                "持续监控核心指标和异常扩散",
+                "证据增强或指标恶化时升级复核",
+            ),
         ),
     }
 

@@ -32,6 +32,9 @@ class RiskDecisionPolicyTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "escalate_review")
         self.assertEqual(decision["risk_level"], "high")
         self.assertIn("graph_network_review", decision["policy_controls"])
+        self.assertEqual(decision["action_plan"]["queue"], "manual_review_queue")
+        self.assertEqual(decision["action_plan"]["priority"], "high")
+        self.assertEqual(decision["action_plan"]["sla_hours"], 4)
 
     def test_custom_policy_overrides_signals_and_outcomes(self) -> None:
         policy = RiskDecisionPolicy.from_mapping(
@@ -46,6 +49,15 @@ class RiskDecisionPolicyTests(unittest.TestCase):
                         "recommended_action": "manual_review",
                         "escalation_reason": "中风险图谱在当前业务线需要二线复核。",
                         "policy_controls": ["l2_review_queue"],
+                    }
+                },
+                "action_plans": {
+                    "queue_l2_review": {
+                        "queue": "l2_review_queue",
+                        "priority": "high",
+                        "sla_hours": 2,
+                        "owner_role": "l2_risk_reviewer",
+                        "next_actions": ["二线复核图谱证据", "确认强处置方案"],
                     }
                 },
             }
@@ -71,6 +83,9 @@ class RiskDecisionPolicyTests(unittest.TestCase):
         self.assertEqual(decision["decision"], "queue_l2_review")
         self.assertEqual(decision["risk_level"], "high")
         self.assertIn("l2_review_queue", decision["policy_controls"])
+        self.assertEqual(decision["action_plan"]["queue"], "l2_review_queue")
+        self.assertEqual(decision["action_plan"]["sla_hours"], 2)
+        self.assertEqual(decision["action_plan"]["owner_role"], "l2_risk_reviewer")
 
     def test_policy_loads_from_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -82,6 +82,13 @@ class CaseServiceTests(unittest.TestCase):
             assert loaded_case.risk_decision is not None
             self.assertEqual(loaded_case.risk_decision.decision, "escalate_review")
             self.assertEqual(loaded_case.risk_decision.risk_level, "high")
+            self.assertIsNotNone(loaded_case.risk_decision.action_plan)
+            assert loaded_case.risk_decision.action_plan is not None
+            self.assertEqual(
+                loaded_case.risk_decision.action_plan.queue,
+                "manual_review_queue",
+            )
+            self.assertEqual(loaded_case.risk_decision.action_plan.sla_hours, 4)
             self.assertTrue(loaded_case.created_at.endswith("Z"))
             self.assertEqual(loaded_case.created_at, loaded_case.updated_at)
 

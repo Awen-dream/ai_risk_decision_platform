@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from core.models import (
+    RiskActionPlanRecord,
     RiskDecisionRecord,
     SessionRecord,
     StrategyRecommendationRecord,
@@ -827,6 +828,19 @@ def _extract_risk_decision(
         ),
         evidence=[str(item) for item in payload.get("evidence", [])],
         policy_controls=[str(item) for item in payload.get("policy_controls", [])],
+        action_plan=_extract_risk_action_plan(payload.get("action_plan")),
+    )
+
+
+def _extract_risk_action_plan(payload: object) -> RiskActionPlanRecord | None:
+    if not isinstance(payload, dict):
+        return None
+    return RiskActionPlanRecord(
+        queue=str(payload["queue"]),
+        priority=str(payload["priority"]),
+        sla_hours=int(payload["sla_hours"]),
+        owner_role=str(payload["owner_role"]),
+        next_actions=[str(item) for item in payload.get("next_actions", [])],
     )
 
 
@@ -879,6 +893,9 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
                 "escalation_reason": case.risk_decision.escalation_reason,
                 "evidence": case.risk_decision.evidence,
                 "policy_controls": case.risk_decision.policy_controls,
+                "action_plan": _serialize_risk_action_plan(
+                    case.risk_decision.action_plan
+                ),
             }
             if case.risk_decision is not None
             else None
@@ -926,6 +943,9 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
                 str(value)
                 for value in risk_decision_payload.get("policy_controls", [])
             ],
+            action_plan=_extract_risk_action_plan(
+                risk_decision_payload.get("action_plan")
+            ),
         )
     else:
         risk_decision = None
@@ -955,6 +975,20 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         created_at=str(item.get("created_at", "")),
         updated_at=str(item.get("updated_at", "")),
     )
+
+
+def _serialize_risk_action_plan(
+    action_plan: RiskActionPlanRecord | None,
+) -> dict[str, object] | None:
+    if action_plan is None:
+        return None
+    return {
+        "queue": action_plan.queue,
+        "priority": action_plan.priority,
+        "sla_hours": action_plan.sla_hours,
+        "owner_role": action_plan.owner_role,
+        "next_actions": action_plan.next_actions,
+    }
 
 
 def _case_sort_key(case: WorkflowCase, sort_by: str) -> str:
