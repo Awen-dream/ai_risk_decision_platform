@@ -72,6 +72,19 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.session_store_backend, "memory")
         self.assertEqual(config.case_store_backend, "memory")
         self.assertEqual(config.database_path, Path(".data/platform.db"))
+        self.assertIsNone(config.risk_decision_policy_path)
+
+    def test_risk_decision_policy_path_loads_from_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            policy_path = Path(tmp_dir) / "risk-decision-policy.json"
+            policy_path.write_text("{}", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {"AI_RISK_DECISION_POLICY_PATH": str(policy_path)},
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.risk_decision_policy_path, policy_path)
 
     def test_http_resilience_settings_load_from_environment(self) -> None:
         with patch.dict(

@@ -237,6 +237,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["audit_central_timeout_sec"], 3.0)
         self.assertEqual(payload["audit_central_auth_header"], "Authorization")
         self.assertEqual(payload["audit_central_auth_token_source"], "none")
+        self.assertEqual(payload["risk_decision_policy_source"], "builtin")
+        self.assertIsNone(payload["risk_decision_policy_path"])
         self.assertFalse(payload["admin_auth_enabled"])
         self.assertEqual(payload["admin_auth_header"], "X-Admin-Token")
         self.assertEqual(payload["admin_auth_token_source"], "none")

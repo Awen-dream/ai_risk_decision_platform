@@ -121,6 +121,7 @@ class AppConfig:
     risk_service_host: str = "127.0.0.1"
     risk_service_port: int = 8090
     risk_service_fault_injection_enabled: bool = False
+    risk_decision_policy_path: Optional[Path] = None
     admin_auth_enabled: bool = False
     admin_auth_header: str = "X-Admin-Token"
     admin_auth_token: str = ""
@@ -285,6 +286,7 @@ class AppConfig:
                 "AI_RISK_RISK_SERVICE_FAULT_INJECTION_ENABLED",
                 False,
             ),
+            risk_decision_policy_path=_env_path("AI_RISK_DECISION_POLICY_PATH"),
             admin_auth_enabled=_env_bool("AI_RISK_ADMIN_AUTH_ENABLED", False),
             admin_auth_header=os.getenv("AI_RISK_ADMIN_AUTH_HEADER", "X-Admin-Token"),
             admin_auth_token=_load_secret(
@@ -347,6 +349,7 @@ class AppConfig:
             risk_service_host="127.0.0.1",
             risk_service_port=8090,
             risk_service_fault_injection_enabled=False,
+            risk_decision_policy_path=None,
             admin_auth_enabled=False,
             admin_auth_header="X-Admin-Token",
             admin_auth_token="",
@@ -392,6 +395,11 @@ class AppConfig:
         if self.postgres_dsn:
             return "env"
         return "none"
+
+    def risk_decision_policy_source(self) -> str:
+        if self.risk_decision_policy_path is not None:
+            return "file"
+        return "builtin"
 
     def supported_agent_capabilities(self) -> list[str]:
         return list(SUPPORTED_AGENT_CAPABILITIES)

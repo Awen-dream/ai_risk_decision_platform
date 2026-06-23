@@ -67,6 +67,7 @@ from services.audit import (
 )
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
+from services.risk_decision import RiskDecisionPolicy
 from settings import AppConfig
 from tools.registry import ToolRegistry
 
@@ -273,10 +274,16 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     investigation_agent = InvestigationAgent(tools, retrieval)
     strategy_agent = StrategyAgent(tools, retrieval)
     graph_agent = GraphAgent(tools, retrieval)
+    risk_decision_policy = (
+        RiskDecisionPolicy.from_file(config.risk_decision_policy_path)
+        if config.risk_decision_policy_path is not None
+        else RiskDecisionPolicy.default()
+    )
     copilot_agent = CopilotAgent(
         investigation_agent=investigation_agent,
         strategy_agent=strategy_agent,
         graph_agent=graph_agent,
+        risk_decision_policy=risk_decision_policy,
     )
     runtime.register_agent(knowledge_agent)
     runtime.register_agent(investigation_agent)

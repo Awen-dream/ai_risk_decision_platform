@@ -185,6 +185,8 @@ class RuntimeInfoResponse(BaseModel):
     audit_central_timeout_sec: float
     audit_central_auth_header: str
     audit_central_auth_token_source: str
+    risk_decision_policy_source: str
+    risk_decision_policy_path: Optional[str] = None
     admin_auth_enabled: bool
     admin_auth_header: str
     admin_auth_token_source: str
@@ -407,6 +409,12 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             audit_central_auth_header=container.config.audit_central_auth_header,
             audit_central_auth_token_source=(
                 container.config.audit_central_auth_token_source()
+            ),
+            risk_decision_policy_source=container.config.risk_decision_policy_source(),
+            risk_decision_policy_path=(
+                str(container.config.risk_decision_policy_path)
+                if container.config.risk_decision_policy_path is not None
+                else None
             ),
             admin_auth_enabled=container.config.admin_auth_enabled,
             admin_auth_header=container.config.admin_auth_header,

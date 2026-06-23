@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
 from agents.investigation import InvestigationAgent
-from app import build_demo_runtime
+from app import build_demo_runtime, build_runtime
 from core.models import AgentRequest, ToolResult
 from retrieval.knowledge_base import RetrievalService
+from settings import AppConfig
 from tools.registry import ToolRegistry
 
 
@@ -307,6 +311,40 @@ class AgentPlatformTests(unittest.TestCase):
             response.artifacts["risk_decision"]["recommended_action"],
             "manual_review",
         )
+
+    def test_copilot_agent_uses_configured_decision_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            policy_path = Path(tmp_dir) / "risk-decision-policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "signals": {"high_graph_levels": ["medium"]},
+                        "outcomes": {
+                            "high_risk_review": {
+                                "decision": "queue_l2_review",
+                                "risk_level": "high",
+                                "recommended_action": "manual_review",
+                                "escalation_reason": "中风险订单图谱需要二线复核。",
+                                "policy_controls": ["l2_review_queue"],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = build_runtime(AppConfig(risk_decision_policy_path=policy_path))
+
+            _, response = runtime.execute(
+                "copilot",
+                AgentRequest(
+                    query="请分析这个订单为什么被判高风险",
+                    context={"order_id": "O10001"},
+                ),
+            )
+
+        self.assertEqual(response.artifacts["risk_decision"]["decision"], "queue_l2_review")
+        self.assertEqual(response.artifacts["risk_decision"]["risk_level"], "high")
+        self.assertIn("l2_review_queue", response.artifacts["risk_decision"]["policy_controls"])
 
     def test_copilot_agent_preserves_strategy_recommendation_artifact(self) -> None:
         _, response = self.runtime.execute(
