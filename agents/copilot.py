@@ -69,6 +69,11 @@ class CopilotAgent(Agent):
             sum(child.confidence for _, child in child_responses) / len(child_responses),
             2,
         )
+        response.artifacts["risk_decision"] = self._build_risk_decision(
+            intent,
+            child_responses,
+            response.confidence,
+        )
         return response
 
     @staticmethod
@@ -137,6 +142,101 @@ class CopilotAgent(Agent):
         for _, child in child_responses:
             artifacts.update(child.artifacts)
         return artifacts
+
+    @staticmethod
+    def _build_risk_decision(
+        intent: CopilotIntent,
+        child_responses: list[tuple[str, AgentResponse]],
+        confidence: float,
+    ) -> dict[str, object]:
+        traces = [
+            trace
+            for _, child in child_responses
+            for trace in child.tool_traces
+            if trace.status == "success"
+        ]
+        payloads = {trace.name: trace.payload for trace in traces}
+        order = payloads.get("order_profile")
+        graph = payloads.get("graph_relation")
+        simulation = payloads.get("strategy_simulation")
+
+        evidence: list[str] = []
+        if isinstance(order, dict):
+            evidence.append(
+                "订单命中规则 "
+                f"{', '.join(order.get('triggered_rules', [])) or '无'}，"
+                f"建议动作 {order.get('recommended_action', 'unknown')}"
+            )
+        if isinstance(graph, dict):
+            evidence.append(
+                f"图谱风险 {graph.get('risk_level', 'unknown')}，"
+                f"社区规模 {graph.get('community_size', 'unknown')}"
+            )
+        if isinstance(simulation, dict):
+            evidence.append(
+                "策略仿真建议阈值 "
+                f"{simulation.get('recommended_threshold')}，"
+                f"预计风险下降 {simulation.get('estimated_risk_reduction')}"
+            )
+
+        graph_level = str(graph.get("risk_level", "")).lower() if isinstance(graph, dict) else ""
+        order_action = (
+            str(order.get("recommended_action", "")).lower()
+            if isinstance(order, dict)
+            else ""
+        )
+        has_strategy = any(label == "策略" for label, _ in child_responses)
+        has_graph = any(label == "图谱" for label, _ in child_responses)
+
+        if graph_level == "high" or order_action == "reject":
+            risk_level = "high"
+            decision = "escalate_review"
+            recommended_action = "manual_review"
+            escalation_reason = "存在高风险订单或高风险关系网络，需要人工复核后再执行强处置。"
+        elif order_action == "manual_review" or graph_level == "medium":
+            risk_level = "medium"
+            decision = "manual_review"
+            recommended_action = "manual_review"
+            escalation_reason = "风险证据达到人工复核门槛，但暂不建议直接拒绝。"
+        elif has_strategy:
+            risk_level = "medium"
+            decision = "strategy_shadow_adjustment"
+            recommended_action = "shadow_evaluation"
+            escalation_reason = "策略调整需要先进入 shadow evaluation，避免误杀扩散。"
+        else:
+            risk_level = "low" if intent == CopilotIntent.METRIC_ANOMALY else "medium"
+            decision = "monitor"
+            recommended_action = "monitor"
+            escalation_reason = None
+
+        if confidence >= 0.75 and len(evidence) >= 2:
+            evidence_strength = "strong"
+        elif confidence >= 0.5 and evidence:
+            evidence_strength = "medium"
+        else:
+            evidence_strength = "weak"
+
+        policy_controls = []
+        if has_strategy:
+            policy_controls.append("shadow_evaluation")
+        if has_graph:
+            policy_controls.append("graph_network_review")
+        if recommended_action == "manual_review":
+            policy_controls.append("manual_review_queue")
+
+        rationale = "；".join(evidence) if evidence else "当前证据不足，建议补充上游画像和历史案例后再决策。"
+
+        return {
+            "decision": decision,
+            "risk_level": risk_level,
+            "recommended_action": recommended_action,
+            "evidence_strength": evidence_strength,
+            "confidence": confidence,
+            "rationale": rationale,
+            "escalation_reason": escalation_reason,
+            "evidence": evidence,
+            "policy_controls": policy_controls,
+        }
 
     @staticmethod
     def _should_include_strategy(request: AgentRequest) -> bool:

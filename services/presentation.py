@@ -22,6 +22,7 @@ class SessionTurnView:
     plan_steps: list[str] = field(default_factory=list)
     planner_trace: list[PlannerTraceStep] = field(default_factory=list)
     confidence: float = 0.0
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -65,7 +66,7 @@ def build_expanded_sections(agent_name: str) -> list[str]:
         "investigation": ["summary", "findings", "tool_traces"],
         "strategy": ["summary", "findings", "tool_traces"],
         "graph": ["summary", "findings", "tool_traces"],
-        "copilot": ["intent", "plan", "planner_trace", "findings", "actions"],
+        "copilot": ["intent", "plan", "decision", "planner_trace", "findings", "actions"],
     }.get(agent_name, ["summary"])
 
 
@@ -116,6 +117,7 @@ def build_session_turn_view(turn: SessionTurn) -> SessionTurnView:
             for trace in turn.planner_trace
         ],
         confidence=turn.confidence,
+        artifacts=dict(turn.artifacts),
     )
 
 

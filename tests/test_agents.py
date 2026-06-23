@@ -243,6 +243,12 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("策略::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+        decision = response.artifacts["risk_decision"]
+        self.assertEqual(decision["decision"], "escalate_review")
+        self.assertEqual(decision["risk_level"], "high")
+        self.assertEqual(decision["recommended_action"], "manual_review")
+        self.assertEqual(decision["evidence_strength"], "strong")
+        self.assertIn("manual_review_queue", decision["policy_controls"])
 
     def test_copilot_agent_only_runs_investigation_for_plain_metric_question(self) -> None:
         _, response = self.runtime.execute(
@@ -296,6 +302,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(response.intent, "order_case")
         self.assertEqual(response.plan_steps, ["调查", "图谱"])
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+        self.assertEqual(response.artifacts["risk_decision"]["risk_level"], "medium")
+        self.assertEqual(
+            response.artifacts["risk_decision"]["recommended_action"],
+            "manual_review",
+        )
 
     def test_copilot_agent_preserves_strategy_recommendation_artifact(self) -> None:
         _, response = self.runtime.execute(
@@ -309,6 +320,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(
             response.artifacts["strategy_recommendation"]["recommended_threshold"],
             0.66,
+        )
+        self.assertEqual(
+            response.artifacts["risk_decision"]["decision"],
+            "escalate_review",
         )
 
 

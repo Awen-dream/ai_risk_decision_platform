@@ -78,6 +78,10 @@ class CaseServiceTests(unittest.TestCase):
             assert loaded_case is not None
             self.assertEqual(loaded_case.session_id, session_id)
             self.assertEqual(loaded_case.strategy_recommendation.strategy_id, "STRAT-001")
+            self.assertIsNotNone(loaded_case.risk_decision)
+            assert loaded_case.risk_decision is not None
+            self.assertEqual(loaded_case.risk_decision.decision, "escalate_review")
+            self.assertEqual(loaded_case.risk_decision.risk_level, "high")
             self.assertTrue(loaded_case.created_at.endswith("Z"))
             self.assertEqual(loaded_case.created_at, loaded_case.updated_at)
 

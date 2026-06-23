@@ -28,7 +28,7 @@ class PresentationTests(TestCase):
         self.assertEqual("workflow", view.badge)
         self.assertEqual("high", view.severity)
         self.assertEqual(
-            ["intent", "plan", "planner_trace", "findings", "actions"],
+            ["intent", "plan", "decision", "planner_trace", "findings", "actions"],
             view.expanded_sections,
         )
         self.assertEqual(["调查", "策略", "图谱"], view.plan_steps)

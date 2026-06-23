@@ -179,6 +179,19 @@ class StrategyRecommendationRecord:
 
 
 @dataclass
+class RiskDecisionRecord:
+    decision: str
+    risk_level: str
+    recommended_action: str
+    evidence_strength: str
+    confidence: float
+    rationale: str
+    escalation_reason: str | None = None
+    evidence: list[str] = field(default_factory=list)
+    policy_controls: list[str] = field(default_factory=list)
+
+
+@dataclass
 class WorkflowCaseHistoryEntry:
     event_type: str
     status: str
@@ -199,6 +212,7 @@ class WorkflowCase:
     context: dict[str, Any] = field(default_factory=dict)
     suggested_actions: list[str] = field(default_factory=list)
     strategy_recommendation: StrategyRecommendationRecord | None = None
+    risk_decision: RiskDecisionRecord | None = None
     history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

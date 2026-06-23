@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from core.models import (
+    RiskDecisionRecord,
     SessionRecord,
     StrategyRecommendationRecord,
     WorkflowCase,
@@ -695,6 +696,7 @@ def _build_case_from_session(
         raise IndexError("Turn index out of range")
     turn = session.turns[resolved_turn_index - 1]
     recommendation = _extract_strategy_recommendation(turn.artifacts)
+    risk_decision = _extract_risk_decision(turn.artifacts)
     status = _initial_status(turn.agent_name, turn.intent, recommendation)
     timestamp = _current_timestamp()
     return WorkflowCase(
@@ -710,6 +712,7 @@ def _build_case_from_session(
         context=dict(turn.context),
         suggested_actions=list(turn.suggested_actions),
         strategy_recommendation=recommendation,
+        risk_decision=risk_decision,
         history=[
             WorkflowCaseHistoryEntry(
                 event_type="case_created",
@@ -804,6 +807,29 @@ def _extract_strategy_recommendation(
     )
 
 
+def _extract_risk_decision(
+    artifacts: dict[str, object],
+) -> RiskDecisionRecord | None:
+    payload = artifacts.get("risk_decision")
+    if not isinstance(payload, dict):
+        return None
+    return RiskDecisionRecord(
+        decision=str(payload["decision"]),
+        risk_level=str(payload["risk_level"]),
+        recommended_action=str(payload["recommended_action"]),
+        evidence_strength=str(payload["evidence_strength"]),
+        confidence=float(payload["confidence"]),
+        rationale=str(payload["rationale"]),
+        escalation_reason=(
+            str(payload["escalation_reason"])
+            if payload.get("escalation_reason") is not None
+            else None
+        ),
+        evidence=[str(item) for item in payload.get("evidence", [])],
+        policy_controls=[str(item) for item in payload.get("policy_controls", [])],
+    )
+
+
 def _initial_status(
     agent_name: str,
     intent: str | None,
@@ -842,6 +868,21 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
             if case.strategy_recommendation is not None
             else None
         ),
+        "risk_decision": (
+            {
+                "decision": case.risk_decision.decision,
+                "risk_level": case.risk_decision.risk_level,
+                "recommended_action": case.risk_decision.recommended_action,
+                "evidence_strength": case.risk_decision.evidence_strength,
+                "confidence": case.risk_decision.confidence,
+                "rationale": case.risk_decision.rationale,
+                "escalation_reason": case.risk_decision.escalation_reason,
+                "evidence": case.risk_decision.evidence,
+                "policy_controls": case.risk_decision.policy_controls,
+            }
+            if case.risk_decision is not None
+            else None
+        ),
         "history": [
             {
                 "event_type": item.event_type,
@@ -866,6 +907,28 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         )
     else:
         recommendation = None
+    risk_decision_payload = item.get("risk_decision")
+    if isinstance(risk_decision_payload, dict):
+        risk_decision = RiskDecisionRecord(
+            decision=str(risk_decision_payload["decision"]),
+            risk_level=str(risk_decision_payload["risk_level"]),
+            recommended_action=str(risk_decision_payload["recommended_action"]),
+            evidence_strength=str(risk_decision_payload["evidence_strength"]),
+            confidence=float(risk_decision_payload["confidence"]),
+            rationale=str(risk_decision_payload["rationale"]),
+            escalation_reason=(
+                str(risk_decision_payload["escalation_reason"])
+                if risk_decision_payload.get("escalation_reason") is not None
+                else None
+            ),
+            evidence=[str(value) for value in risk_decision_payload.get("evidence", [])],
+            policy_controls=[
+                str(value)
+                for value in risk_decision_payload.get("policy_controls", [])
+            ],
+        )
+    else:
+        risk_decision = None
     history = [
         WorkflowCaseHistoryEntry(
             event_type=str(entry["event_type"]),
@@ -887,6 +950,7 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         context=dict(item.get("context", {})),
         suggested_actions=list(item.get("suggested_actions", [])),
         strategy_recommendation=recommendation,
+        risk_decision=risk_decision,
         history=history,
         created_at=str(item.get("created_at", "")),
         updated_at=str(item.get("updated_at", "")),

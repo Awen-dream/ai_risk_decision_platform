@@ -505,6 +505,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any(trace["name"].startswith("调查::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("策略::") for trace in payload["tool_traces"]))
         self.assertTrue(any(trace["name"].startswith("图谱::") for trace in payload["tool_traces"]))
+        self.assertEqual(payload["artifacts"]["risk_decision"]["decision"], "escalate_review")
+        self.assertEqual(payload["artifacts"]["risk_decision"]["risk_level"], "high")
 
         fetched = self.client.get(f"/sessions/{session_id}")
         turn = fetched.json()["turns"][0]
@@ -514,7 +516,11 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(turn["agent_group"], "workflow")
         self.assertEqual(turn["badge"], "workflow")
         self.assertEqual(turn["severity"], "high")
-        self.assertEqual(turn["expanded_sections"], ["intent", "plan", "planner_trace", "findings", "actions"])
+        self.assertEqual(
+            turn["expanded_sections"],
+            ["intent", "plan", "decision", "planner_trace", "findings", "actions"],
+        )
+        self.assertEqual(turn["artifacts"]["risk_decision"]["recommended_action"], "manual_review")
         self.assertEqual(turn["intent"], "composite")
         self.assertEqual(turn["plan_steps"], ["调查", "策略", "图谱"])
         self.assertEqual(
@@ -566,6 +572,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["source_agent"], "copilot")
         self.assertEqual(payload["status"], "strategy_pending")
         self.assertEqual(payload["severity"], "high")
+        self.assertEqual(payload["risk_decision"]["decision"], "escalate_review")
+        self.assertEqual(payload["risk_decision"]["risk_level"], "high")
         self.assertEqual(payload["strategy_recommendation"]["strategy_id"], "STRAT-001")
         self.assertEqual(
             payload["strategy_recommendation"]["validation_window"],

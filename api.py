@@ -13,6 +13,7 @@ from app import build_app_container
 from core.models import (
     AgentRequest,
     AgentResponse,
+    RiskDecisionRecord,
     StrategyRecommendationRecord,
     WorkflowCase,
     WorkflowCaseHistoryEntry,
@@ -82,6 +83,7 @@ class AgentInvokeResponse(BaseModel):
     citations: List[CitationPayload]
     tool_traces: List[ToolTracePayload]
     confidence: float
+    artifacts: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionTurnPayload(BaseModel):
@@ -99,6 +101,7 @@ class SessionTurnPayload(BaseModel):
     plan_steps: List[str] = Field(default_factory=list)
     planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
     confidence: float
+    artifacts: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TimelineItemPayload(BaseModel):
@@ -252,6 +255,18 @@ class StrategyRecommendationPayload(BaseModel):
     rationale: str
 
 
+class RiskDecisionPayload(BaseModel):
+    decision: str
+    risk_level: str
+    recommended_action: str
+    evidence_strength: str
+    confidence: float
+    rationale: str
+    escalation_reason: Optional[str] = None
+    evidence: List[str] = Field(default_factory=list)
+    policy_controls: List[str] = Field(default_factory=list)
+
+
 class CaseHistoryPayload(BaseModel):
     event_type: str
     status: str
@@ -271,6 +286,7 @@ class WorkflowCasePayload(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
     suggested_actions: List[str] = Field(default_factory=list)
     strategy_recommendation: Optional[StrategyRecommendationPayload] = None
+    risk_decision: Optional[RiskDecisionPayload] = None
     history: List[CaseHistoryPayload] = Field(default_factory=list)
     created_at: str
     updated_at: str
@@ -665,6 +681,7 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
             for trace in response.tool_traces
         ],
         confidence=response.confidence,
+        artifacts=response.artifacts,
     )
 
 
@@ -693,6 +710,7 @@ def _to_session_response(session) -> SessionResponse:
                 for trace in turn.planner_trace
             ],
             confidence=turn.confidence,
+            artifacts=turn.artifacts,
         )
         for turn in turn_views
     ]
@@ -835,6 +853,7 @@ def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
         strategy_recommendation=_to_strategy_recommendation_payload(
             case.strategy_recommendation
         ),
+        risk_decision=_to_risk_decision_payload(case.risk_decision),
         history=[_to_case_history_payload(item) for item in case.history],
         created_at=case.created_at,
         updated_at=case.updated_at,
@@ -852,6 +871,24 @@ def _to_strategy_recommendation_payload(
         recommended_threshold=recommendation.recommended_threshold,
         validation_window=recommendation.validation_window,
         rationale=recommendation.rationale,
+    )
+
+
+def _to_risk_decision_payload(
+    decision: RiskDecisionRecord | None,
+) -> RiskDecisionPayload | None:
+    if decision is None:
+        return None
+    return RiskDecisionPayload(
+        decision=decision.decision,
+        risk_level=decision.risk_level,
+        recommended_action=decision.recommended_action,
+        evidence_strength=decision.evidence_strength,
+        confidence=decision.confidence,
+        rationale=decision.rationale,
+        escalation_reason=decision.escalation_reason,
+        evidence=list(decision.evidence),
+        policy_controls=list(decision.policy_controls),
     )
 
 
