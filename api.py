@@ -264,6 +264,11 @@ class RiskActionPlanPayload(BaseModel):
     sla_hours: int
     owner_role: str
     next_actions: List[str] = Field(default_factory=list)
+    status: str = "queued"
+    due_at: Optional[str] = None
+    assigned_to: Optional[str] = None
+    completed_at: Optional[str] = None
+    outcome: Optional[str] = None
 
 
 class RiskDecisionPayload(BaseModel):
@@ -307,6 +312,8 @@ class WorkflowCasePayload(BaseModel):
 class CaseStatusUpdateRequest(BaseModel):
     status: str = Field(..., min_length=1)
     note: Optional[str] = None
+    assigned_to: Optional[str] = None
+    action_outcome: Optional[str] = None
 
 
 def create_app(config: Optional[AppConfig] = None) -> FastAPI:
@@ -598,6 +605,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             case_id,
             status=payload.status,
             note=payload.note,
+            assigned_to=payload.assigned_to,
+            action_outcome=payload.action_outcome,
         )
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
@@ -922,6 +931,11 @@ def _to_risk_action_plan_payload(
         sla_hours=action_plan.sla_hours,
         owner_role=action_plan.owner_role,
         next_actions=list(action_plan.next_actions),
+        status=action_plan.status,
+        due_at=action_plan.due_at,
+        assigned_to=action_plan.assigned_to,
+        completed_at=action_plan.completed_at,
+        outcome=action_plan.outcome,
     )
 
 

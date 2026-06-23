@@ -89,8 +89,65 @@ class CaseServiceTests(unittest.TestCase):
                 "manual_review_queue",
             )
             self.assertEqual(loaded_case.risk_decision.action_plan.sla_hours, 4)
+            self.assertEqual(loaded_case.risk_decision.action_plan.status, "queued")
+            assert loaded_case.risk_decision.action_plan.due_at is not None
+            created_at_dt = datetime.fromisoformat(
+                loaded_case.created_at.replace("Z", "+00:00")
+            )
+            due_at_dt = datetime.fromisoformat(
+                loaded_case.risk_decision.action_plan.due_at.replace("Z", "+00:00")
+            )
+            self.assertEqual(due_at_dt, created_at_dt + timedelta(hours=4))
+            completed_case = rebuilt_container.case_service.update_case_status(
+                created_case.case_id,
+                "closed",
+                note="复核完成",
+                assigned_to="risk-reviewer-01",
+                action_outcome="rejected_after_review",
+            )
+            assert completed_case is not None
+            assert completed_case.risk_decision is not None
+            assert completed_case.risk_decision.action_plan is not None
+            self.assertEqual(
+                completed_case.risk_decision.action_plan.status,
+                "completed",
+            )
+            self.assertEqual(
+                completed_case.risk_decision.action_plan.assigned_to,
+                "risk-reviewer-01",
+            )
+            self.assertEqual(
+                completed_case.risk_decision.action_plan.outcome,
+                "rejected_after_review",
+            )
+            self.assertEqual(
+                completed_case.risk_decision.action_plan.completed_at,
+                completed_case.updated_at,
+            )
             self.assertTrue(loaded_case.created_at.endswith("Z"))
             self.assertEqual(loaded_case.created_at, loaded_case.updated_at)
+
+    def test_case_creation_marks_in_review_action_plan_in_progress(self) -> None:
+        container = build_app_container(AppConfig())
+        session_id, _ = container.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请分析这个订单为什么被判高风险",
+                context={"order_id": "O10001"},
+            ),
+        )
+        session = container.runtime.get_session(session_id)
+        assert session is not None
+
+        case = container.case_service.create_case_from_session(session)
+
+        self.assertEqual(case.status, "in_review")
+        self.assertIsNotNone(case.risk_decision)
+        assert case.risk_decision is not None
+        self.assertIsNotNone(case.risk_decision.action_plan)
+        assert case.risk_decision.action_plan is not None
+        self.assertEqual(case.risk_decision.action_plan.status, "in_progress")
+        self.assertIsNotNone(case.risk_decision.action_plan.due_at)
 
     def test_file_case_store_survives_api_recreation_and_supports_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

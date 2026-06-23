@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -73,6 +73,8 @@ class CaseService(ABC):
         case_id: str,
         status: str,
         note: str | None = None,
+        assigned_to: str | None = None,
+        action_outcome: str | None = None,
     ) -> WorkflowCase | None:
         """Update case status and append history."""
 
@@ -163,13 +165,21 @@ class InMemoryCaseService(CaseService):
         case_id: str,
         status: str,
         note: str | None = None,
+        assigned_to: str | None = None,
+        action_outcome: str | None = None,
     ) -> WorkflowCase | None:
         if status not in ALLOWED_CASE_STATUSES:
             raise ValueError(f"Unsupported case status: {status}")
         case = self._cases.get(case_id)
         if case is None:
             return None
-        _append_case_status_update(case, status, note)
+        _append_case_status_update(
+            case,
+            status,
+            note,
+            assigned_to=assigned_to,
+            action_outcome=action_outcome,
+        )
         return case
 
 
@@ -262,6 +272,8 @@ class FileCaseService(CaseService):
         case_id: str,
         status: str,
         note: str | None = None,
+        assigned_to: str | None = None,
+        action_outcome: str | None = None,
     ) -> WorkflowCase | None:
         if status not in ALLOWED_CASE_STATUSES:
             raise ValueError(f"Unsupported case status: {status}")
@@ -269,7 +281,13 @@ class FileCaseService(CaseService):
         case = cases.get(case_id)
         if case is None:
             return None
-        _append_case_status_update(case, status, note)
+        _append_case_status_update(
+            case,
+            status,
+            note,
+            assigned_to=assigned_to,
+            action_outcome=action_outcome,
+        )
         self._save_cases(cases)
         return case
 
@@ -451,6 +469,8 @@ class SQLiteCaseService(CaseService):
         case_id: str,
         status: str,
         note: str | None = None,
+        assigned_to: str | None = None,
+        action_outcome: str | None = None,
     ) -> WorkflowCase | None:
         if status not in ALLOWED_CASE_STATUSES:
             raise ValueError(f"Unsupported case status: {status}")
@@ -462,7 +482,13 @@ class SQLiteCaseService(CaseService):
             case = _case_from_row(row)
             if case is None:
                 return None
-            _append_case_status_update(case, status, note)
+            _append_case_status_update(
+                case,
+                status,
+                note,
+                assigned_to=assigned_to,
+                action_outcome=action_outcome,
+            )
             connection.execute(
                 """
                 UPDATE workflow_cases
@@ -656,6 +682,8 @@ class PostgresCaseService(CaseService):
         case_id: str,
         status: str,
         note: str | None = None,
+        assigned_to: str | None = None,
+        action_outcome: str | None = None,
     ) -> WorkflowCase | None:
         if status not in ALLOWED_CASE_STATUSES:
             raise ValueError(f"Unsupported case status: {status}")
@@ -667,7 +695,13 @@ class PostgresCaseService(CaseService):
             case = _case_from_row(row)
             if case is None:
                 return None
-            _append_case_status_update(case, status, note)
+            _append_case_status_update(
+                case,
+                status,
+                note,
+                assigned_to=assigned_to,
+                action_outcome=action_outcome,
+            )
             connection.execute(
                 """
                 UPDATE workflow_cases
@@ -700,6 +734,11 @@ def _build_case_from_session(
     risk_decision = _extract_risk_decision(turn.artifacts)
     status = _initial_status(turn.agent_name, turn.intent, recommendation)
     timestamp = _current_timestamp()
+    _schedule_risk_action_plan(
+        risk_decision,
+        created_at=timestamp,
+        case_status=status,
+    )
     return WorkflowCase(
         case_id=f"CASE-{uuid4().hex[:8].upper()}",
         session_id=session.session_id,
@@ -781,9 +820,20 @@ def _append_case_status_update(
     case: WorkflowCase,
     status: str,
     note: str | None,
+    *,
+    assigned_to: str | None = None,
+    action_outcome: str | None = None,
 ) -> None:
     case.status = status
-    case.updated_at = _current_timestamp()
+    updated_at = _current_timestamp()
+    case.updated_at = updated_at
+    _sync_risk_action_plan_status(
+        case,
+        status=status,
+        timestamp=updated_at,
+        assigned_to=assigned_to,
+        action_outcome=action_outcome,
+    )
     case.history.append(
         WorkflowCaseHistoryEntry(
             event_type="status_updated",
@@ -841,6 +891,19 @@ def _extract_risk_action_plan(payload: object) -> RiskActionPlanRecord | None:
         sla_hours=int(payload["sla_hours"]),
         owner_role=str(payload["owner_role"]),
         next_actions=[str(item) for item in payload.get("next_actions", [])],
+        status=str(payload.get("status", "queued")),
+        due_at=str(payload["due_at"]) if payload.get("due_at") is not None else None,
+        assigned_to=(
+            str(payload["assigned_to"])
+            if payload.get("assigned_to") is not None
+            else None
+        ),
+        completed_at=(
+            str(payload["completed_at"])
+            if payload.get("completed_at") is not None
+            else None
+        ),
+        outcome=str(payload["outcome"]) if payload.get("outcome") is not None else None,
     )
 
 
@@ -988,7 +1051,59 @@ def _serialize_risk_action_plan(
         "sla_hours": action_plan.sla_hours,
         "owner_role": action_plan.owner_role,
         "next_actions": action_plan.next_actions,
+        "status": action_plan.status,
+        "due_at": action_plan.due_at,
+        "assigned_to": action_plan.assigned_to,
+        "completed_at": action_plan.completed_at,
+        "outcome": action_plan.outcome,
     }
+
+
+def _schedule_risk_action_plan(
+    risk_decision: RiskDecisionRecord | None,
+    *,
+    created_at: str,
+    case_status: str,
+) -> None:
+    if risk_decision is None or risk_decision.action_plan is None:
+        return
+    action_plan = risk_decision.action_plan
+    if case_status == "in_review":
+        action_plan.status = "in_progress"
+    elif case_status in {"open", "strategy_pending"}:
+        action_plan.status = "queued"
+    if action_plan.due_at is None:
+        created_at_dt = _parse_timestamp(created_at)
+        action_plan.due_at = _format_timestamp(
+            created_at_dt + timedelta(hours=action_plan.sla_hours)
+        )
+
+
+def _sync_risk_action_plan_status(
+    case: WorkflowCase,
+    *,
+    status: str,
+    timestamp: str,
+    assigned_to: str | None,
+    action_outcome: str | None,
+) -> None:
+    if case.risk_decision is None or case.risk_decision.action_plan is None:
+        return
+    action_plan = case.risk_decision.action_plan
+    if assigned_to is not None:
+        action_plan.assigned_to = assigned_to
+    if status in {"open", "strategy_pending"}:
+        action_plan.status = "queued"
+        action_plan.completed_at = None
+        action_plan.outcome = action_outcome
+    elif status == "in_review":
+        action_plan.status = "in_progress"
+        action_plan.completed_at = None
+        action_plan.outcome = action_outcome
+    elif status == "closed":
+        action_plan.status = "completed"
+        action_plan.completed_at = timestamp
+        action_plan.outcome = action_outcome
 
 
 def _case_sort_key(case: WorkflowCase, sort_by: str) -> str:
@@ -1002,14 +1117,18 @@ def _case_sort_key(case: WorkflowCase, sort_by: str) -> str:
 
 
 def _current_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
-        "+00:00",
-        "Z",
-    )
+    return _format_timestamp(datetime.now(timezone.utc))
 
 
 def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _format_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00",
+        "Z",
+    )
 
 
 def _case_json(case: WorkflowCase) -> str:

@@ -101,6 +101,22 @@ Example:
 }
 ```
 
+Each configured action plan defines its static routing contract. When a copilot
+decision is converted into a workflow case, the case service enriches it with
+runtime execution fields:
+
+- `status`: starts from the case status (`queued` for `open` or
+  `strategy_pending`, `in_progress` for `in_review`) and moves to `completed`
+  when the case is closed.
+- `due_at`: computed from case creation time plus `sla_hours`.
+- `assigned_to`: optional reviewer or owner supplied by case status updates.
+- `completed_at`: set to the case update timestamp when the case is closed.
+- `outcome`: optional final action outcome supplied by case status updates.
+
+`PATCH /cases/{case_id}` accepts `assigned_to` and `action_outcome` alongside
+`status` and `note`, so workflow UIs can preserve the execution trail without
+replacing the decision evidence.
+
 Use `GET /admin/runtime` to confirm `risk_decision_policy_source` is `builtin`
 or `file` and, for file-backed policies, that `risk_decision_policy_path` points
 to the expected policy.

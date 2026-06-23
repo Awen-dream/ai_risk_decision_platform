@@ -185,6 +185,11 @@ class RiskActionPlanRecord:
     sla_hours: int
     owner_role: str
     next_actions: list[str] = field(default_factory=list)
+    status: str = "queued"
+    due_at: str | None = None
+    assigned_to: str | None = None
+    completed_at: str | None = None
+    outcome: str | None = None
 
 
 @dataclass

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -593,6 +594,14 @@ class AgentApiTests(unittest.TestCase):
             "manual_review_queue",
         )
         self.assertEqual(payload["risk_decision"]["action_plan"]["sla_hours"], 4)
+        self.assertEqual(payload["risk_decision"]["action_plan"]["status"], "queued")
+        self.assertIsNone(payload["risk_decision"]["action_plan"]["assigned_to"])
+        self.assertIsNone(payload["risk_decision"]["action_plan"]["completed_at"])
+        created_at_dt = datetime.fromisoformat(payload["created_at"].replace("Z", "+00:00"))
+        due_at_dt = datetime.fromisoformat(
+            payload["risk_decision"]["action_plan"]["due_at"].replace("Z", "+00:00")
+        )
+        self.assertEqual(due_at_dt, created_at_dt + timedelta(hours=4))
         self.assertEqual(payload["strategy_recommendation"]["strategy_id"], "STRAT-001")
         self.assertEqual(
             payload["strategy_recommendation"]["validation_window"],
@@ -608,11 +617,32 @@ class AgentApiTests(unittest.TestCase):
 
         updated = client.patch(
             f"/cases/{payload['case_id']}",
-            json={"status": "closed", "note": "人工复核完成"},
+            json={
+                "status": "closed",
+                "note": "人工复核完成",
+                "assigned_to": "risk-reviewer-01",
+                "action_outcome": "approved_after_review",
+            },
         )
         updated_payload = updated.json()
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated_payload["status"], "closed")
+        self.assertEqual(
+            updated_payload["risk_decision"]["action_plan"]["status"],
+            "completed",
+        )
+        self.assertEqual(
+            updated_payload["risk_decision"]["action_plan"]["assigned_to"],
+            "risk-reviewer-01",
+        )
+        self.assertEqual(
+            updated_payload["risk_decision"]["action_plan"]["outcome"],
+            "approved_after_review",
+        )
+        self.assertEqual(
+            updated_payload["risk_decision"]["action_plan"]["completed_at"],
+            updated_payload["updated_at"],
+        )
         self.assertEqual(len(updated_payload["history"]), 2)
         self.assertEqual(updated_payload["history"][1]["summary"], "人工复核完成")
         self.assertNotEqual(updated_payload["updated_at"], updated_payload["created_at"])
