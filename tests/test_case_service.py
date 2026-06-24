@@ -364,6 +364,52 @@ class CaseServiceTests(unittest.TestCase):
                 {f"review-{index}" for index in range(20)},
             )
 
+    def test_sqlite_case_store_filters_by_action_plan_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            database_path = Path(tmp_dir) / "platform.db"
+            config = AppConfig(
+                session_store_backend="sqlite",
+                case_store_backend="sqlite",
+                database_path=database_path,
+            )
+            container = build_app_container(config)
+            session_id, _ = container.runtime.execute(
+                "copilot",
+                AgentRequest(
+                    query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    context={
+                        "order_id": "O10001",
+                        "strategy_id": "STRAT-001",
+                        "entity_id": "U10001",
+                    },
+                ),
+            )
+            session = container.runtime.get_session(session_id)
+            assert session is not None
+            created_case = container.case_service.create_case_from_session(session)
+            updated_case = container.case_service.update_case_status(
+                created_case.case_id,
+                "strategy_pending",
+                assigned_to="risk-reviewer-01",
+            )
+
+            assert updated_case is not None
+            filtered = container.case_service.list_cases(
+                action_queue="manual_review_queue",
+                action_status="queued",
+                assigned_to="risk-reviewer-01",
+            )
+
+            self.assertEqual([case.case_id for case in filtered], [created_case.case_id])
+            self.assertEqual(
+                container.case_service.count_cases(
+                    action_queue="manual_review_queue",
+                    action_status="queued",
+                    assigned_to="risk-reviewer-01",
+                ),
+                1,
+            )
+
     def test_sqlite_case_store_normalizes_timestamp_filter_to_utc(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(

@@ -21,7 +21,7 @@ from core.models import (
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
-from services.case_service import ALLOWED_CASE_STATUSES
+from services.case_service import ALLOWED_CASE_STATUSES, is_risk_action_plan_overdue
 from services.observability import (
     REQUEST_ID_HEADER,
     TRACE_ID_HEADER,
@@ -269,6 +269,7 @@ class RiskActionPlanPayload(BaseModel):
     assigned_to: Optional[str] = None
     completed_at: Optional[str] = None
     outcome: Optional[str] = None
+    is_overdue: bool = False
 
 
 class RiskDecisionPayload(BaseModel):
@@ -531,6 +532,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         intent: Optional[str] = None,
         session_id: Optional[str] = None,
         severity: Optional[str] = None,
+        action_queue: Optional[str] = None,
+        action_status: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        action_overdue: Optional[bool] = None,
         updated_after: Optional[str] = None,
         updated_before: Optional[str] = None,
         sort_by: str = "updated_at",
@@ -545,6 +550,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
                 updated_after=updated_after,
                 updated_before=updated_before,
             )
@@ -554,6 +563,10 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
                 updated_after=updated_after,
                 updated_before=updated_before,
                 sort_by=sort_by,
@@ -936,6 +949,7 @@ def _to_risk_action_plan_payload(
         assigned_to=action_plan.assigned_to,
         completed_at=action_plan.completed_at,
         outcome=action_plan.outcome,
+        is_overdue=is_risk_action_plan_overdue(action_plan),
     )
 
 
@@ -954,6 +968,10 @@ def _build_case_gauges(container) -> Dict[str, int]:
         gauges[f"cases.status.{status}"] = 0
     for severity in ("high", "medium", "low"):
         gauges[f"cases.severity.{severity}"] = 0
+    gauges["cases.action_plan.total"] = 0
+    gauges["cases.action_plan.overdue"] = 0
+    for action_status in ("queued", "in_progress", "completed"):
+        gauges[f"cases.action_plan.status.{action_status}"] = 0
     for case in cases:
         gauges[f"cases.status.{case.status}"] = gauges.get(
             f"cases.status.{case.status}",
@@ -963,6 +981,24 @@ def _build_case_gauges(container) -> Dict[str, int]:
             f"cases.severity.{case.severity}",
             0,
         ) + 1
+        if case.risk_decision is None or case.risk_decision.action_plan is None:
+            continue
+        action_plan = case.risk_decision.action_plan
+        gauges["cases.action_plan.total"] += 1
+        gauges[f"cases.action_plan.status.{action_plan.status}"] = gauges.get(
+            f"cases.action_plan.status.{action_plan.status}",
+            0,
+        ) + 1
+        gauges[f"cases.action_plan.queue.{action_plan.queue}"] = gauges.get(
+            f"cases.action_plan.queue.{action_plan.queue}",
+            0,
+        ) + 1
+        if is_risk_action_plan_overdue(action_plan):
+            gauges["cases.action_plan.overdue"] += 1
+            gauges[f"cases.action_plan.queue.{action_plan.queue}.overdue"] = gauges.get(
+                f"cases.action_plan.queue.{action_plan.queue}.overdue",
+                0,
+            ) + 1
     return dict(sorted(gauges.items()))
 
 

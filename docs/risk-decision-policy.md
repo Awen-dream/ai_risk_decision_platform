@@ -117,6 +117,14 @@ runtime execution fields:
 `status` and `note`, so workflow UIs can preserve the execution trail without
 replacing the decision evidence.
 
+`GET /cases` supports operational filters for the action plan: `action_queue`,
+`action_status`, `assigned_to`, and `action_overdue`. The case payload also
+returns a dynamic `is_overdue` flag for each action plan.
+
+`GET /admin/metrics` exposes action plan gauges such as
+`cases.action_plan.total`, `cases.action_plan.overdue`,
+`cases.action_plan.status.<status>`, and `cases.action_plan.queue.<queue>`.
+
 Use `GET /admin/runtime` to confirm `risk_decision_policy_source` is `builtin`
 or `file` and, for file-backed policies, that `risk_decision_policy_path` points
 to the expected policy.

@@ -44,6 +44,10 @@ class CaseService(ABC):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
         sort_by: str = "updated_at",
@@ -62,6 +66,10 @@ class CaseService(ABC):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
     ) -> int:
@@ -112,6 +120,10 @@ class InMemoryCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
         sort_by: str = "updated_at",
@@ -126,6 +138,10 @@ class InMemoryCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
             updated_after=updated_after,
             updated_before=updated_before,
             sort_by=sort_by,
@@ -142,6 +158,10 @@ class InMemoryCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
     ) -> int:
@@ -153,6 +173,10 @@ class InMemoryCaseService(CaseService):
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
                 updated_after=updated_after,
                 updated_before=updated_before,
                 limit=None,
@@ -219,6 +243,10 @@ class FileCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
         sort_by: str = "updated_at",
@@ -233,6 +261,10 @@ class FileCaseService(CaseService):
             intent=intent,
             session_id=session_id,
             severity=severity,
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
             updated_after=updated_after,
             updated_before=updated_before,
             sort_by=sort_by,
@@ -249,6 +281,10 @@ class FileCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
     ) -> int:
@@ -260,6 +296,10 @@ class FileCaseService(CaseService):
                 intent=intent,
                 session_id=session_id,
                 severity=severity,
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
                 updated_after=updated_after,
                 updated_before=updated_before,
                 limit=None,
@@ -400,6 +440,10 @@ class SQLiteCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
         sort_by: str = "updated_at",
@@ -416,6 +460,28 @@ class SQLiteCaseService(CaseService):
             updated_after=updated_after,
             updated_before=updated_before,
         )
+        if _requires_action_plan_filter(
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
+        ):
+            with self._database.connection() as connection:
+                rows = connection.execute(
+                    f"SELECT payload_json FROM workflow_cases {where_sql}",
+                    params,
+                ).fetchall()
+            return _filter_cases(
+                [_case_from_row(row) for row in rows],
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                limit=limit,
+                offset=offset,
+            )
         sort_column = self._SORT_COLUMNS.get(sort_by, "updated_at")
         direction = "ASC" if sort_order.lower() == "asc" else "DESC"
         pagination_sql = ""
@@ -445,6 +511,10 @@ class SQLiteCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
     ) -> int:
@@ -457,6 +527,28 @@ class SQLiteCaseService(CaseService):
             updated_after=updated_after,
             updated_before=updated_before,
         )
+        if _requires_action_plan_filter(
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
+        ):
+            with self._database.connection() as connection:
+                rows = connection.execute(
+                    f"SELECT payload_json FROM workflow_cases {where_sql}",
+                    params,
+                ).fetchall()
+            return len(
+                _filter_cases(
+                    [_case_from_row(row) for row in rows],
+                    action_queue=action_queue,
+                    action_status=action_status,
+                    assigned_to=assigned_to,
+                    action_overdue=action_overdue,
+                    limit=None,
+                    offset=0,
+                )
+            )
         with self._database.connection() as connection:
             row = connection.execute(
                 f"SELECT COUNT(*) AS total FROM workflow_cases {where_sql}",
@@ -611,6 +703,10 @@ class PostgresCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
         sort_by: str = "updated_at",
@@ -628,6 +724,28 @@ class PostgresCaseService(CaseService):
             updated_before=updated_before,
             placeholder="%s",
         )
+        if _requires_action_plan_filter(
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
+        ):
+            with self._database.connection() as connection:
+                rows = connection.execute(
+                    f"SELECT payload_json FROM workflow_cases {where_sql}",
+                    params,
+                ).fetchall()
+            return _filter_cases(
+                [_case_from_row(row) for row in rows],
+                action_queue=action_queue,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
+                sort_by=sort_by,
+                sort_order=sort_order,
+                limit=limit,
+                offset=offset,
+            )
         sort_column = self._SORT_COLUMNS.get(sort_by, "updated_at")
         direction = "ASC" if sort_order.lower() == "asc" else "DESC"
         pagination_sql = ""
@@ -657,6 +775,10 @@ class PostgresCaseService(CaseService):
         intent: str | None = None,
         session_id: str | None = None,
         severity: str | None = None,
+        action_queue: str | None = None,
+        action_status: str | None = None,
+        assigned_to: str | None = None,
+        action_overdue: bool | None = None,
         updated_after: str | None = None,
         updated_before: str | None = None,
     ) -> int:
@@ -670,6 +792,28 @@ class PostgresCaseService(CaseService):
             updated_before=updated_before,
             placeholder="%s",
         )
+        if _requires_action_plan_filter(
+            action_queue=action_queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
+        ):
+            with self._database.connection() as connection:
+                rows = connection.execute(
+                    f"SELECT payload_json FROM workflow_cases {where_sql}",
+                    params,
+                ).fetchall()
+            return len(
+                _filter_cases(
+                    [_case_from_row(row) for row in rows],
+                    action_queue=action_queue,
+                    action_status=action_status,
+                    assigned_to=assigned_to,
+                    action_overdue=action_overdue,
+                    limit=None,
+                    offset=0,
+                )
+            )
         with self._database.connection() as connection:
             row = connection.execute(
                 f"SELECT COUNT(*) AS total FROM workflow_cases {where_sql}",
@@ -773,6 +917,10 @@ def _filter_cases(
     intent: str | None = None,
     session_id: str | None = None,
     severity: str | None = None,
+    action_queue: str | None = None,
+    action_status: str | None = None,
+    assigned_to: str | None = None,
+    action_overdue: bool | None = None,
     updated_after: str | None = None,
     updated_before: str | None = None,
     sort_by: str = "updated_at",
@@ -791,6 +939,34 @@ def _filter_cases(
         filtered = [case for case in filtered if case.session_id == session_id]
     if severity is not None:
         filtered = [case for case in filtered if case.severity == severity]
+    if action_queue is not None:
+        filtered = [
+            case
+            for case in filtered
+            if _case_action_plan(case) is not None
+            and _case_action_plan(case).queue == action_queue
+        ]
+    if action_status is not None:
+        filtered = [
+            case
+            for case in filtered
+            if _case_action_plan(case) is not None
+            and _case_action_plan(case).status == action_status
+        ]
+    if assigned_to is not None:
+        filtered = [
+            case
+            for case in filtered
+            if _case_action_plan(case) is not None
+            and _case_action_plan(case).assigned_to == assigned_to
+        ]
+    if action_overdue is not None:
+        filtered = [
+            case
+            for case in filtered
+            if _case_action_plan(case) is not None
+            and is_risk_action_plan_overdue(_case_action_plan(case)) is action_overdue
+        ]
     if updated_after is not None:
         updated_after_dt = _parse_timestamp(updated_after)
         filtered = [
@@ -814,6 +990,36 @@ def _filter_cases(
     if limit is not None:
         filtered = filtered[:limit]
     return filtered
+
+
+def _requires_action_plan_filter(
+    *,
+    action_queue: str | None,
+    action_status: str | None,
+    assigned_to: str | None,
+    action_overdue: bool | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (action_queue, action_status, assigned_to, action_overdue)
+    )
+
+
+def _case_action_plan(case: WorkflowCase) -> RiskActionPlanRecord | None:
+    if case.risk_decision is None:
+        return None
+    return case.risk_decision.action_plan
+
+
+def is_risk_action_plan_overdue(
+    action_plan: RiskActionPlanRecord,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    if action_plan.status == "completed" or action_plan.due_at is None:
+        return False
+    now_dt = now or datetime.now(timezone.utc)
+    return _parse_timestamp(action_plan.due_at) < now_dt
 
 
 def _append_case_status_update(
