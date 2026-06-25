@@ -121,6 +121,10 @@ replacing the decision evidence.
 `action_status`, `assigned_to`, and `action_overdue`. The case payload also
 returns a dynamic `is_overdue` flag for each action plan.
 
+`GET /cases/action-queues` returns queue-level dashboard summaries with total
+cases, overdue cases, high-priority cases, status and priority distributions,
+assignees, highest priority, oldest due time, and next due time.
+
 `GET /admin/metrics` exposes action plan gauges such as
 `cases.action_plan.total`, `cases.action_plan.overdue`,
 `cases.action_plan.status.<status>`, and `cases.action_plan.queue.<queue>`.

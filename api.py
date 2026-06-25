@@ -310,6 +310,19 @@ class WorkflowCasePayload(BaseModel):
     updated_at: str
 
 
+class ActionQueueSummaryPayload(BaseModel):
+    queue: str
+    total_cases: int
+    overdue_cases: int
+    high_priority_cases: int
+    statuses: Dict[str, int] = Field(default_factory=dict)
+    priorities: Dict[str, int] = Field(default_factory=dict)
+    assignees: List[str] = Field(default_factory=list)
+    oldest_due_at: Optional[str] = None
+    next_due_at: Optional[str] = None
+    highest_priority: Optional[str] = None
+
+
 class CaseStatusUpdateRequest(BaseModel):
     status: str = Field(..., min_length=1)
     note: Optional[str] = None
@@ -582,6 +595,38 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         if limit is not None:
             response.headers["X-Limit"] = str(limit)
         return [_to_case_payload(case) for case in cases]
+
+    @fastapi_app.get("/cases/action-queues", response_model=List[ActionQueueSummaryPayload])
+    def list_action_queues(
+        status: Optional[str] = None,
+        source_agent: Optional[str] = None,
+        intent: Optional[str] = None,
+        session_id: Optional[str] = None,
+        severity: Optional[str] = None,
+        action_status: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        action_overdue: Optional[bool] = None,
+        updated_after: Optional[str] = None,
+        updated_before: Optional[str] = None,
+    ) -> List[ActionQueueSummaryPayload]:
+        try:
+            cases = container.case_service.list_cases(
+                status=status,
+                source_agent=source_agent,
+                intent=intent,
+                session_id=session_id,
+                severity=severity,
+                action_status=action_status,
+                assigned_to=assigned_to,
+                action_overdue=action_overdue,
+                updated_after=updated_after,
+                updated_before=updated_before,
+                sort_by="updated_at",
+                sort_order="desc",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _build_action_queue_summaries(cases)
 
     @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
     def get_case(case_id: str) -> WorkflowCasePayload:
@@ -959,6 +1004,80 @@ def _to_case_history_payload(entry: WorkflowCaseHistoryEntry) -> CaseHistoryPayl
         status=entry.status,
         summary=entry.summary,
     )
+
+
+def _build_action_queue_summaries(
+    cases: list[WorkflowCase],
+) -> List[ActionQueueSummaryPayload]:
+    summaries: dict[str, dict[str, Any]] = {}
+    for case in cases:
+        if case.risk_decision is None or case.risk_decision.action_plan is None:
+            continue
+        action_plan = case.risk_decision.action_plan
+        summary = summaries.setdefault(
+            action_plan.queue,
+            {
+                "queue": action_plan.queue,
+                "total_cases": 0,
+                "overdue_cases": 0,
+                "high_priority_cases": 0,
+                "statuses": {},
+                "priorities": {},
+                "assignees": set(),
+                "oldest_due_at": None,
+                "next_due_at": None,
+                "highest_priority": None,
+            },
+        )
+        summary["total_cases"] += 1
+        if is_risk_action_plan_overdue(action_plan):
+            summary["overdue_cases"] += 1
+        if action_plan.priority == "high":
+            summary["high_priority_cases"] += 1
+        summary["statuses"][action_plan.status] = (
+            summary["statuses"].get(action_plan.status, 0) + 1
+        )
+        summary["priorities"][action_plan.priority] = (
+            summary["priorities"].get(action_plan.priority, 0) + 1
+        )
+        if action_plan.assigned_to:
+            summary["assignees"].add(action_plan.assigned_to)
+        if action_plan.due_at is not None:
+            if summary["oldest_due_at"] is None or action_plan.due_at < summary["oldest_due_at"]:
+                summary["oldest_due_at"] = action_plan.due_at
+            if action_plan.status != "completed" and (
+                summary["next_due_at"] is None or action_plan.due_at < summary["next_due_at"]
+            ):
+                summary["next_due_at"] = action_plan.due_at
+        if _priority_rank(action_plan.priority) > _priority_rank(summary["highest_priority"]):
+            summary["highest_priority"] = action_plan.priority
+
+    return [
+        ActionQueueSummaryPayload(
+            queue=str(summary["queue"]),
+            total_cases=int(summary["total_cases"]),
+            overdue_cases=int(summary["overdue_cases"]),
+            high_priority_cases=int(summary["high_priority_cases"]),
+            statuses=dict(sorted(summary["statuses"].items())),
+            priorities=dict(sorted(summary["priorities"].items())),
+            assignees=sorted(summary["assignees"]),
+            oldest_due_at=summary["oldest_due_at"],
+            next_due_at=summary["next_due_at"],
+            highest_priority=summary["highest_priority"],
+        )
+        for summary in sorted(
+            summaries.values(),
+            key=lambda item: (
+                -int(item["overdue_cases"]),
+                str(item["next_due_at"] or item["oldest_due_at"] or ""),
+                str(item["queue"]),
+            ),
+        )
+    ]
+
+
+def _priority_rank(priority: str | None) -> int:
+    return {"low": 1, "medium": 2, "high": 3}.get(priority or "", 0)
 
 
 def _build_case_gauges(container) -> Dict[str, int]:

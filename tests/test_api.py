@@ -750,6 +750,66 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload[0]["case_id"], created_case["case_id"])
         self.assertTrue(payload[0]["risk_decision"]["action_plan"]["is_overdue"])
 
+    def test_list_action_queues_returns_operational_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            policy_path = Path(tmp_dir) / "risk-decision-policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "action_plans": {
+                            "escalate_review": {
+                                "queue": "urgent_manual_review",
+                                "priority": "high",
+                                "sla_hours": 0,
+                                "owner_role": "risk_reviewer",
+                                "next_actions": ["立即复核"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(AppConfig(risk_decision_policy_path=policy_path)))
+            session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/copilot",
+                json={
+                    "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    "context": {
+                        "order_id": "O10001",
+                        "strategy_id": "STRAT-001",
+                        "entity_id": "U10001",
+                    },
+                    "session_id": session_id,
+                },
+            )
+            created_case = client.post(f"/cases/from-session/{session_id}").json()
+            client.patch(
+                f"/cases/{created_case['case_id']}",
+                json={
+                    "status": "strategy_pending",
+                    "assigned_to": "risk-reviewer-01",
+                },
+            )
+
+            response = client.get("/cases/action-queues")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["queue"], "urgent_manual_review")
+        self.assertEqual(payload[0]["total_cases"], 1)
+        self.assertEqual(payload[0]["overdue_cases"], 1)
+        self.assertEqual(payload[0]["high_priority_cases"], 1)
+        self.assertEqual(payload[0]["statuses"], {"queued": 1})
+        self.assertEqual(payload[0]["priorities"], {"high": 1})
+        self.assertEqual(payload[0]["assignees"], ["risk-reviewer-01"])
+        self.assertEqual(payload[0]["highest_priority"], "high")
+        self.assertEqual(
+            payload[0]["next_due_at"],
+            created_case["risk_decision"]["action_plan"]["due_at"],
+        )
+
     def test_list_cases_supports_pagination_and_updated_at_filters(self) -> None:
         client = TestClient(create_app())
         first_session_id = client.post("/sessions").json()["session_id"]
