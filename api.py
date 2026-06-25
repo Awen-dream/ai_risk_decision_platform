@@ -323,6 +323,22 @@ class ActionQueueSummaryPayload(BaseModel):
     highest_priority: Optional[str] = None
 
 
+class ActionQueueAssignRequest(BaseModel):
+    assigned_to: str = Field(..., min_length=1)
+    case_ids: List[str] = Field(default_factory=list)
+    limit: int = Field(default=20, ge=1, le=100)
+    action_status: Optional[str] = None
+    action_overdue: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class ActionQueueAssignResponse(BaseModel):
+    queue: str
+    assigned_to: str
+    updated_count: int
+    cases: List[WorkflowCasePayload] = Field(default_factory=list)
+
+
 class CaseStatusUpdateRequest(BaseModel):
     status: str = Field(..., min_length=1)
     note: Optional[str] = None
@@ -627,6 +643,81 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _build_action_queue_summaries(cases)
+
+    @fastapi_app.get(
+        "/cases/action-queues/{queue}/cases",
+        response_model=List[WorkflowCasePayload],
+    )
+    def list_action_queue_cases(
+        queue: str,
+        action_status: Optional[str] = None,
+        assigned_to: Optional[str] = None,
+        action_overdue: Optional[bool] = None,
+        include_completed: bool = False,
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> List[WorkflowCasePayload]:
+        cases = container.case_service.list_cases(
+            action_queue=queue,
+            action_status=action_status,
+            assigned_to=assigned_to,
+            action_overdue=action_overdue,
+        )
+        selected_cases = _select_action_queue_cases(
+            cases,
+            include_completed=include_completed,
+            limit=limit,
+        )
+        return [_to_case_payload(case) for case in selected_cases]
+
+    @fastapi_app.post(
+        "/cases/action-queues/{queue}/assign",
+        response_model=ActionQueueAssignResponse,
+    )
+    def assign_action_queue_cases(
+        queue: str,
+        payload: ActionQueueAssignRequest,
+    ) -> ActionQueueAssignResponse:
+        cases = container.case_service.list_cases(
+            action_queue=queue,
+            action_status=payload.action_status,
+            action_overdue=payload.action_overdue,
+        )
+        if payload.case_ids:
+            requested_case_ids = set(payload.case_ids)
+            cases = [case for case in cases if case.case_id in requested_case_ids]
+            missing_case_ids = requested_case_ids.difference(case.case_id for case in cases)
+            if missing_case_ids:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Cases not found in queue {queue}: {sorted(missing_case_ids)}",
+                )
+        selected_cases = _select_action_queue_cases(
+            cases,
+            include_completed=False,
+            limit=payload.limit,
+        )
+        updated_cases: list[WorkflowCase] = []
+        for case in selected_cases:
+            updated = container.case_service.update_case_status(
+                case.case_id,
+                case.status,
+                note=payload.note or f"Action queue {queue} assigned to {payload.assigned_to}.",
+                assigned_to=payload.assigned_to,
+            )
+            if updated is not None:
+                updated_cases.append(updated)
+        emit_event(
+            "case_action_queue_assigned",
+            action_queue=queue,
+            assigned_to=payload.assigned_to,
+            updated_count=len(updated_cases),
+        )
+        return ActionQueueAssignResponse(
+            queue=queue,
+            assigned_to=payload.assigned_to,
+            updated_count=len(updated_cases),
+            cases=[_to_case_payload(case) for case in updated_cases],
+        )
 
     @fastapi_app.get("/cases/{case_id}", response_model=WorkflowCasePayload)
     def get_case(case_id: str) -> WorkflowCasePayload:
@@ -1074,6 +1165,40 @@ def _build_action_queue_summaries(
             ),
         )
     ]
+
+
+def _select_action_queue_cases(
+    cases: list[WorkflowCase],
+    *,
+    include_completed: bool,
+    limit: int,
+) -> list[WorkflowCase]:
+    filtered = [
+        case
+        for case in cases
+        if _case_action_plan(case) is not None
+        and (include_completed or _case_action_plan(case).status != "completed")
+    ]
+    return sorted(filtered, key=_action_queue_case_sort_key)[:limit]
+
+
+def _action_queue_case_sort_key(case: WorkflowCase) -> tuple[object, ...]:
+    action_plan = _case_action_plan(case)
+    if action_plan is None:
+        return (1, 0, "9999-12-31T23:59:59Z", case.updated_at, case.case_id)
+    return (
+        0 if is_risk_action_plan_overdue(action_plan) else 1,
+        -_priority_rank(action_plan.priority),
+        action_plan.due_at or "9999-12-31T23:59:59Z",
+        case.updated_at,
+        case.case_id,
+    )
+
+
+def _case_action_plan(case: WorkflowCase) -> RiskActionPlanRecord | None:
+    if case.risk_decision is None:
+        return None
+    return case.risk_decision.action_plan
 
 
 def _priority_rank(priority: str | None) -> int:

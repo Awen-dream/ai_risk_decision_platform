@@ -810,6 +810,71 @@ class AgentApiTests(unittest.TestCase):
             created_case["risk_decision"]["action_plan"]["due_at"],
         )
 
+    def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            policy_path = Path(tmp_dir) / "risk-decision-policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "action_plans": {
+                            "escalate_review": {
+                                "queue": "urgent_manual_review",
+                                "priority": "high",
+                                "sla_hours": 0,
+                                "owner_role": "risk_reviewer",
+                                "next_actions": ["立即复核"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(AppConfig(risk_decision_policy_path=policy_path)))
+            session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/copilot",
+                json={
+                    "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    "context": {
+                        "order_id": "O10001",
+                        "strategy_id": "STRAT-001",
+                        "entity_id": "U10001",
+                    },
+                    "session_id": session_id,
+                },
+            )
+            created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+            queue_cases = client.get(
+                "/cases/action-queues/urgent_manual_review/cases",
+                params={"limit": 5},
+            )
+            assigned = client.post(
+                "/cases/action-queues/urgent_manual_review/assign",
+                json={
+                    "assigned_to": "risk-reviewer-02",
+                    "case_ids": [created_case["case_id"]],
+                    "note": "队列批量分派",
+                },
+            )
+
+        queue_payload = queue_cases.json()
+        assigned_payload = assigned.json()
+        self.assertEqual(queue_cases.status_code, 200)
+        self.assertEqual([item["case_id"] for item in queue_payload], [created_case["case_id"]])
+        self.assertEqual(assigned.status_code, 200)
+        self.assertEqual(assigned_payload["queue"], "urgent_manual_review")
+        self.assertEqual(assigned_payload["assigned_to"], "risk-reviewer-02")
+        self.assertEqual(assigned_payload["updated_count"], 1)
+        self.assertEqual(
+            assigned_payload["cases"][0]["risk_decision"]["action_plan"]["assigned_to"],
+            "risk-reviewer-02",
+        )
+        self.assertEqual(
+            assigned_payload["cases"][0]["history"][-1]["summary"],
+            "队列批量分派",
+        )
+
     def test_list_cases_supports_pagination_and_updated_at_filters(self) -> None:
         client = TestClient(create_app())
         first_session_id = client.post("/sessions").json()["session_id"]

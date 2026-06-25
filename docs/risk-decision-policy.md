@@ -125,6 +125,13 @@ returns a dynamic `is_overdue` flag for each action plan.
 cases, overdue cases, high-priority cases, status and priority distributions,
 assignees, highest priority, oldest due time, and next due time.
 
+`GET /cases/action-queues/{queue}/cases` returns the top pending cases for one
+queue, sorted by overdue status, priority, and due time.
+
+`POST /cases/action-queues/{queue}/assign` assigns a selected batch or the top
+pending batch to a reviewer while preserving normal case history and action plan
+runtime fields.
+
 `GET /admin/metrics` exposes action plan gauges such as
 `cases.action_plan.total`, `cases.action_plan.overdue`,
 `cases.action_plan.status.<status>`, and `cases.action_plan.queue.<queue>`.
