@@ -23,6 +23,11 @@ from agents.copilot_planner import (
 )
 from agents.graph import GraphAgent
 from agents.investigation import InvestigationAgent
+from agents.investigation_planner import (
+    InvestigationPlanner,
+    OpenAIInvestigationPlanner,
+    RuleBasedInvestigationPlanner,
+)
 from agents.knowledge import KnowledgeAgent
 from agents.strategy import StrategyAgent
 from clients.file import (
@@ -304,6 +309,21 @@ def build_copilot_planner(config: AppConfig) -> CopilotPlanner:
     raise ValueError(f"Unsupported planner backend: {config.planner_backend}")
 
 
+def build_investigation_planner(config: AppConfig) -> InvestigationPlanner:
+    if config.investigation_backend == "rule":
+        return RuleBasedInvestigationPlanner()
+    if config.investigation_backend == "openai":
+        return OpenAIInvestigationPlanner(
+            api_key=config.investigation_openai_api_key,
+            model=config.investigation_openai_model,
+            base_url=config.investigation_openai_base_url,
+            timeout_sec=config.investigation_openai_timeout_sec,
+            reasoning_effort=config.investigation_openai_reasoning_effort,
+            max_output_tokens=config.investigation_openai_max_output_tokens,
+        )
+    raise ValueError(f"Unsupported investigation backend: {config.investigation_backend}")
+
+
 def build_case_service(config: AppConfig) -> CaseService:
     if config.case_store_backend == "postgres":
         return PostgresCaseService(config.postgres_dsn)
@@ -353,7 +373,11 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
 
     runtime = AgentRuntime(session_store=build_session_store(config))
     knowledge_agent = KnowledgeAgent(retrieval)
-    investigation_agent = InvestigationAgent(tools, retrieval)
+    investigation_agent = InvestigationAgent(
+        tools,
+        retrieval,
+        planner=build_investigation_planner(config),
+    )
     strategy_agent = StrategyAgent(tools, retrieval)
     graph_agent = GraphAgent(tools, retrieval)
     risk_decision_policy = (

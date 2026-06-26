@@ -173,12 +173,20 @@ class RuntimeInfoResponse(BaseModel):
     tool_backend: str
     planner_backend: str
     planner_source: str
+    investigation_backend: str
+    investigation_source: str
     planner_openai_base_url: str
     planner_openai_model: str
     planner_openai_timeout_sec: float
     planner_openai_reasoning_effort: str
     planner_openai_max_output_tokens: int
     planner_openai_api_key_source: str
+    investigation_openai_base_url: str
+    investigation_openai_model: str
+    investigation_openai_timeout_sec: float
+    investigation_openai_reasoning_effort: str
+    investigation_openai_max_output_tokens: int
+    investigation_openai_api_key_source: str
     session_store_backend: str
     session_store_path: str
     case_store_backend: str
@@ -473,12 +481,20 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_backend=container.config.tool_backend,
             planner_backend=container.config.planner_backend,
             planner_source=container.config.planner_source(),
+            investigation_backend=container.config.investigation_backend,
+            investigation_source=container.config.investigation_source(),
             planner_openai_base_url=container.config.planner_openai_base_url,
             planner_openai_model=container.config.planner_openai_model,
             planner_openai_timeout_sec=container.config.planner_openai_timeout_sec,
             planner_openai_reasoning_effort=container.config.planner_openai_reasoning_effort,
             planner_openai_max_output_tokens=container.config.planner_openai_max_output_tokens,
             planner_openai_api_key_source=container.config.planner_openai_api_key_source(),
+            investigation_openai_base_url=container.config.investigation_openai_base_url,
+            investigation_openai_model=container.config.investigation_openai_model,
+            investigation_openai_timeout_sec=container.config.investigation_openai_timeout_sec,
+            investigation_openai_reasoning_effort=container.config.investigation_openai_reasoning_effort,
+            investigation_openai_max_output_tokens=container.config.investigation_openai_max_output_tokens,
+            investigation_openai_api_key_source=container.config.investigation_openai_api_key_source(),
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,

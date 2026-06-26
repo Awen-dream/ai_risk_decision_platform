@@ -65,6 +65,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.knowledge_backend, "file")
         self.assertEqual(config.tool_backend, "http")
         self.assertEqual(config.planner_backend, "rule")
+        self.assertEqual(config.investigation_backend, "rule")
         self.assertEqual(config.tool_http_base_url, "http://127.0.0.1:8090")
         self.assertEqual(config.tool_http_retry_attempts, 2)
         self.assertEqual(config.tool_http_retry_backoff_sec, 0.1)
@@ -123,6 +124,33 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.planner_openai_max_output_tokens, 512)
         self.assertEqual(config.planner_openai_api_key, "planner-secret")
         self.assertEqual(config.planner_openai_api_key_source(), "file")
+
+    def test_openai_investigation_settings_load_secret_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            key_path = Path(tmp_dir) / "investigation-openai-key"
+            key_path.write_text("investigation-secret\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_INVESTIGATION_BACKEND": "openai",
+                    "AI_RISK_INVESTIGATION_OPENAI_BASE_URL": "https://investigation.example.com/v1",
+                    "AI_RISK_INVESTIGATION_OPENAI_MODEL": "gpt-5-mini",
+                    "AI_RISK_INVESTIGATION_OPENAI_TIMEOUT_SEC": "11.0",
+                    "AI_RISK_INVESTIGATION_OPENAI_REASONING_EFFORT": "medium",
+                    "AI_RISK_INVESTIGATION_OPENAI_MAX_OUTPUT_TOKENS": "450",
+                    "AI_RISK_INVESTIGATION_OPENAI_API_KEY_FILE": str(key_path),
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.investigation_backend, "openai")
+        self.assertEqual(config.investigation_openai_base_url, "https://investigation.example.com/v1")
+        self.assertEqual(config.investigation_openai_model, "gpt-5-mini")
+        self.assertEqual(config.investigation_openai_timeout_sec, 11.0)
+        self.assertEqual(config.investigation_openai_reasoning_effort, "medium")
+        self.assertEqual(config.investigation_openai_max_output_tokens, 450)
+        self.assertEqual(config.investigation_openai_api_key, "investigation-secret")
+        self.assertEqual(config.investigation_openai_api_key_source(), "file")
 
     def test_http_resilience_settings_load_from_environment(self) -> None:
         with patch.dict(

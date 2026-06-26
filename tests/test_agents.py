@@ -8,6 +8,7 @@ from pathlib import Path
 from agents.copilot import CopilotAgent
 from agents.copilot_planner import CopilotPlanCandidate, CopilotPlanner
 from agents.investigation import InvestigationAgent
+from agents.investigation_planner import InvestigationPlanCandidate, InvestigationPlanner
 from app import build_demo_runtime, build_runtime
 from core.models import AgentRequest, ToolResult
 from retrieval.knowledge_base import RetrievalService
@@ -22,6 +23,16 @@ class StaticPlanner(CopilotPlanner):
         self._candidate = candidate
 
     def plan(self, request: AgentRequest) -> CopilotPlanCandidate:
+        return self._candidate
+
+
+class StaticInvestigationPlanner(InvestigationPlanner):
+    name = "static"
+
+    def __init__(self, candidate: InvestigationPlanCandidate) -> None:
+        self._candidate = candidate
+
+    def plan(self, request: AgentRequest) -> InvestigationPlanCandidate:
         return self._candidate
 
 
@@ -50,10 +61,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "metric_snapshot" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "case_lookup" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "dashboard_snapshot" for trace in response.tool_traces))
-        self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "case_lookup" and trace.status == "success" for trace in response.tool_traces))
         self.assertTrue(any("历史相似案例" in finding for finding in response.findings))
         self.assertTrue(any(evidence.source == "dashboard_snapshot" for evidence in response.evidence))
+        self.assertEqual(response.plan_steps, ["metric_snapshot", "case_lookup", "dashboard_snapshot"])
 
     def test_metric_investigation_uses_time_range_context(self) -> None:
         _, response = self.runtime.execute(
@@ -123,6 +134,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "rule_explain" for trace in response.tool_traces))
         self.assertTrue(any("关键路径" in finding for finding in response.findings))
         self.assertTrue(any("规则解释" in finding for finding in response.findings))
+        self.assertEqual(response.plan_steps, ["order_profile", "graph_relation", "rule_explain"])
 
     def test_order_investigation_degrades_when_order_is_missing(self) -> None:
         _, response = self.runtime.execute(
@@ -140,6 +152,55 @@ class AgentPlatformTests(unittest.TestCase):
     def test_unknown_agent_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):
             self.runtime.execute("unknown", AgentRequest(query="test"))
+
+    def test_investigation_agent_validates_candidate_tools_and_inserts_required_metric_tool(self) -> None:
+        planner = StaticInvestigationPlanner(
+            InvestigationPlanCandidate(
+                mode="metric",
+                selected_tools=["sql_query", "case_lookup"],
+                tool_reasons={"sql_query": "想先做分层下钻。"},
+                planner_backend="static",
+            )
+        )
+        agent = InvestigationAgent(ToolRegistry(), RetrievalService(), planner=planner)
+
+        response = agent.run(
+            AgentRequest(
+                query="为什么巴西信用卡支付失败率升高？",
+                context={"country": "BR", "channel": "credit_card"},
+            )
+        )
+
+        self.assertEqual(response.plan_steps, ["metric_snapshot", "case_lookup", "sql_query"])
+        self.assertFalse(response.artifacts["investigation_plan"]["fallback_used"])
+        self.assertIn(
+            "candidate omitted required tool: metric_snapshot",
+            response.artifacts["investigation_plan"]["validation_errors"],
+        )
+
+    def test_investigation_agent_falls_back_to_rule_plan_for_invalid_mode(self) -> None:
+        planner = StaticInvestigationPlanner(
+            InvestigationPlanCandidate(
+                mode="unknown",
+                selected_tools=["graph_relation"],
+                planner_backend="static",
+            )
+        )
+        agent = InvestigationAgent(self.runtime._agents["investigation"]._tools, RetrievalService(), planner=planner)
+
+        response = agent.run(
+            AgentRequest(
+                query="请分析这个订单为什么被判高风险",
+                context={"order_id": "O10001"},
+            )
+        )
+
+        self.assertEqual(response.plan_steps, ["order_profile", "graph_relation", "rule_explain"])
+        self.assertTrue(response.artifacts["investigation_plan"]["fallback_used"])
+        self.assertIn(
+            "unknown investigation mode: unknown",
+            response.artifacts["investigation_plan"]["validation_errors"],
+        )
 
     def test_runtime_persists_session_history(self) -> None:
         session_id, _ = self.runtime.execute(

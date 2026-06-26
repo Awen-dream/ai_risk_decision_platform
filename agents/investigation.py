@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from agents.base import Agent
-from core.models import AgentRequest, AgentResponse, Citation
+from agents.investigation_planner import (
+    DEFAULT_SELECTED_REASONS,
+    DEFAULT_UNSELECTED_REASONS,
+    InvestigationPlanCandidate,
+    InvestigationPlanner,
+    MAX_TOOLS_BY_MODE,
+    REQUIRED_TOOL_BY_MODE,
+    RuleBasedInvestigationPlanner,
+    TOOL_CANDIDATES_BY_MODE,
+)
+from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 from retrieval.knowledge_base import RetrievalService
 from tools.registry import ToolRegistry
 
@@ -23,53 +35,268 @@ CHANNEL_ALIASES = {
     "wallet": "wallet",
 }
 
+
+@dataclass(frozen=True)
+class ValidatedInvestigationPlan:
+    mode: str
+    selected_tools: list[str]
+    planner_trace: list[PlannerTraceStep]
+    planner_backend: str
+    fallback_used: bool
+    validation_errors: list[str]
+    candidate_mode: str
+    candidate_tools: list[str]
+    planner_error: str
+
+    def to_artifact(self) -> dict[str, object]:
+        return {
+            "backend": self.planner_backend,
+            "fallback_used": self.fallback_used,
+            "validation_errors": list(self.validation_errors),
+            "candidate_mode": self.candidate_mode,
+            "candidate_tools": list(self.candidate_tools),
+            "planner_error": self.planner_error,
+            "final_mode": self.mode,
+            "final_tools": list(self.selected_tools),
+        }
+
+
 class InvestigationAgent(Agent):
-    """Risk investigation agent that orchestrates simple tool calls."""
+    """Risk investigation agent with constrained tool selection."""
 
     name = "investigation"
 
-    def __init__(self, tools: ToolRegistry, retrieval: RetrievalService) -> None:
+    def __init__(
+        self,
+        tools: ToolRegistry,
+        retrieval: RetrievalService,
+        planner: InvestigationPlanner | None = None,
+    ) -> None:
         self._tools = tools
         self._retrieval = retrieval
+        self._planner = planner or RuleBasedInvestigationPlanner()
+        self._fallback_planner = RuleBasedInvestigationPlanner()
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        order_id = request.context.get("order_id")
-        if order_id:
-            return self._investigate_order(request, order_id)
-        return self._investigate_metric(request)
-
-    def _investigate_order(
-        self, request: AgentRequest, order_id: str
-    ) -> AgentResponse:
         response = AgentResponse(agent_name=self.name)
-        order_trace = response.record_tool_trace(
-            "order_profile",
-            self._tools.execute("order_profile", order_id=order_id),
+        plan = self._validated_plan(request)
+        response.intent = "order_investigation" if plan.mode == "order" else "metric_investigation"
+        response.plan_steps = list(plan.selected_tools)
+        response.planner_trace = plan.planner_trace
+        response.artifacts["investigation_plan"] = plan.to_artifact()
+
+        if plan.mode == "order":
+            order_id = self._resolve_order_id(request)
+            traces = self._execute_order_plan(response, order_id, plan.selected_tools)
+            return self._build_order_response(request, response, order_id, traces)
+
+        country = self._resolve_country(request)
+        channel = self._resolve_channel(request)
+        time_range = str(request.context.get("time_range", "recent_24h"))
+        traces = self._execute_metric_plan(
+            response,
+            country=country,
+            channel=channel,
+            time_range=time_range,
+            selected_tools=plan.selected_tools,
         )
-        graph_trace = response.record_tool_trace(
-            "graph_relation",
-            self._tools.execute("graph_relation", entity_id=order_id),
-        )
-        rule_trace = response.record_tool_trace(
-            "rule_explain",
-            self._tools.execute("rule_explain", order_id=order_id),
+        return self._build_metric_response(
+            request,
+            response,
+            country=country,
+            channel=channel,
+            time_range=time_range,
+            traces=traces,
         )
 
-        order = order_trace.payload if order_trace.status == "success" else None
-        graph_relation = graph_trace.payload if graph_trace.status == "success" else None
-        rule_explanation = rule_trace.payload if rule_trace.status == "success" else None
+    def _validated_plan(self, request: AgentRequest) -> ValidatedInvestigationPlan:
+        candidate = self._planner.plan(request)
+        errors: list[str] = []
+        if candidate.mode not in TOOL_CANDIDATES_BY_MODE:
+            errors.append(f"unknown investigation mode: {candidate.mode}")
+            return self._fallback_validated_plan(request, candidate, errors)
+
+        allowed_tools = TOOL_CANDIDATES_BY_MODE[candidate.mode]
+        selected_tools = self._normalize_selected_tools(candidate.selected_tools, allowed_tools)
+        required_tool = REQUIRED_TOOL_BY_MODE[candidate.mode]
+        if required_tool not in selected_tools:
+            errors.append(f"candidate omitted required tool: {required_tool}")
+            selected_tools.insert(0, required_tool)
+            selected_tools = self._normalize_selected_tools(selected_tools, allowed_tools)
+        max_tools = MAX_TOOLS_BY_MODE[candidate.mode]
+        if len(selected_tools) > max_tools:
+            errors.append(f"candidate exceeded max tool count: {len(selected_tools)} > {max_tools}")
+            selected_tools = selected_tools[:max_tools]
+        if not selected_tools:
+            errors.append("candidate produced no executable tools")
+            return self._fallback_validated_plan(request, candidate, errors)
+        return ValidatedInvestigationPlan(
+            mode=candidate.mode,
+            selected_tools=selected_tools,
+            planner_trace=self._build_planner_trace(
+                allowed_tools=allowed_tools,
+                selected_tools=selected_tools,
+                tool_reasons=candidate.tool_reasons or {},
+            ),
+            planner_backend=candidate.planner_backend,
+            fallback_used=False,
+            validation_errors=errors,
+            candidate_mode=candidate.mode,
+            candidate_tools=list(candidate.selected_tools),
+            planner_error=candidate.planner_error,
+        )
+
+    def _fallback_validated_plan(
+        self,
+        request: AgentRequest,
+        candidate: InvestigationPlanCandidate,
+        errors: list[str],
+    ) -> ValidatedInvestigationPlan:
+        fallback = self._fallback_planner.plan(request)
+        allowed_tools = TOOL_CANDIDATES_BY_MODE[fallback.mode]
+        selected_tools = self._normalize_selected_tools(fallback.selected_tools, allowed_tools)
+        return ValidatedInvestigationPlan(
+            mode=fallback.mode,
+            selected_tools=selected_tools,
+            planner_trace=self._build_planner_trace(
+                allowed_tools=allowed_tools,
+                selected_tools=selected_tools,
+                tool_reasons=fallback.tool_reasons or {},
+            ),
+            planner_backend=fallback.planner_backend,
+            fallback_used=True,
+            validation_errors=errors,
+            candidate_mode=candidate.mode,
+            candidate_tools=list(candidate.selected_tools),
+            planner_error=candidate.planner_error,
+        )
+
+    @staticmethod
+    def _normalize_selected_tools(selected_tools: list[str], allowed_tools: tuple[str, ...]) -> list[str]:
+        selected = {tool for tool in selected_tools if tool in allowed_tools}
+        return [tool for tool in allowed_tools if tool in selected]
+
+    @staticmethod
+    def _build_planner_trace(
+        *,
+        allowed_tools: tuple[str, ...],
+        selected_tools: list[str],
+        tool_reasons: dict[str, str],
+    ) -> list[PlannerTraceStep]:
+        selected = set(selected_tools)
+        traces: list[PlannerTraceStep] = []
+        for tool_name in allowed_tools:
+            traces.append(
+                PlannerTraceStep(
+                    step=tool_name,
+                    selected=tool_name in selected,
+                    reason=tool_reasons.get(
+                        tool_name,
+                        DEFAULT_SELECTED_REASONS[tool_name]
+                        if tool_name in selected
+                        else DEFAULT_UNSELECTED_REASONS[tool_name],
+                    ),
+                )
+            )
+        return traces
+
+    def _execute_order_plan(
+        self,
+        response: AgentResponse,
+        order_id: str,
+        selected_tools: list[str],
+    ) -> dict[str, ToolTrace]:
+        traces: dict[str, ToolTrace] = {}
+        if "order_profile" in selected_tools:
+            traces["order_profile"] = response.record_tool_trace(
+                "order_profile",
+                self._tools.execute("order_profile", order_id=order_id),
+            )
+        if "graph_relation" in selected_tools:
+            traces["graph_relation"] = response.record_tool_trace(
+                "graph_relation",
+                self._tools.execute("graph_relation", entity_id=order_id),
+            )
+        if "rule_explain" in selected_tools:
+            traces["rule_explain"] = response.record_tool_trace(
+                "rule_explain",
+                self._tools.execute("rule_explain", order_id=order_id),
+            )
+        return traces
+
+    def _execute_metric_plan(
+        self,
+        response: AgentResponse,
+        *,
+        country: str,
+        channel: str,
+        time_range: str,
+        selected_tools: list[str],
+    ) -> dict[str, ToolTrace]:
+        traces: dict[str, ToolTrace] = {}
+        if "metric_snapshot" in selected_tools:
+            traces["metric_snapshot"] = response.record_tool_trace(
+                "metric_snapshot",
+                self._tools.execute(
+                    "metric_snapshot",
+                    country=country,
+                    channel=channel,
+                    time_range=time_range,
+                ),
+            )
+        if "case_lookup" in selected_tools:
+            traces["case_lookup"] = response.record_tool_trace(
+                "case_lookup",
+                self._tools.execute("case_lookup", country=country, channel=channel),
+            )
+        if "dashboard_snapshot" in selected_tools:
+            traces["dashboard_snapshot"] = response.record_tool_trace(
+                "dashboard_snapshot",
+                self._tools.execute(
+                    "dashboard_snapshot",
+                    dashboard_id="risk_overview",
+                    country=country,
+                    channel=channel,
+                    time_range=time_range,
+                ),
+            )
+        if "sql_query" in selected_tools:
+            traces["sql_query"] = response.record_tool_trace(
+                "sql_query",
+                self._tools.execute(
+                    "sql_query",
+                    query_name="metric_breakdown",
+                    parameters={
+                        "country": country,
+                        "channel": channel,
+                        "time_range": time_range,
+                    },
+                    limit=3,
+                ),
+            )
+        return traces
+
+    def _build_order_response(
+        self,
+        request: AgentRequest,
+        response: AgentResponse,
+        order_id: str,
+        traces: dict[str, ToolTrace],
+    ) -> AgentResponse:
+        order_trace = traces.get("order_profile")
+        graph_trace = traces.get("graph_relation")
+        rule_trace = traces.get("rule_explain")
+        order = order_trace.payload if order_trace and order_trace.status == "success" else None
+        graph_relation = graph_trace.payload if graph_trace and graph_trace.status == "success" else None
+        rule_explanation = rule_trace.payload if rule_trace and rule_trace.status == "success" else None
+
         search_terms = [request.query]
         if order:
             search_terms.extend(order.get("risk_labels", []))
         if graph_relation:
             search_terms.extend(["graph relation", "fraud ring", graph_relation.get("risk_reason", "")])
-        docs = self._retrieval.search(
-            " ".join(search_terms),
-            top_k=2,
-        )
-        response.citations.extend(
-            Citation.from_document(doc, snippet_length=160) for doc in docs
-        )
+        self._attach_retrieval_citations(response, " ".join(search_terms), snippet_length=160, top_k=2)
+
         if order:
             response.record_evidence(
                 source="order_profile",
@@ -94,14 +321,13 @@ class InvestigationAgent(Agent):
                 payload=rule_explanation,
                 confidence=0.8,
             )
+
         if order is None:
             response.summary = (
                 f"暂时无法完成订单 {order_id} 的完整调查，"
                 f"{self._tool_status_phrase(order_trace, '订单画像')}。"
             )
-            response.findings = [
-                self._tool_status_finding("订单画像", order_trace),
-            ]
+            response.findings = [self._tool_status_finding("订单画像", order_trace)]
             if graph_relation:
                 response.findings.extend(
                     [
@@ -109,15 +335,19 @@ class InvestigationAgent(Agent):
                         f"关键路径：{graph_relation['key_path']}",
                     ]
                 )
-            else:
+            elif graph_trace is not None:
                 response.findings.append(self._tool_status_finding("图谱关系", graph_trace))
-            response.suggested_actions = [
-                self._tool_status_action("订单画像", order_trace, order_id),
-            ]
+            if rule_explanation:
+                response.findings.append(f"规则解释：{rule_explanation['explanation']}")
+            elif rule_trace is not None:
+                response.findings.append(self._tool_status_finding("规则解释", rule_trace))
+            response.suggested_actions = [self._tool_status_action("订单画像", order_trace, order_id)]
             if graph_relation:
                 response.suggested_actions.append("优先根据现有图谱线索复核共享设备、共享 IP 和关联账号")
-            else:
+            elif graph_trace is not None:
                 response.suggested_actions.append(self._tool_status_action("图谱关系", graph_trace, order_id))
+            if rule_trace is not None and rule_explanation is None:
+                response.suggested_actions.append(self._tool_status_action("规则解释", rule_trace, order_id))
             response.confidence = 0.36 if graph_relation else 0.22
             return response
 
@@ -144,7 +374,7 @@ class InvestigationAgent(Agent):
                     f"关键路径：{graph_relation['key_path']}",
                 ]
             )
-        else:
+        elif graph_trace is not None:
             response.findings.append(self._tool_status_finding("图谱关系", graph_trace))
         if rule_explanation:
             response.findings.extend(
@@ -153,7 +383,7 @@ class InvestigationAgent(Agent):
                     f"规则变更：{rule_explanation['recent_change']}",
                 ]
             )
-        else:
+        elif rule_trace is not None:
             response.findings.append(self._tool_status_finding("规则解释", rule_trace))
         if order["recommended_action"] == "manual_review":
             response.findings.append("当前更适合转人工复核，而不是直接拒绝。")
@@ -163,62 +393,33 @@ class InvestigationAgent(Agent):
         ]
         if graph_relation:
             response.suggested_actions.append("优先排查共享设备和共享 IP 上的关联账号是否存在批量操作")
-        else:
+        elif graph_trace is not None:
             response.suggested_actions.append(self._tool_status_action("图谱关系", graph_trace, order_id))
+        if rule_trace is not None and rule_explanation is None:
+            response.suggested_actions.append(self._tool_status_action("规则解释", rule_trace, order_id))
         response.confidence = 0.83 if graph_relation else 0.7
         return response
 
-    def _investigate_metric(self, request: AgentRequest) -> AgentResponse:
-        response = AgentResponse(agent_name=self.name)
-        country = self._resolve_country(request)
-        channel = self._resolve_channel(request)
-        time_range = str(request.context.get("time_range", "recent_24h"))
-        metric_trace = response.record_tool_trace(
-            "metric_snapshot",
-            self._tools.execute(
-                "metric_snapshot",
-                country=country,
-                channel=channel,
-                time_range=time_range,
-            ),
-        )
-        metric = metric_trace.payload if metric_trace.status == "success" else None
+    def _build_metric_response(
+        self,
+        request: AgentRequest,
+        response: AgentResponse,
+        *,
+        country: str,
+        channel: str,
+        time_range: str,
+        traces: dict[str, ToolTrace],
+    ) -> AgentResponse:
+        metric_trace = traces.get("metric_snapshot")
+        case_trace = traces.get("case_lookup")
+        dashboard_trace = traces.get("dashboard_snapshot")
+        sql_trace = traces.get("sql_query")
+        metric = metric_trace.payload if metric_trace and metric_trace.status == "success" else None
+        cases = case_trace.payload if case_trace and case_trace.status == "success" else []
+        dashboard = dashboard_trace.payload if dashboard_trace and dashboard_trace.status == "success" else None
+        sql_result = sql_trace.payload if sql_trace and sql_trace.status == "success" else None
 
-        case_trace = response.record_tool_trace(
-            "case_lookup",
-            self._tools.execute("case_lookup", country=country, channel=channel),
-        )
-        cases = case_trace.payload if case_trace.status == "success" else []
-        dashboard_trace = response.record_tool_trace(
-            "dashboard_snapshot",
-            self._tools.execute(
-                "dashboard_snapshot",
-                dashboard_id="risk_overview",
-                country=country,
-                channel=channel,
-                time_range=time_range,
-            ),
-        )
-        dashboard = dashboard_trace.payload if dashboard_trace.status == "success" else None
-        sql_trace = response.record_tool_trace(
-            "sql_query",
-            self._tools.execute(
-                "sql_query",
-                query_name="metric_breakdown",
-                parameters={
-                    "country": country,
-                    "channel": channel,
-                    "time_range": time_range,
-                },
-                limit=3,
-            ),
-        )
-        sql_result = sql_trace.payload if sql_trace.status == "success" else None
-
-        docs = self._retrieval.search(request.query, top_k=2)
-        response.citations.extend(
-            Citation.from_document(doc, snippet_length=180) for doc in docs
-        )
+        self._attach_retrieval_citations(response, request.query, snippet_length=180, top_k=2)
         if metric:
             response.record_evidence(
                 source="metric_snapshot",
@@ -264,23 +465,25 @@ class InvestigationAgent(Agent):
                 f"{self._tool_status_phrase(metric_trace, '指标快照')}。"
             )
             response.findings.append(self._tool_status_finding("指标快照", metric_trace))
+
         if dashboard:
             response.findings.append(
                 f"看板下钻：最大波动分层 {dashboard['largest_segment']}，变化 {dashboard['largest_segment_change']}"
             )
-        else:
+        elif dashboard_trace is not None:
             response.findings.append(self._tool_status_finding("Dashboard 快照", dashboard_trace))
+
         if sql_result and sql_result.get("rows"):
             top_row = sql_result["rows"][0]
             response.findings.append(
                 f"SQL 分层：{top_row['segment']} 当前 {top_row['current_value']}，相对基线变化 {top_row['delta']}"
             )
-        else:
+        elif sql_trace is not None:
             response.findings.append(self._tool_status_finding("SQL 查询", sql_trace))
 
         if cases:
             response.findings.append(f"历史相似案例：{cases[0]['title']}")
-        else:
+        elif case_trace is not None:
             response.findings.append(self._tool_status_finding("历史案例", case_trace))
 
         response.suggested_actions = []
@@ -292,17 +495,49 @@ class InvestigationAgent(Agent):
                 ]
             )
         else:
-            response.suggested_actions.append(self._tool_status_action("指标快照", metric_trace, f"{country}/{channel}/{time_range}"))
+            response.suggested_actions.append(
+                self._tool_status_action("指标快照", metric_trace, f"{country}/{channel}/{time_range}")
+            )
         if cases:
             response.suggested_actions.append("结合历史相似案例复核最近变更是否会放大误杀")
-        else:
+        elif case_trace is not None:
             response.suggested_actions.append(self._tool_status_action("历史案例", case_trace, f"{country}/{channel}"))
+        if dashboard_trace is not None and dashboard is None:
+            response.suggested_actions.append(
+                self._tool_status_action("Dashboard 快照", dashboard_trace, f"{country}/{channel}/{time_range}")
+            )
+        if sql_trace is not None and not (sql_result and sql_result.get("rows")):
+            response.suggested_actions.append(
+                self._tool_status_action("SQL 查询", sql_trace, f"{country}/{channel}/{time_range}")
+            )
 
+        confidence = 0.18
         if metric:
-            response.confidence = 0.79 if cases else 0.68
-        else:
-            response.confidence = 0.3 if cases else 0.18
+            confidence = 0.68
+            if cases:
+                confidence += 0.11
+            if dashboard or sql_result:
+                confidence += 0.04
+        elif cases:
+            confidence = 0.3
+        response.confidence = min(confidence, 0.83)
         return response
+
+    def _attach_retrieval_citations(
+        self,
+        response: AgentResponse,
+        query: str,
+        *,
+        snippet_length: int,
+        top_k: int,
+    ) -> None:
+        docs = self._retrieval.search(query, top_k=top_k)
+        response.citations.extend(
+            Citation.from_document(doc, snippet_length=snippet_length) for doc in docs
+        )
+
+    def _resolve_order_id(self, request: AgentRequest) -> str:
+        return str(request.context.get("order_id", "O10001")).upper()
 
     def _resolve_country(self, request: AgentRequest) -> str:
         if "country" in request.context:
@@ -323,19 +558,25 @@ class InvestigationAgent(Agent):
         return "credit_card"
 
     @staticmethod
-    def _tool_status_finding(label: str, trace) -> str:
+    def _tool_status_finding(label: str, trace: ToolTrace | None) -> str:
+        if trace is None:
+            return f"{label}：未执行"
         if trace.status == "failed":
             return f"{label}：调用失败，原因 {trace.summary}"
         return f"{label}：{trace.summary}"
 
     @staticmethod
-    def _tool_status_phrase(trace, label: str) -> str:
+    def _tool_status_phrase(trace: ToolTrace | None, label: str) -> str:
+        if trace is None:
+            return f"未执行{label}"
         if trace.status == "failed":
             return f"{label}调用失败"
         return f"未获取到可用{label}"
 
     @staticmethod
-    def _tool_status_action(label: str, trace, identifier: str) -> str:
+    def _tool_status_action(label: str, trace: ToolTrace | None, identifier: str) -> str:
+        if trace is None:
+            return f"补充执行{label}，确认 {identifier} 对应证据是否需要进一步采集"
         if trace.status == "failed":
             return f"检查{label}上游服务状态与字段契约，确认 {identifier} 对应调用可恢复"
         return f"确认 {identifier} 对应的{label}数据是否已同步，必要时补齐记录后重试"

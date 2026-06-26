@@ -96,6 +96,14 @@ class AppConfig:
     planner_openai_max_output_tokens: int = 400
     planner_openai_api_key: str = ""
     planner_openai_api_key_file: Optional[Path] = None
+    investigation_backend: str = "rule"
+    investigation_openai_base_url: str = "https://api.openai.com/v1"
+    investigation_openai_model: str = "gpt-4o-mini"
+    investigation_openai_timeout_sec: float = 10.0
+    investigation_openai_reasoning_effort: str = "low"
+    investigation_openai_max_output_tokens: int = 400
+    investigation_openai_api_key: str = ""
+    investigation_openai_api_key_file: Optional[Path] = None
     knowledge_dir: Path = Path("data/knowledge")
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
@@ -163,6 +171,7 @@ class AppConfig:
         audit_central_auth_token_file = _env_path("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE")
         postgres_dsn_file = _env_path("AI_RISK_POSTGRES_DSN_FILE")
         planner_openai_api_key_file = _env_path("AI_RISK_PLANNER_OPENAI_API_KEY_FILE")
+        investigation_openai_api_key_file = _env_path("AI_RISK_INVESTIGATION_OPENAI_API_KEY_FILE")
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
@@ -190,6 +199,30 @@ class AppConfig:
                 planner_openai_api_key_file,
             ),
             planner_openai_api_key_file=planner_openai_api_key_file,
+            investigation_backend=os.getenv("AI_RISK_INVESTIGATION_BACKEND", "rule"),
+            investigation_openai_base_url=os.getenv(
+                "AI_RISK_INVESTIGATION_OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ),
+            investigation_openai_model=os.getenv(
+                "AI_RISK_INVESTIGATION_OPENAI_MODEL",
+                "gpt-4o-mini",
+            ),
+            investigation_openai_timeout_sec=float(
+                os.getenv("AI_RISK_INVESTIGATION_OPENAI_TIMEOUT_SEC", "10.0")
+            ),
+            investigation_openai_reasoning_effort=os.getenv(
+                "AI_RISK_INVESTIGATION_OPENAI_REASONING_EFFORT",
+                "low",
+            ),
+            investigation_openai_max_output_tokens=int(
+                os.getenv("AI_RISK_INVESTIGATION_OPENAI_MAX_OUTPUT_TOKENS", "400")
+            ),
+            investigation_openai_api_key=_load_secret(
+                os.getenv("AI_RISK_INVESTIGATION_OPENAI_API_KEY", ""),
+                investigation_openai_api_key_file,
+            ),
+            investigation_openai_api_key_file=investigation_openai_api_key_file,
             knowledge_dir=Path(os.getenv("AI_RISK_KNOWLEDGE_DIR", "data/knowledge")),
             metric_snapshot_path=Path(
                 os.getenv("AI_RISK_METRIC_SNAPSHOT_PATH", "data/risk/metric_snapshots.json")
@@ -384,6 +417,14 @@ class AppConfig:
             planner_openai_max_output_tokens=400,
             planner_openai_api_key="",
             planner_openai_api_key_file=None,
+            investigation_backend="rule",
+            investigation_openai_base_url="https://api.openai.com/v1",
+            investigation_openai_model="gpt-4o-mini",
+            investigation_openai_timeout_sec=10.0,
+            investigation_openai_reasoning_effort="low",
+            investigation_openai_max_output_tokens=400,
+            investigation_openai_api_key="",
+            investigation_openai_api_key_file=None,
             knowledge_dir=Path("data/knowledge"),
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
@@ -497,6 +538,16 @@ class AppConfig:
         if self.planner_openai_api_key_file is not None:
             return "file"
         if self.planner_openai_api_key:
+            return "env"
+        return "none"
+
+    def investigation_source(self) -> str:
+        return self.investigation_backend
+
+    def investigation_openai_api_key_source(self) -> str:
+        if self.investigation_openai_api_key_file is not None:
+            return "file"
+        if self.investigation_openai_api_key:
             return "env"
         return "none"
 
