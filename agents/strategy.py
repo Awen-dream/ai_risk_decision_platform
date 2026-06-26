@@ -32,8 +32,13 @@ class StrategyAgent(Agent):
             "strategy_simulation",
             self._tools.execute("strategy_simulation", strategy_id=strategy_id),
         )
+        rule_trace = response.record_tool_trace(
+            "rule_explain",
+            self._tools.execute("rule_explain", strategy_id=strategy_id),
+        )
         profile = profile_trace.payload if profile_trace.status == "success" else None
         simulation = simulation_trace.payload if simulation_trace.status == "success" else None
+        rule_explanation = rule_trace.payload if rule_trace.status == "success" else None
         if profile is None:
             impacted_entities: list[str] = []
         else:
@@ -56,6 +61,38 @@ class StrategyAgent(Agent):
         response.citations.extend(
             Citation.from_document(doc, snippet_length=180) for doc in docs
         )
+        if profile:
+            response.record_evidence(
+                source="strategy_profile",
+                source_type="tool",
+                summary=f"策略 {strategy_id} 当前阈值 {profile['current_threshold']:.2f}。",
+                payload=profile,
+                confidence=0.77,
+            )
+        if simulation:
+            response.record_evidence(
+                source="strategy_simulation",
+                source_type="tool",
+                summary=f"仿真建议阈值调整到 {simulation['recommended_threshold']:.2f}。",
+                payload=simulation,
+                confidence=0.79,
+            )
+        if rule_explanation:
+            response.record_evidence(
+                source="rule_explain",
+                source_type="tool",
+                summary=rule_explanation["explanation"],
+                payload=rule_explanation,
+                confidence=0.75,
+            )
+        if graph_relation:
+            response.record_evidence(
+                source="graph_relation",
+                source_type="tool",
+                summary=f"重点实体图谱风险等级为 {graph_relation['risk_level']}。",
+                payload=graph_relation,
+                confidence=0.73,
+            )
 
         if profile and simulation:
             response.summary = self._build_summary(strategy_id, profile, simulation, graph_relation)
@@ -106,6 +143,15 @@ class StrategyAgent(Agent):
             )
         else:
             response.findings.append(self._tool_status_finding("策略仿真", simulation_trace))
+        if rule_explanation:
+            response.findings.extend(
+                [
+                    f"规则解释：{rule_explanation['explanation']}",
+                    f"规则变更：{rule_explanation['recent_change']}",
+                ]
+            )
+        else:
+            response.findings.append(self._tool_status_finding("规则解释", rule_trace))
         if impacted_entities:
             response.findings.append(f"重点影响实体：{', '.join(impacted_entities)}")
         if graph_relation:

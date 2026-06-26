@@ -1,0 +1,52 @@
+[
+  {
+    "query_name": "metric_breakdown",
+    "country": "BR",
+    "channel": "credit_card",
+    "time_range": "recent_24h",
+    "description": "支付失败率按卡组织与设备风险标签分层",
+    "columns": ["segment", "current_value", "baseline_value", "delta"],
+    "rows": [
+      {
+        "segment": "visa",
+        "current_value": "13.1%",
+        "baseline_value": "5.0%",
+        "delta": "+8.1pp"
+      },
+      {
+        "segment": "mastercard",
+        "current_value": "11.8%",
+        "baseline_value": "5.2%",
+        "delta": "+6.6pp"
+      },
+      {
+        "segment": "shared_device",
+        "current_value": "18.4%",
+        "baseline_value": "7.1%",
+        "delta": "+11.3pp"
+      }
+    ]
+  },
+  {
+    "query_name": "metric_breakdown",
+    "country": "ID",
+    "channel": "wallet",
+    "time_range": "recent_24h",
+    "description": "钱包通过率按路由与发卡渠道分层",
+    "columns": ["segment", "current_value", "baseline_value", "delta"],
+    "rows": [
+      {
+        "segment": "route_b",
+        "current_value": "78.5%",
+        "baseline_value": "88.1%",
+        "delta": "-9.6pp"
+      },
+      {
+        "segment": "new_user",
+        "current_value": "75.2%",
+        "baseline_value": "86.0%",
+        "delta": "-10.8pp"
+      }
+    ]
+  }
+]

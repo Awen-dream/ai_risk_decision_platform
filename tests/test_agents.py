@@ -49,8 +49,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("异常开始时间" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "metric_snapshot" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "case_lookup" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "dashboard_snapshot" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "case_lookup" and trace.status == "success" for trace in response.tool_traces))
         self.assertTrue(any("历史相似案例" in finding for finding in response.findings))
+        self.assertTrue(any(evidence.source == "dashboard_snapshot" for evidence in response.evidence))
 
     def test_metric_investigation_uses_time_range_context(self) -> None:
         _, response = self.runtime.execute(
@@ -117,7 +120,9 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("命中规则" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "order_profile" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "rule_explain" for trace in response.tool_traces))
         self.assertTrue(any("关键路径" in finding for finding in response.findings))
+        self.assertTrue(any("规则解释" in finding for finding in response.findings))
 
     def test_order_investigation_degrades_when_order_is_missing(self) -> None:
         _, response = self.runtime.execute(
@@ -186,11 +191,13 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "strategy_profile" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "strategy_simulation" for trace in response.tool_traces))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+        self.assertTrue(any(trace.name == "rule_explain" for trace in response.tool_traces))
         self.assertTrue(any("图谱风险" in finding for finding in response.findings))
         self.assertEqual(
             response.artifacts["strategy_recommendation"]["strategy_id"],
             "STRAT-001",
         )
+        self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
 
     def test_strategy_agent_degrades_when_strategy_is_missing(self) -> None:
         _, response = self.runtime.execute(
@@ -259,6 +266,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("策略::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+        self.assertTrue(any(evidence.source.startswith("调查::") for evidence in response.evidence))
         decision = response.artifacts["risk_decision"]
         self.assertEqual(decision["decision"], "escalate_review")
         self.assertEqual(decision["risk_level"], "high")

@@ -115,6 +115,16 @@ class ToolTrace:
 
 
 @dataclass
+class EvidenceRecord:
+    source: str
+    source_type: str
+    summary: str
+    payload: Any
+    confidence: float = 0.0
+    observed_at: str | None = None
+
+
+@dataclass
 class PlannerTraceStep:
     step: str
     selected: bool
@@ -132,6 +142,7 @@ class AgentResponse:
     suggested_actions: list[str] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
     tool_traces: list[ToolTrace] = field(default_factory=list)
+    evidence: list[EvidenceRecord] = field(default_factory=list)
     confidence: float = 0.0
     artifacts: dict[str, Any] = field(default_factory=dict)
 
@@ -148,6 +159,27 @@ class AgentResponse:
         self.tool_traces.append(trace)
         return trace
 
+    def record_evidence(
+        self,
+        *,
+        source: str,
+        source_type: str,
+        summary: str,
+        payload: Any,
+        confidence: float = 0.0,
+        observed_at: str | None = None,
+    ) -> EvidenceRecord:
+        evidence = EvidenceRecord(
+            source=source,
+            source_type=source_type,
+            summary=summary,
+            payload=payload,
+            confidence=confidence,
+            observed_at=observed_at,
+        )
+        self.evidence.append(evidence)
+        return evidence
+
 
 @dataclass
 class SessionTurn:
@@ -160,6 +192,7 @@ class SessionTurn:
     plan_steps: list[str] = field(default_factory=list)
     planner_trace: list[PlannerTraceStep] = field(default_factory=list)
     suggested_actions: list[str] = field(default_factory=list)
+    evidence: list[EvidenceRecord] = field(default_factory=list)
     artifacts: dict[str, Any] = field(default_factory=dict)
 
 

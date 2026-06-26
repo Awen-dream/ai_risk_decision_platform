@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from core.models import PlannerTraceStep, SessionTurn
+from core.models import EvidenceRecord, PlannerTraceStep, SessionTurn
 
 
 @dataclass
@@ -22,6 +22,7 @@ class SessionTurnView:
     plan_steps: list[str] = field(default_factory=list)
     planner_trace: list[PlannerTraceStep] = field(default_factory=list)
     confidence: float = 0.0
+    evidence: list[EvidenceRecord] = field(default_factory=list)
     artifacts: dict[str, Any] = field(default_factory=dict)
 
 
@@ -117,6 +118,17 @@ def build_session_turn_view(turn: SessionTurn) -> SessionTurnView:
             for trace in turn.planner_trace
         ],
         confidence=turn.confidence,
+        evidence=[
+            EvidenceRecord(
+                source=evidence.source,
+                source_type=evidence.source_type,
+                summary=evidence.summary,
+                payload=evidence.payload,
+                confidence=evidence.confidence,
+                observed_at=evidence.observed_at,
+            )
+            for evidence in turn.evidence
+        ],
         artifacts=dict(turn.artifacts),
     )
 

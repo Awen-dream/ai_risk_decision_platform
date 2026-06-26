@@ -24,6 +24,17 @@ class KnowledgeAgent(Agent):
         response.citations = [
             Citation.from_document(doc, snippet_length=200) for doc in docs
         ]
+        for doc in docs:
+            response.record_evidence(
+                source=doc.doc_id,
+                source_type=doc.source_type,
+                summary=doc.summary,
+                payload={
+                    "title": doc.title,
+                    "tags": list(doc.tags),
+                },
+                confidence=0.6,
+            )
         response.summary = docs[0].summary
         response.findings = [doc.title for doc in docs]
         response.suggested_actions = [

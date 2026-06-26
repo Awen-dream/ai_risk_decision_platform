@@ -215,6 +215,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_backend"], "file")
         self.assertEqual(payload["planner_backend"], "rule")
         self.assertEqual(payload["planner_source"], "rule")
+        self.assertEqual(payload["planner_openai_base_url"], "https://api.openai.com/v1")
+        self.assertEqual(payload["planner_openai_model"], "gpt-4o-mini")
+        self.assertEqual(payload["planner_openai_timeout_sec"], 10.0)
+        self.assertEqual(payload["planner_openai_reasoning_effort"], "low")
+        self.assertEqual(payload["planner_openai_max_output_tokens"], 400)
+        self.assertEqual(payload["planner_openai_api_key_source"], "none")
         self.assertEqual(payload["session_store_backend"], "memory")
         self.assertEqual(payload["session_store_path"], ".data/sessions.json")
         self.assertEqual(payload["case_store_backend"], "memory")
@@ -249,12 +255,25 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_metric_path"], "/metric-snapshots")
         self.assertEqual(payload["tool_http_strategy_profile_path_template"], "/strategy-profiles/{strategy_id}")
         self.assertEqual(payload["tool_http_graph_relation_path_template"], "/graph-relations/{entity_id}")
+        self.assertEqual(payload["tool_http_sql_query_path_template"], "/sql-queries/{query_name}")
+        self.assertEqual(payload["tool_http_dashboard_snapshot_path_template"], "/dashboard-snapshots/{dashboard_id}")
+        self.assertEqual(payload["tool_http_rule_explain_path"], "/rule-explanations")
         self.assertEqual(payload["tool_http_country_param"], "country")
         self.assertEqual(payload["tool_http_channel_param"], "channel")
         self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph", "copilot"])
         self.assertEqual(
             payload["registered_tools"],
-            ["metric_snapshot", "case_lookup", "order_profile", "strategy_profile", "strategy_simulation", "graph_relation"],
+            [
+                "metric_snapshot",
+                "case_lookup",
+                "order_profile",
+                "strategy_profile",
+                "strategy_simulation",
+                "graph_relation",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
+            ],
         )
         self.assertEqual(
             payload["supported_capabilities"],
@@ -273,6 +292,9 @@ class AgentApiTests(unittest.TestCase):
                 "strategy_profile",
                 "strategy_simulation",
                 "graph_relation",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
             ],
         )
         self.assertEqual(
@@ -299,6 +321,40 @@ class AgentApiTests(unittest.TestCase):
             [item["name"] for item in payload["readiness"]["checks"]],
             ["knowledge_index", "agent_registry", "tool_registry", "session_store", "case_store"],
         )
+
+    def test_phase1_tool_endpoints(self) -> None:
+        app = create_app()
+        client = TestClient(app)
+
+        sql_response = client.post(
+            "/tools/sql/query",
+            json={
+                "query_name": "metric_breakdown",
+                "parameters": {"country": "BR", "channel": "credit_card", "time_range": "recent_24h"},
+                "limit": 2,
+            },
+        )
+        dashboard_response = client.post(
+            "/tools/dashboard/snapshot",
+            json={
+                "dashboard_id": "risk_overview",
+                "country": "BR",
+                "channel": "credit_card",
+                "time_range": "recent_24h",
+            },
+        )
+        rule_response = client.post(
+            "/tools/rules/explain",
+            json={"order_id": "O10001"},
+        )
+
+        self.assertEqual(sql_response.status_code, 200)
+        self.assertEqual(sql_response.json()["status"], "success")
+        self.assertEqual(sql_response.json()["payload"]["row_count"], 2)
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertEqual(dashboard_response.json()["payload"]["largest_segment"], "shared_device")
+        self.assertEqual(rule_response.status_code, 200)
+        self.assertEqual(rule_response.json()["payload"]["subject_id"], "O10001")
 
     def test_audit_events_endpoint_filters_redacted_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

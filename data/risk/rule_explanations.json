@@ -1,0 +1,67 @@
+{
+  "order:O10001": {
+    "subject_id": "O10001",
+    "subject_type": "order",
+    "strategy_id": "STRAT-001",
+    "decision": "manual_review",
+    "explanation": "订单因设备频次突增与高风险 BIN 联合命中进入人工复核。",
+    "recent_change": "2026-05-20 21:40 将 device_velocity_spike 阈值从 5 下调到 3。",
+    "owner": "risk_strategy_team",
+    "hit_rules": [
+      {
+        "rule_id": "device_velocity_spike",
+        "rule_name": "Device Velocity Spike",
+        "feature": "device_order_count_10m",
+        "operator": ">=",
+        "threshold": 3,
+        "actual_value": 4
+      },
+      {
+        "rule_id": "high_risk_bin",
+        "rule_name": "High Risk BIN",
+        "feature": "card_bin_risk_level",
+        "operator": "=",
+        "threshold": "high",
+        "actual_value": "high"
+      }
+    ]
+  },
+  "strategy:STRAT-001": {
+    "subject_id": "STRAT-001",
+    "subject_type": "strategy",
+    "strategy_id": "STRAT-001",
+    "decision": "shadow_evaluation",
+    "explanation": "核心问题集中在设备频次规则阈值过严，导致挑战和人工复核量同步上升。",
+    "recent_change": "2026-05-20 21:40 将 device_velocity_spike 阈值从 5 下调到 3。",
+    "owner": "risk_strategy_team",
+    "hit_rules": [
+      {
+        "rule_id": "device_velocity_spike",
+        "rule_name": "Device Velocity Spike",
+        "feature": "device_order_count_10m",
+        "operator": ">=",
+        "threshold": 3,
+        "actual_value": 4
+      }
+    ]
+  },
+  "rule:device_velocity_spike": {
+    "subject_id": "device_velocity_spike",
+    "subject_type": "rule",
+    "strategy_id": "STRAT-001",
+    "decision": "manual_review",
+    "explanation": "设备 10 分钟内订单频次超过阈值时进入人工复核。",
+    "recent_change": "2026-05-20 21:40 将阈值从 5 下调到 3。",
+    "owner": "risk_strategy_team",
+    "hit_rules": [
+      {
+        "rule_id": "device_velocity_spike",
+        "rule_name": "Device Velocity Spike",
+        "feature": "device_order_count_10m",
+        "operator": ">=",
+        "threshold": 3,
+        "actual_value": 4
+      }
+    ]
+  }
+}

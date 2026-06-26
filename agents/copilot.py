@@ -11,7 +11,7 @@ from agents.copilot_planner import (
     CopilotPlanner,
     RuleBasedCopilotPlanner,
 )
-from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
+from core.models import AgentRequest, AgentResponse, Citation, EvidenceRecord, PlannerTraceStep, ToolTrace
 from services.risk_decision import RiskDecisionPolicy
 
 
@@ -37,6 +37,7 @@ class ValidatedCopilotPlan:
     validation_errors: list[str]
     candidate_intent: str
     candidate_steps: list[str]
+    planner_error: str
 
     def to_artifact(self) -> dict[str, object]:
         return {
@@ -45,6 +46,7 @@ class ValidatedCopilotPlan:
             "validation_errors": list(self.validation_errors),
             "candidate_intent": self.candidate_intent,
             "candidate_steps": list(self.candidate_steps),
+            "planner_error": self.planner_error,
             "final_intent": self.intent.value,
             "final_steps": [step.label for step in self.plan_steps],
         }
@@ -91,6 +93,7 @@ class CopilotAgent(Agent):
         response.suggested_actions = self._merge_actions(child_responses)
         response.citations = self._merge_citations(child_responses)
         response.tool_traces = self._merge_tool_traces(child_responses)
+        response.evidence = self._merge_evidence(child_responses)
         response.artifacts = self._merge_artifacts(child_responses)
         response.artifacts["planner"] = validated_plan.to_artifact()
         response.confidence = round(
@@ -165,6 +168,28 @@ class CopilotAgent(Agent):
         return traces
 
     @staticmethod
+    def _merge_evidence(child_responses: list[tuple[str, AgentResponse]]) -> list[EvidenceRecord]:
+        evidence_records: list[EvidenceRecord] = []
+        seen: set[tuple[str, str, str]] = set()
+        for label, child in child_responses:
+            for evidence in child.evidence:
+                key = (label, evidence.source, evidence.summary)
+                if key in seen:
+                    continue
+                seen.add(key)
+                evidence_records.append(
+                    EvidenceRecord(
+                        source=f"{label.lower()}::{evidence.source}",
+                        source_type=evidence.source_type,
+                        summary=evidence.summary,
+                        payload=evidence.payload,
+                        confidence=evidence.confidence,
+                        observed_at=evidence.observed_at,
+                    )
+                )
+        return evidence_records
+
+    @staticmethod
     def _merge_artifacts(child_responses: list[tuple[str, AgentResponse]]) -> dict[str, object]:
         artifacts: dict[str, object] = {}
         for _, child in child_responses:
@@ -205,6 +230,7 @@ class CopilotAgent(Agent):
             validation_errors=errors,
             candidate_intent=candidate.intent,
             candidate_steps=list(candidate.selected_steps),
+            planner_error=candidate.planner_error,
         )
 
     def _fallback_validated_plan(
@@ -231,6 +257,7 @@ class CopilotAgent(Agent):
             validation_errors=errors,
             candidate_intent=candidate.intent,
             candidate_steps=list(candidate.selected_steps),
+            planner_error=candidate.planner_error,
         )
 
     @staticmethod

@@ -11,9 +11,12 @@ from urllib.request import Request, urlopen
 
 from clients.base import (
     CaseRecordClient,
+    DashboardSnapshotClient,
     GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
+    RuleExplainClient,
+    SqlQueryClient,
     StrategyProfileClient,
     StrategySimulationClient,
 )
@@ -542,6 +545,137 @@ class HttpGraphRelationClient(BaseHttpJsonClient, GraphRelationClient):
                 self._path_template.format(entity_id=entity_id),
                 audit_path=self._path_template,
             )
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+
+class HttpSqlQueryClient(BaseHttpJsonClient, SqlQueryClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path_template: str = "/sql-queries/{query_name}",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+        resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
+    ) -> None:
+        super().__init__(
+            base_url,
+            headers=headers,
+            timeout_sec=timeout_sec,
+            resilience=resilience,
+            audit_log=audit_log,
+        )
+        self._path_template = path_template
+
+    def fetch_sql_query(
+        self,
+        query_name: str,
+        parameters: Dict[str, Any],
+        limit: int = 50,
+    ) -> Optional[Dict[str, Any]]:
+        query = urlencode({**parameters, "limit": limit})
+        try:
+            return self._get_json(
+                f"{self._path_template.format(query_name=query_name)}?{query}",
+                audit_path=self._path_template,
+            )
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+
+class HttpDashboardSnapshotClient(BaseHttpJsonClient, DashboardSnapshotClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path_template: str = "/dashboard-snapshots/{dashboard_id}",
+        country_param: str = "country",
+        channel_param: str = "channel",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+        resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
+    ) -> None:
+        super().__init__(
+            base_url,
+            headers=headers,
+            timeout_sec=timeout_sec,
+            resilience=resilience,
+            audit_log=audit_log,
+        )
+        self._path_template = path_template
+        self._country_param = country_param
+        self._channel_param = channel_param
+
+    def fetch_dashboard_snapshot(
+        self,
+        dashboard_id: str,
+        country: str,
+        channel: str,
+        time_range: str = "recent_24h",
+    ) -> Optional[Dict[str, Any]]:
+        query = urlencode(
+            {
+                self._country_param: country.upper(),
+                self._channel_param: channel.lower(),
+                "time_range": time_range,
+            }
+        )
+        try:
+            return self._get_json(
+                f"{self._path_template.format(dashboard_id=dashboard_id)}?{query}",
+                audit_path=self._path_template,
+            )
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+
+
+class HttpRuleExplainClient(BaseHttpJsonClient, RuleExplainClient):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        path: str = "/rule-explanations",
+        headers: Optional[Dict[str, str]] = None,
+        timeout_sec: float = 5.0,
+        resilience: Optional[HttpResiliencePolicy] = None,
+        audit_log: AuditLog | None = None,
+    ) -> None:
+        super().__init__(
+            base_url,
+            headers=headers,
+            timeout_sec=timeout_sec,
+            resilience=resilience,
+            audit_log=audit_log,
+        )
+        self._path = path
+
+    def fetch_rule_explanation(
+        self,
+        *,
+        rule_id: str | None = None,
+        order_id: str | None = None,
+        strategy_id: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        query_payload: Dict[str, str] = {}
+        if rule_id is not None:
+            query_payload["rule_id"] = rule_id
+        if order_id is not None:
+            query_payload["order_id"] = order_id
+        if strategy_id is not None:
+            query_payload["strategy_id"] = strategy_id
+        query = urlencode(query_payload)
+        path = self._path if not query else f"{self._path}?{query}"
+        try:
+            return self._get_json(path, audit_path=self._path)
         except HTTPError as exc:
             if exc.code == 404:
                 return None

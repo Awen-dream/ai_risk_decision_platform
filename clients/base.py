@@ -55,3 +55,44 @@ class GraphRelationClient(ABC):
     @abstractmethod
     def fetch_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Return graph relation data for the given entity."""
+
+
+class SqlQueryClient(ABC):
+    """Client for fetching controlled SQL query results."""
+
+    @abstractmethod
+    def fetch_sql_query(
+        self,
+        query_name: str,
+        parameters: Dict[str, Any],
+        limit: int = 50,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the result payload for one named SQL query."""
+
+
+class DashboardSnapshotClient(ABC):
+    """Client for fetching dashboard summaries."""
+
+    @abstractmethod
+    def fetch_dashboard_snapshot(
+        self,
+        dashboard_id: str,
+        country: str,
+        channel: str,
+        time_range: str = "recent_24h",
+    ) -> Optional[Dict[str, Any]]:
+        """Return the dashboard snapshot for one dimension slice."""
+
+
+class RuleExplainClient(ABC):
+    """Client for fetching rule explanation payloads."""
+
+    @abstractmethod
+    def fetch_rule_explanation(
+        self,
+        *,
+        rule_id: str | None = None,
+        order_id: str | None = None,
+        strategy_id: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the rule explanation for the provided subject."""

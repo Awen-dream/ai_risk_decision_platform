@@ -4,25 +4,34 @@ from typing import Any, Dict, List, Optional
 
 from clients.base import (
     CaseRecordClient,
+    DashboardSnapshotClient,
     GraphRelationClient,
     MetricSnapshotClient,
     OrderProfileClient,
+    RuleExplainClient,
+    SqlQueryClient,
     StrategyProfileClient,
     StrategySimulationClient,
 )
 from clients.mock import (
     MockCaseRecordClient,
+    MockDashboardSnapshotClient,
     MockGraphRelationClient,
     MockMetricSnapshotClient,
     MockOrderProfileClient,
+    MockRuleExplainClient,
+    MockSqlQueryClient,
     MockStrategyProfileClient,
     MockStrategySimulationClient,
 )
 from providers.base import (
     CaseRecordProvider,
+    DashboardSnapshotProvider,
     GraphRelationProvider,
     MetricSnapshotProvider,
     OrderProfileProvider,
+    RuleExplainProvider,
+    SqlQueryProvider,
     StrategyProfileProvider,
     StrategySimulationProvider,
 )
@@ -83,3 +92,57 @@ class InMemoryGraphRelationProvider(GraphRelationProvider):
 
     def get_graph_relation(self, entity_id: str) -> Optional[Dict[str, Any]]:
         return self._client.fetch_graph_relation(entity_id=entity_id)
+
+
+class InMemorySqlQueryProvider(SqlQueryProvider):
+    def __init__(self, client: SqlQueryClient | None = None) -> None:
+        self._client = client or MockSqlQueryClient()
+
+    def get_query_result(
+        self,
+        query_name: str,
+        parameters: Dict[str, Any],
+        limit: int = 50,
+    ) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_sql_query(
+            query_name=query_name,
+            parameters=parameters,
+            limit=limit,
+        )
+
+
+class InMemoryDashboardSnapshotProvider(DashboardSnapshotProvider):
+    def __init__(self, client: DashboardSnapshotClient | None = None) -> None:
+        self._client = client or MockDashboardSnapshotClient()
+
+    def get_dashboard_snapshot(
+        self,
+        dashboard_id: str,
+        country: str,
+        channel: str,
+        time_range: str,
+    ) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_dashboard_snapshot(
+            dashboard_id=dashboard_id,
+            country=country,
+            channel=channel,
+            time_range=time_range,
+        )
+
+
+class InMemoryRuleExplainProvider(RuleExplainProvider):
+    def __init__(self, client: RuleExplainClient | None = None) -> None:
+        self._client = client or MockRuleExplainClient()
+
+    def get_rule_explanation(
+        self,
+        *,
+        rule_id: str | None = None,
+        order_id: str | None = None,
+        strategy_id: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        return self._client.fetch_rule_explanation(
+            rule_id=rule_id,
+            order_id=order_id,
+            strategy_id=strategy_id,
+        )

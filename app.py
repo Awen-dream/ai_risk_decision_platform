@@ -5,33 +5,46 @@ from dataclasses import dataclass
 from adapters.base import KnowledgeSource, ToolAdapter
 from adapters.in_memory import (
     InMemoryCaseLookupAdapter,
+    InMemoryDashboardSnapshotAdapter,
     InMemoryGraphRelationAdapter,
     InMemoryKnowledgeSource,
     InMemoryMetricSnapshotAdapter,
     InMemoryOrderProfileAdapter,
+    InMemoryRuleExplainAdapter,
+    InMemorySqlQueryAdapter,
     InMemoryStrategyProfileAdapter,
     InMemoryStrategySimulationAdapter,
 )
 from agents.copilot import CopilotAgent
-from agents.copilot_planner import CopilotPlanner, RuleBasedCopilotPlanner
+from agents.copilot_planner import (
+    CopilotPlanner,
+    OpenAICopilotPlanner,
+    RuleBasedCopilotPlanner,
+)
 from agents.graph import GraphAgent
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
 from agents.strategy import StrategyAgent
 from clients.file import (
     JsonCaseRecordClient,
+    JsonDashboardSnapshotClient,
     JsonGraphRelationClient,
     JsonMetricSnapshotSqlClient,
     JsonOrderProfileClient,
+    JsonRuleExplainClient,
+    JsonSqlQueryClient,
     JsonStrategyProfileClient,
     JsonStrategySimulationClient,
 )
 from clients.http import (
     HttpCaseRecordClient,
+    HttpDashboardSnapshotClient,
     HttpGraphRelationClient,
     HttpMetricSnapshotClient,
     HttpOrderProfileClient,
     HttpResiliencePolicy,
+    HttpRuleExplainClient,
+    HttpSqlQueryClient,
     HttpStrategyProfileClient,
     HttpStrategySimulationClient,
 )
@@ -45,9 +58,12 @@ from core.session_store import (
 )
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
+    InMemoryDashboardSnapshotProvider,
     InMemoryGraphRelationProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
+    InMemoryRuleExplainProvider,
+    InMemorySqlQueryProvider,
     InMemoryStrategyProfileProvider,
     InMemoryStrategySimulationProvider,
 )
@@ -113,6 +129,15 @@ def build_tool_adapters(
         graph_provider = InMemoryGraphRelationProvider(
             client=JsonGraphRelationClient(config.graph_relation_path)
         )
+        sql_query_provider = InMemorySqlQueryProvider(
+            client=JsonSqlQueryClient(config.sql_query_result_path)
+        )
+        dashboard_provider = InMemoryDashboardSnapshotProvider(
+            client=JsonDashboardSnapshotClient(config.dashboard_snapshot_path)
+        )
+        rule_explain_provider = InMemoryRuleExplainProvider(
+            client=JsonRuleExplainClient(config.rule_explanation_path)
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
@@ -120,6 +145,9 @@ def build_tool_adapters(
             InMemoryStrategyProfileAdapter(provider=strategy_provider),
             InMemoryStrategySimulationAdapter(provider=simulation_provider),
             InMemoryGraphRelationAdapter(provider=graph_provider),
+            InMemorySqlQueryAdapter(provider=sql_query_provider),
+            InMemoryDashboardSnapshotAdapter(provider=dashboard_provider),
+            InMemoryRuleExplainAdapter(provider=rule_explain_provider),
         ]
     if config.tool_backend == "http":
         http_headers = config.tool_http_headers()
@@ -195,6 +223,38 @@ def build_tool_adapters(
                 audit_log=audit_log,
             )
         )
+        sql_query_provider = InMemorySqlQueryProvider(
+            client=HttpSqlQueryClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_sql_query_path_template,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
+                audit_log=audit_log,
+            )
+        )
+        dashboard_provider = InMemoryDashboardSnapshotProvider(
+            client=HttpDashboardSnapshotClient(
+                config.tool_http_base_url,
+                path_template=config.tool_http_dashboard_snapshot_path_template,
+                country_param=config.tool_http_country_param,
+                channel_param=config.tool_http_channel_param,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
+                audit_log=audit_log,
+            )
+        )
+        rule_explain_provider = InMemoryRuleExplainProvider(
+            client=HttpRuleExplainClient(
+                config.tool_http_base_url,
+                path=config.tool_http_rule_explain_path,
+                headers=http_headers,
+                timeout_sec=config.tool_http_timeout_sec,
+                resilience=http_resilience,
+                audit_log=audit_log,
+            )
+        )
         return [
             InMemoryMetricSnapshotAdapter(provider=metric_provider),
             InMemoryCaseLookupAdapter(provider=case_provider),
@@ -202,6 +262,9 @@ def build_tool_adapters(
             InMemoryStrategyProfileAdapter(provider=strategy_provider),
             InMemoryStrategySimulationAdapter(provider=simulation_provider),
             InMemoryGraphRelationAdapter(provider=graph_provider),
+            InMemorySqlQueryAdapter(provider=sql_query_provider),
+            InMemoryDashboardSnapshotAdapter(provider=dashboard_provider),
+            InMemoryRuleExplainAdapter(provider=rule_explain_provider),
         ]
     return [
         InMemoryMetricSnapshotAdapter(),
@@ -210,6 +273,9 @@ def build_tool_adapters(
         InMemoryStrategyProfileAdapter(),
         InMemoryStrategySimulationAdapter(),
         InMemoryGraphRelationAdapter(),
+        InMemorySqlQueryAdapter(),
+        InMemoryDashboardSnapshotAdapter(),
+        InMemoryRuleExplainAdapter(),
     ]
 
 
@@ -226,6 +292,15 @@ def build_session_store(config: AppConfig) -> SessionStore:
 def build_copilot_planner(config: AppConfig) -> CopilotPlanner:
     if config.planner_backend == "rule":
         return RuleBasedCopilotPlanner()
+    if config.planner_backend == "openai":
+        return OpenAICopilotPlanner(
+            api_key=config.planner_openai_api_key,
+            model=config.planner_openai_model,
+            base_url=config.planner_openai_base_url,
+            timeout_sec=config.planner_openai_timeout_sec,
+            reasoning_effort=config.planner_openai_reasoning_effort,
+            max_output_tokens=config.planner_openai_max_output_tokens,
+        )
     raise ValueError(f"Unsupported planner backend: {config.planner_backend}")
 
 

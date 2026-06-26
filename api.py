@@ -13,6 +13,7 @@ from app import build_app_container
 from core.models import (
     AgentRequest,
     AgentResponse,
+    EvidenceRecord,
     RiskActionPlanRecord,
     RiskDecisionRecord,
     StrategyRecommendationRecord,
@@ -66,6 +67,15 @@ class ToolTracePayload(BaseModel):
     summary: str
 
 
+class EvidencePayload(BaseModel):
+    source: str
+    source_type: str
+    summary: str
+    payload: Any
+    confidence: float
+    observed_at: Optional[str] = None
+
+
 class PlannerTracePayload(BaseModel):
     step: str
     selected: bool
@@ -83,6 +93,7 @@ class AgentInvokeResponse(BaseModel):
     suggested_actions: List[str]
     citations: List[CitationPayload]
     tool_traces: List[ToolTracePayload]
+    evidence: List[EvidencePayload] = Field(default_factory=list)
     confidence: float
     artifacts: Dict[str, Any] = Field(default_factory=dict)
 
@@ -102,6 +113,7 @@ class SessionTurnPayload(BaseModel):
     plan_steps: List[str] = Field(default_factory=list)
     planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
     confidence: float
+    evidence: List[EvidencePayload] = Field(default_factory=list)
     artifacts: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -161,6 +173,12 @@ class RuntimeInfoResponse(BaseModel):
     tool_backend: str
     planner_backend: str
     planner_source: str
+    planner_openai_base_url: str
+    planner_openai_model: str
+    planner_openai_timeout_sec: float
+    planner_openai_reasoning_effort: str
+    planner_openai_max_output_tokens: int
+    planner_openai_api_key_source: str
     session_store_backend: str
     session_store_path: str
     case_store_backend: str
@@ -200,6 +218,9 @@ class RuntimeInfoResponse(BaseModel):
     tool_http_strategy_profile_path_template: str
     tool_http_strategy_simulation_path_template: str
     tool_http_graph_relation_path_template: str
+    tool_http_sql_query_path_template: str
+    tool_http_dashboard_snapshot_path_template: str
+    tool_http_rule_explain_path: str
     tool_http_country_param: str
     tool_http_channel_param: str
     registered_agents: List[str]
@@ -216,6 +237,32 @@ class RuntimeMetricsResponse(BaseModel):
     counters: Dict[str, int] = Field(default_factory=dict)
     gauges: Dict[str, float] = Field(default_factory=dict)
     histograms: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+
+class SqlQueryToolRequest(BaseModel):
+    query_name: str = Field(..., min_length=1)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=50, ge=1, le=500)
+
+
+class DashboardSnapshotToolRequest(BaseModel):
+    dashboard_id: str = Field(default="risk_overview", min_length=1)
+    country: str = Field(..., min_length=2)
+    channel: str = Field(..., min_length=2)
+    time_range: str = Field(default="recent_24h", min_length=1)
+
+
+class RuleExplainToolRequest(BaseModel):
+    rule_id: Optional[str] = None
+    order_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+
+
+class ToolExecutionResponse(BaseModel):
+    tool_name: str
+    status: str
+    summary: str
+    payload: Any
 
 
 class UpstreamAuditEventPayload(BaseModel):
@@ -426,6 +473,12 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_backend=container.config.tool_backend,
             planner_backend=container.config.planner_backend,
             planner_source=container.config.planner_source(),
+            planner_openai_base_url=container.config.planner_openai_base_url,
+            planner_openai_model=container.config.planner_openai_model,
+            planner_openai_timeout_sec=container.config.planner_openai_timeout_sec,
+            planner_openai_reasoning_effort=container.config.planner_openai_reasoning_effort,
+            planner_openai_max_output_tokens=container.config.planner_openai_max_output_tokens,
+            planner_openai_api_key_source=container.config.planner_openai_api_key_source(),
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,
@@ -477,6 +530,9 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             tool_http_strategy_profile_path_template=container.config.tool_http_strategy_profile_path_template,
             tool_http_strategy_simulation_path_template=container.config.tool_http_strategy_simulation_path_template,
             tool_http_graph_relation_path_template=container.config.tool_http_graph_relation_path_template,
+            tool_http_sql_query_path_template=container.config.tool_http_sql_query_path_template,
+            tool_http_dashboard_snapshot_path_template=container.config.tool_http_dashboard_snapshot_path_template,
+            tool_http_rule_explain_path=container.config.tool_http_rule_explain_path,
             tool_http_country_param=container.config.tool_http_country_param,
             tool_http_channel_param=container.config.tool_http_channel_param,
             registered_agents=runtime.list_agents(),
@@ -775,6 +831,54 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             total_documents=container.retrieval.document_count(),
         )
 
+    @fastapi_app.post("/tools/sql/query", response_model=ToolExecutionResponse)
+    def sql_query_tool(payload: SqlQueryToolRequest) -> ToolExecutionResponse:
+        result = container.tools.execute(
+            "sql_query",
+            query_name=payload.query_name,
+            parameters=payload.parameters,
+            limit=payload.limit,
+        )
+        return ToolExecutionResponse(
+            tool_name=result.name,
+            status=result.status,
+            summary=result.summary,
+            payload=result.payload,
+        )
+
+    @fastapi_app.post("/tools/dashboard/snapshot", response_model=ToolExecutionResponse)
+    def dashboard_snapshot_tool(
+        payload: DashboardSnapshotToolRequest,
+    ) -> ToolExecutionResponse:
+        result = container.tools.execute(
+            "dashboard_snapshot",
+            dashboard_id=payload.dashboard_id,
+            country=payload.country,
+            channel=payload.channel,
+            time_range=payload.time_range,
+        )
+        return ToolExecutionResponse(
+            tool_name=result.name,
+            status=result.status,
+            summary=result.summary,
+            payload=result.payload,
+        )
+
+    @fastapi_app.post("/tools/rules/explain", response_model=ToolExecutionResponse)
+    def rule_explain_tool(payload: RuleExplainToolRequest) -> ToolExecutionResponse:
+        result = container.tools.execute(
+            "rule_explain",
+            rule_id=payload.rule_id,
+            order_id=payload.order_id,
+            strategy_id=payload.strategy_id,
+        )
+        return ToolExecutionResponse(
+            tool_name=result.name,
+            status=result.status,
+            summary=result.summary,
+            payload=result.payload,
+        )
+
     @fastapi_app.post("/agents/{agent_name}", response_model=AgentInvokeResponse)
     def invoke_agent(agent_name: str, payload: AgentInvokeRequest) -> AgentInvokeResponse:
         emit_event(
@@ -860,6 +964,7 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
             )
             for trace in response.tool_traces
         ],
+        evidence=[_to_evidence_payload(evidence) for evidence in response.evidence],
         confidence=response.confidence,
         artifacts=response.artifacts,
     )
@@ -890,6 +995,7 @@ def _to_session_response(session) -> SessionResponse:
                 for trace in turn.planner_trace
             ],
             confidence=turn.confidence,
+            evidence=[_to_evidence_payload(evidence) for evidence in turn.evidence],
             artifacts=turn.artifacts,
         )
         for turn in turn_views
@@ -914,6 +1020,17 @@ def _to_session_response(session) -> SessionResponse:
             )
             for turn in timeline_views
         ],
+    )
+
+
+def _to_evidence_payload(evidence: EvidenceRecord) -> EvidencePayload:
+    return EvidencePayload(
+        source=evidence.source,
+        source_type=evidence.source_type,
+        summary=evidence.summary,
+        payload=evidence.payload,
+        confidence=evidence.confidence,
+        observed_at=evidence.observed_at,
     )
 
 

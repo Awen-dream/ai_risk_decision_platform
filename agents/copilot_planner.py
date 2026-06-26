@@ -3,7 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
+import json
 import re
+from typing import Any, Callable
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from core.models import AgentRequest
 
@@ -34,6 +38,7 @@ class CopilotPlanCandidate:
     intent_reason: str = ""
     step_reasons: dict[str, str] = field(default_factory=dict)
     planner_backend: str = "rule"
+    planner_error: str = ""
 
 
 class CopilotPlanner(ABC):
@@ -132,3 +137,185 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
                 return CopilotIntent.ORDER_CASE
             return CopilotIntent.FRAUD_RING
         return CopilotIntent.METRIC_ANOMALY
+
+
+class OpenAICopilotPlanner(CopilotPlanner):
+    """Structured-output planner backed by the OpenAI Responses API."""
+
+    name = "openai"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        base_url: str = "https://api.openai.com/v1",
+        timeout_sec: float = 10.0,
+        reasoning_effort: str = "low",
+        max_output_tokens: int = 400,
+        fallback_planner: CopilotPlanner | None = None,
+        urlopen_impl: Callable[..., Any] | None = None,
+    ) -> None:
+        if not api_key:
+            raise ValueError("OpenAI planner requires a non-empty API key")
+        self._api_key = api_key
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+        self._timeout_sec = timeout_sec
+        self._reasoning_effort = reasoning_effort
+        self._max_output_tokens = max_output_tokens
+        self._fallback_planner = fallback_planner or RuleBasedCopilotPlanner()
+        self._urlopen = urlopen_impl or urlopen
+
+    def plan(self, request: AgentRequest) -> CopilotPlanCandidate:
+        try:
+            payload = self._post_response(request)
+            candidate_payload = json.loads(self._extract_output_text(payload))
+            return self._candidate_from_payload(candidate_payload)
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            json.JSONDecodeError,
+        ) as exc:
+            fallback = self._fallback_planner.plan(request)
+            return CopilotPlanCandidate(
+                intent=fallback.intent,
+                selected_steps=list(fallback.selected_steps),
+                intent_reason=fallback.intent_reason,
+                step_reasons=dict(fallback.step_reasons),
+                planner_backend="openai_fallback_rule",
+                planner_error=f"{type(exc).__name__}: {exc}",
+            )
+
+    def _post_response(self, request: AgentRequest) -> dict[str, Any]:
+        body = {
+            "model": self._model,
+            "instructions": self._instructions(),
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": self._user_prompt(request),
+                        }
+                    ],
+                }
+            ],
+            "text": {"format": self._response_format()},
+            "max_output_tokens": self._max_output_tokens,
+            "store": False,
+        }
+        if self._reasoning_effort:
+            body["reasoning"] = {"effort": self._reasoning_effort}
+
+        request_obj = Request(
+            f"{self._base_url}/responses",
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with self._urlopen(request_obj, timeout=self._timeout_sec) as response:
+            return json.load(response)
+
+    @staticmethod
+    def _instructions() -> str:
+        return (
+            "You are a planning component for a risk copilot. "
+            "Classify the request into one of the supported intents and select execution steps "
+            "from the fixed set: 调查, 策略, 图谱. "
+            "调查 is always required. "
+            "Return only JSON that matches the provided schema."
+        )
+
+    @staticmethod
+    def _user_prompt(request: AgentRequest) -> str:
+        context_json = json.dumps(request.context, ensure_ascii=False, sort_keys=True)
+        return (
+            "请基于以下风险问题生成候选计划。\n"
+            f"query: {request.query}\n"
+            f"context: {context_json}\n"
+            "要求：\n"
+            "1. intent 只能是 metric_anomaly, order_case, strategy_review, fraud_ring, composite。\n"
+            "2. selected_steps 只能从 调查, 策略, 图谱 中选择，且必须包含 调查。\n"
+            "3. step_reasons 只给 selected_steps 里的步骤填写理由。\n"
+            "4. 如果同时出现策略和图谱信号，优先用 composite。"
+        )
+
+    @staticmethod
+    def _response_format() -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "name": "copilot_plan",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "intent": {
+                        "type": "string",
+                        "enum": [intent.value for intent in CopilotIntent],
+                    },
+                    "selected_steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": list(CANONICAL_PLAN_STEPS),
+                        },
+                    },
+                    "intent_reason": {"type": "string"},
+                    "step_reasons": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "step": {
+                                    "type": "string",
+                                    "enum": list(CANONICAL_PLAN_STEPS),
+                                },
+                                "reason": {"type": "string"},
+                            },
+                            "required": ["step", "reason"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["intent", "selected_steps", "intent_reason", "step_reasons"],
+                "additionalProperties": False,
+            },
+        }
+
+    @staticmethod
+    def _extract_output_text(payload: dict[str, Any]) -> str:
+        output_text = payload.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+        for item in payload.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if content.get("type") == "output_text" and str(content.get("text", "")).strip():
+                    return str(content["text"])
+        raise ValueError("OpenAI planner response did not contain output_text")
+
+    @staticmethod
+    def _candidate_from_payload(payload: dict[str, Any]) -> CopilotPlanCandidate:
+        step_reasons = {
+            str(item["step"]): str(item["reason"])
+            for item in payload.get("step_reasons", [])
+            if isinstance(item, dict) and "step" in item and "reason" in item
+        }
+        return CopilotPlanCandidate(
+            intent=str(payload["intent"]),
+            selected_steps=[str(step) for step in payload["selected_steps"]],
+            intent_reason=str(payload.get("intent_reason", "")),
+            step_reasons=step_reasons,
+            planner_backend="openai",
+        )

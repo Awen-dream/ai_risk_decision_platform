@@ -46,8 +46,20 @@ CAPABILITY_DESCRIPTIONS = {
 
 CAPABILITY_REQUIRED_TOOLS = {
     "knowledge": (),
-    "investigation": ("metric_snapshot", "case_lookup", "order_profile"),
-    "strategy": ("strategy_profile", "strategy_simulation", "graph_relation"),
+    "investigation": (
+        "metric_snapshot",
+        "case_lookup",
+        "order_profile",
+        "sql_query",
+        "dashboard_snapshot",
+        "rule_explain",
+    ),
+    "strategy": (
+        "strategy_profile",
+        "strategy_simulation",
+        "graph_relation",
+        "rule_explain",
+    ),
     "graph": ("graph_relation",),
     "copilot": (
         "metric_snapshot",
@@ -56,6 +68,9 @@ CAPABILITY_REQUIRED_TOOLS = {
         "strategy_profile",
         "strategy_simulation",
         "graph_relation",
+        "sql_query",
+        "dashboard_snapshot",
+        "rule_explain",
     ),
 }
 
@@ -74,6 +89,13 @@ class AppConfig:
     knowledge_backend: str = "mock"
     tool_backend: str = "mock"
     planner_backend: str = "rule"
+    planner_openai_base_url: str = "https://api.openai.com/v1"
+    planner_openai_model: str = "gpt-4o-mini"
+    planner_openai_timeout_sec: float = 10.0
+    planner_openai_reasoning_effort: str = "low"
+    planner_openai_max_output_tokens: int = 400
+    planner_openai_api_key: str = ""
+    planner_openai_api_key_file: Optional[Path] = None
     knowledge_dir: Path = Path("data/knowledge")
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
@@ -81,6 +103,9 @@ class AppConfig:
     strategy_profile_path: Path = Path("data/risk/strategy_profiles.json")
     strategy_simulation_path: Path = Path("data/risk/strategy_simulations.json")
     graph_relation_path: Path = Path("data/risk/graph_relations.json")
+    sql_query_result_path: Path = Path("data/risk/sql_query_results.json")
+    dashboard_snapshot_path: Path = Path("data/risk/dashboard_snapshots.json")
+    rule_explanation_path: Path = Path("data/risk/rule_explanations.json")
     tool_http_base_url: str = "http://127.0.0.1:8090"
     tool_http_timeout_sec: float = 5.0
     tool_http_retry_attempts: int = 2
@@ -108,6 +133,9 @@ class AppConfig:
     tool_http_strategy_profile_path_template: str = "/strategy-profiles/{strategy_id}"
     tool_http_strategy_simulation_path_template: str = "/strategy-simulations/{strategy_id}"
     tool_http_graph_relation_path_template: str = "/graph-relations/{entity_id}"
+    tool_http_sql_query_path_template: str = "/sql-queries/{query_name}"
+    tool_http_dashboard_snapshot_path_template: str = "/dashboard-snapshots/{dashboard_id}"
+    tool_http_rule_explain_path: str = "/rule-explanations"
     tool_http_country_param: str = "country"
     tool_http_channel_param: str = "channel"
     session_store_backend: str = "memory"
@@ -134,10 +162,34 @@ class AppConfig:
         admin_auth_token_file = _env_path("AI_RISK_ADMIN_AUTH_TOKEN_FILE")
         audit_central_auth_token_file = _env_path("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE")
         postgres_dsn_file = _env_path("AI_RISK_POSTGRES_DSN_FILE")
+        planner_openai_api_key_file = _env_path("AI_RISK_PLANNER_OPENAI_API_KEY_FILE")
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
             planner_backend=os.getenv("AI_RISK_PLANNER_BACKEND", "rule"),
+            planner_openai_base_url=os.getenv(
+                "AI_RISK_PLANNER_OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ),
+            planner_openai_model=os.getenv(
+                "AI_RISK_PLANNER_OPENAI_MODEL",
+                "gpt-4o-mini",
+            ),
+            planner_openai_timeout_sec=float(
+                os.getenv("AI_RISK_PLANNER_OPENAI_TIMEOUT_SEC", "10.0")
+            ),
+            planner_openai_reasoning_effort=os.getenv(
+                "AI_RISK_PLANNER_OPENAI_REASONING_EFFORT",
+                "low",
+            ),
+            planner_openai_max_output_tokens=int(
+                os.getenv("AI_RISK_PLANNER_OPENAI_MAX_OUTPUT_TOKENS", "400")
+            ),
+            planner_openai_api_key=_load_secret(
+                os.getenv("AI_RISK_PLANNER_OPENAI_API_KEY", ""),
+                planner_openai_api_key_file,
+            ),
+            planner_openai_api_key_file=planner_openai_api_key_file,
             knowledge_dir=Path(os.getenv("AI_RISK_KNOWLEDGE_DIR", "data/knowledge")),
             metric_snapshot_path=Path(
                 os.getenv("AI_RISK_METRIC_SNAPSHOT_PATH", "data/risk/metric_snapshots.json")
@@ -159,6 +211,15 @@ class AppConfig:
             ),
             graph_relation_path=Path(
                 os.getenv("AI_RISK_GRAPH_RELATION_PATH", "data/risk/graph_relations.json")
+            ),
+            sql_query_result_path=Path(
+                os.getenv("AI_RISK_SQL_QUERY_RESULT_PATH", "data/risk/sql_query_results.json")
+            ),
+            dashboard_snapshot_path=Path(
+                os.getenv("AI_RISK_DASHBOARD_SNAPSHOT_PATH", "data/risk/dashboard_snapshots.json")
+            ),
+            rule_explanation_path=Path(
+                os.getenv("AI_RISK_RULE_EXPLANATION_PATH", "data/risk/rule_explanations.json")
             ),
             tool_http_base_url=os.getenv(
                 "AI_RISK_TOOL_HTTP_BASE_URL",
@@ -250,6 +311,18 @@ class AppConfig:
                 "AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE",
                 "/graph-relations/{entity_id}",
             ),
+            tool_http_sql_query_path_template=os.getenv(
+                "AI_RISK_TOOL_HTTP_SQL_QUERY_PATH_TEMPLATE",
+                "/sql-queries/{query_name}",
+            ),
+            tool_http_dashboard_snapshot_path_template=os.getenv(
+                "AI_RISK_TOOL_HTTP_DASHBOARD_SNAPSHOT_PATH_TEMPLATE",
+                "/dashboard-snapshots/{dashboard_id}",
+            ),
+            tool_http_rule_explain_path=os.getenv(
+                "AI_RISK_TOOL_HTTP_RULE_EXPLAIN_PATH",
+                "/rule-explanations",
+            ),
             tool_http_country_param=os.getenv(
                 "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
                 "country",
@@ -304,6 +377,13 @@ class AppConfig:
             knowledge_backend="file",
             tool_backend="http",
             planner_backend="rule",
+            planner_openai_base_url="https://api.openai.com/v1",
+            planner_openai_model="gpt-4o-mini",
+            planner_openai_timeout_sec=10.0,
+            planner_openai_reasoning_effort="low",
+            planner_openai_max_output_tokens=400,
+            planner_openai_api_key="",
+            planner_openai_api_key_file=None,
             knowledge_dir=Path("data/knowledge"),
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
@@ -311,6 +391,9 @@ class AppConfig:
             strategy_profile_path=Path("data/risk/strategy_profiles.json"),
             strategy_simulation_path=Path("data/risk/strategy_simulations.json"),
             graph_relation_path=Path("data/risk/graph_relations.json"),
+            sql_query_result_path=Path("data/risk/sql_query_results.json"),
+            dashboard_snapshot_path=Path("data/risk/dashboard_snapshots.json"),
+            rule_explanation_path=Path("data/risk/rule_explanations.json"),
             tool_http_base_url="http://127.0.0.1:8090",
             tool_http_timeout_sec=5.0,
             tool_http_retry_attempts=2,
@@ -338,6 +421,9 @@ class AppConfig:
             tool_http_strategy_profile_path_template="/strategy-profiles/{strategy_id}",
             tool_http_strategy_simulation_path_template="/strategy-simulations/{strategy_id}",
             tool_http_graph_relation_path_template="/graph-relations/{entity_id}",
+            tool_http_sql_query_path_template="/sql-queries/{query_name}",
+            tool_http_dashboard_snapshot_path_template="/dashboard-snapshots/{dashboard_id}",
+            tool_http_rule_explain_path="/rule-explanations",
             tool_http_country_param="country",
             tool_http_channel_param="channel",
             session_store_backend="memory",
@@ -406,6 +492,13 @@ class AppConfig:
 
     def planner_source(self) -> str:
         return self.planner_backend
+
+    def planner_openai_api_key_source(self) -> str:
+        if self.planner_openai_api_key_file is not None:
+            return "file"
+        if self.planner_openai_api_key:
+            return "env"
+        return "none"
 
     def supported_agent_capabilities(self) -> list[str]:
         return list(SUPPORTED_AGENT_CAPABILITIES)
@@ -476,6 +569,37 @@ class AppConfig:
                 "path_env_var": "AI_RISK_TOOL_HTTP_GRAPH_RELATION_PATH_TEMPLATE",
                 "path": self.tool_http_graph_relation_path_template,
                 "supports_capabilities": ["strategy", "graph", "copilot"],
+                "query_params": {},
+            },
+            {
+                "tool_name": "sql_query",
+                "path_env_var": "AI_RISK_TOOL_HTTP_SQL_QUERY_PATH_TEMPLATE",
+                "path": self.tool_http_sql_query_path_template,
+                "supports_capabilities": ["investigation", "copilot"],
+                "query_params": {
+                    "country_env_var": "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
+                    "country_name": self.tool_http_country_param,
+                    "channel_env_var": "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
+                    "channel_name": self.tool_http_channel_param,
+                },
+            },
+            {
+                "tool_name": "dashboard_snapshot",
+                "path_env_var": "AI_RISK_TOOL_HTTP_DASHBOARD_SNAPSHOT_PATH_TEMPLATE",
+                "path": self.tool_http_dashboard_snapshot_path_template,
+                "supports_capabilities": ["investigation", "copilot"],
+                "query_params": {
+                    "country_env_var": "AI_RISK_TOOL_HTTP_COUNTRY_PARAM",
+                    "country_name": self.tool_http_country_param,
+                    "channel_env_var": "AI_RISK_TOOL_HTTP_CHANNEL_PARAM",
+                    "channel_name": self.tool_http_channel_param,
+                },
+            },
+            {
+                "tool_name": "rule_explain",
+                "path_env_var": "AI_RISK_TOOL_HTTP_RULE_EXPLAIN_PATH",
+                "path": self.tool_http_rule_explain_path,
+                "supports_capabilities": ["investigation", "strategy", "copilot"],
                 "query_params": {},
             },
         ]

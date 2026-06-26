@@ -6,7 +6,14 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.models import AgentRequest, AgentResponse, PlannerTraceStep, SessionRecord, SessionTurn
+from core.models import (
+    AgentRequest,
+    AgentResponse,
+    EvidenceRecord,
+    PlannerTraceStep,
+    SessionRecord,
+    SessionTurn,
+)
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
 
@@ -364,6 +371,17 @@ def build_session_turn(request: AgentRequest, response: AgentResponse) -> Sessio
         ],
         confidence=response.confidence,
         suggested_actions=list(response.suggested_actions),
+        evidence=[
+            EvidenceRecord(
+                source=evidence.source,
+                source_type=evidence.source_type,
+                summary=evidence.summary,
+                payload=evidence.payload,
+                confidence=evidence.confidence,
+                observed_at=evidence.observed_at,
+            )
+            for evidence in response.evidence
+        ],
         artifacts=dict(response.artifacts),
     )
 
@@ -381,6 +399,17 @@ def _serialize_session_record(session: SessionRecord) -> dict[str, object]:
                 "intent": turn.intent,
                 "plan_steps": turn.plan_steps,
                 "suggested_actions": turn.suggested_actions,
+                "evidence": [
+                    {
+                        "source": evidence.source,
+                        "source_type": evidence.source_type,
+                        "summary": evidence.summary,
+                        "payload": evidence.payload,
+                        "confidence": evidence.confidence,
+                        "observed_at": evidence.observed_at,
+                    }
+                    for evidence in turn.evidence
+                ],
                 "artifacts": turn.artifacts,
                 "planner_trace": [
                     {
@@ -410,6 +439,21 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
                 intent=str(item["intent"]) if item.get("intent") is not None else None,
                 plan_steps=list(item.get("plan_steps", [])),
                 suggested_actions=list(item.get("suggested_actions", [])),
+                evidence=[
+                    EvidenceRecord(
+                        source=str(evidence["source"]),
+                        source_type=str(evidence["source_type"]),
+                        summary=str(evidence["summary"]),
+                        payload=evidence.get("payload"),
+                        confidence=float(evidence.get("confidence", 0.0)),
+                        observed_at=(
+                            str(evidence["observed_at"])
+                            if evidence.get("observed_at") is not None
+                            else None
+                        ),
+                    )
+                    for evidence in item.get("evidence", [])
+                ],
                 artifacts=dict(item.get("artifacts", {})),
                 planner_trace=[
                     PlannerTraceStep(

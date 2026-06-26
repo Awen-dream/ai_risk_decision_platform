@@ -97,6 +97,33 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.planner_backend, "rule")
         self.assertEqual(config.planner_source(), "rule")
 
+    def test_openai_planner_settings_load_secret_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            key_path = Path(tmp_dir) / "planner-openai-key"
+            key_path.write_text("planner-secret\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_PLANNER_BACKEND": "openai",
+                    "AI_RISK_PLANNER_OPENAI_BASE_URL": "https://proxy.example.com/v1",
+                    "AI_RISK_PLANNER_OPENAI_MODEL": "gpt-5.5",
+                    "AI_RISK_PLANNER_OPENAI_TIMEOUT_SEC": "12.5",
+                    "AI_RISK_PLANNER_OPENAI_REASONING_EFFORT": "medium",
+                    "AI_RISK_PLANNER_OPENAI_MAX_OUTPUT_TOKENS": "512",
+                    "AI_RISK_PLANNER_OPENAI_API_KEY_FILE": str(key_path),
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.planner_backend, "openai")
+        self.assertEqual(config.planner_openai_base_url, "https://proxy.example.com/v1")
+        self.assertEqual(config.planner_openai_model, "gpt-5.5")
+        self.assertEqual(config.planner_openai_timeout_sec, 12.5)
+        self.assertEqual(config.planner_openai_reasoning_effort, "medium")
+        self.assertEqual(config.planner_openai_max_output_tokens, 512)
+        self.assertEqual(config.planner_openai_api_key, "planner-secret")
+        self.assertEqual(config.planner_openai_api_key_source(), "file")
+
     def test_http_resilience_settings_load_from_environment(self) -> None:
         with patch.dict(
             "os.environ",
@@ -211,7 +238,17 @@ class SettingsTests(unittest.TestCase):
             [item["name"] for item in capability_contract],
             ["knowledge", "investigation", "strategy", "graph", "copilot"],
         )
-        self.assertEqual(capability_contract[1]["required_tools"], ["metric_snapshot", "case_lookup", "order_profile"])
+        self.assertEqual(
+            capability_contract[1]["required_tools"],
+            [
+                "metric_snapshot",
+                "case_lookup",
+                "order_profile",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
+            ],
+        )
         self.assertEqual(capability_contract[4]["composed_agents"], ["investigation", "strategy", "graph"])
 
     def test_http_endpoint_contract_covers_phase1_tools(self) -> None:
@@ -227,6 +264,9 @@ class SettingsTests(unittest.TestCase):
                 "strategy_profile",
                 "strategy_simulation",
                 "graph_relation",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
             ],
         )
         self.assertEqual(
@@ -240,7 +280,7 @@ class SettingsTests(unittest.TestCase):
         )
         self.assertEqual(
             endpoint_contract[-1]["supports_capabilities"],
-            ["strategy", "graph", "copilot"],
+            ["investigation", "strategy", "copilot"],
         )
 
 

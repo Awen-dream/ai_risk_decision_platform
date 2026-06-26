@@ -45,7 +45,7 @@ class FileBackendTests(unittest.TestCase):
     def test_build_tool_adapters_uses_file_backends(self) -> None:
         adapters = build_tool_adapters(self.config)
 
-        self.assertEqual(len(adapters), 6)
+        self.assertEqual(len(adapters), 9)
         result = adapters[0].invoke(
             country="BR",
             channel="credit_card",
@@ -60,6 +60,13 @@ class FileBackendTests(unittest.TestCase):
         graph_result = adapters[5].invoke(entity_id="U10001")
         self.assertTrue(graph_result.success)
         self.assertEqual(graph_result.payload["entity_type"], "user")
+        sql_result = adapters[6].invoke(
+            query_name="metric_breakdown",
+            parameters={"country": "BR", "channel": "credit_card", "time_range": "recent_24h"},
+            limit=2,
+        )
+        self.assertTrue(sql_result.success)
+        self.assertEqual(sql_result.payload["row_count"], 2)
 
     def test_build_knowledge_sources_uses_file_backend(self) -> None:
         sources = build_knowledge_sources(self.config)

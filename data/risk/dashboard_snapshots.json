@@ -1,0 +1,30 @@
+[
+  {
+    "dashboard_id": "risk_overview",
+    "title": "支付风险总览",
+    "country": "BR",
+    "channel": "credit_card",
+    "time_range": "recent_24h",
+    "metric_name": "payment_failure_rate",
+    "current_value": "12.4%",
+    "baseline_value": "5.1%",
+    "trend": "up",
+    "largest_segment": "shared_device",
+    "largest_segment_change": "+11.3pp",
+    "recommended_drilldowns": ["card_brand", "device_risk", "issuer"]
+  },
+  {
+    "dashboard_id": "risk_overview",
+    "title": "支付风险总览",
+    "country": "ID",
+    "channel": "wallet",
+    "time_range": "recent_24h",
+    "metric_name": "payment_pass_rate",
+    "current_value": "81.3%",
+    "baseline_value": "89.6%",
+    "trend": "down",
+    "largest_segment": "route_b",
+    "largest_segment_change": "-9.6pp",
+    "recommended_drilldowns": ["routing", "issuer", "new_user"]
+  }
+]

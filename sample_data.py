@@ -227,3 +227,161 @@ def build_graph_relations() -> Dict[str, Dict[str, Any]]:
             "risk_reason": "订单关联账号和设备网络密集，疑似同一操作群体。",
         },
     }
+
+
+def build_sql_query_results() -> Dict[Tuple[str, str, str, str], Dict[str, Any]]:
+    return {
+        ("metric_breakdown", "BR", "credit_card", "recent_24h"): {
+            "query_name": "metric_breakdown",
+            "country": "BR",
+            "channel": "credit_card",
+            "time_range": "recent_24h",
+            "description": "支付失败率按卡组织与设备风险标签分层",
+            "columns": ["segment", "current_value", "baseline_value", "delta"],
+            "rows": [
+                {
+                    "segment": "visa",
+                    "current_value": "13.1%",
+                    "baseline_value": "5.0%",
+                    "delta": "+8.1pp",
+                },
+                {
+                    "segment": "mastercard",
+                    "current_value": "11.8%",
+                    "baseline_value": "5.2%",
+                    "delta": "+6.6pp",
+                },
+                {
+                    "segment": "shared_device",
+                    "current_value": "18.4%",
+                    "baseline_value": "7.1%",
+                    "delta": "+11.3pp",
+                },
+            ],
+        },
+        ("metric_breakdown", "ID", "wallet", "recent_24h"): {
+            "query_name": "metric_breakdown",
+            "country": "ID",
+            "channel": "wallet",
+            "time_range": "recent_24h",
+            "description": "钱包通过率按路由与发卡渠道分层",
+            "columns": ["segment", "current_value", "baseline_value", "delta"],
+            "rows": [
+                {
+                    "segment": "route_b",
+                    "current_value": "78.5%",
+                    "baseline_value": "88.1%",
+                    "delta": "-9.6pp",
+                },
+                {
+                    "segment": "new_user",
+                    "current_value": "75.2%",
+                    "baseline_value": "86.0%",
+                    "delta": "-10.8pp",
+                },
+            ],
+        },
+    }
+
+
+def build_dashboard_snapshots() -> Dict[Tuple[str, str, str, str], Dict[str, Any]]:
+    return {
+        ("risk_overview", "BR", "credit_card", "recent_24h"): {
+            "dashboard_id": "risk_overview",
+            "title": "支付风险总览",
+            "country": "BR",
+            "channel": "credit_card",
+            "time_range": "recent_24h",
+            "metric_name": "payment_failure_rate",
+            "current_value": "12.4%",
+            "baseline_value": "5.1%",
+            "trend": "up",
+            "largest_segment": "shared_device",
+            "largest_segment_change": "+11.3pp",
+            "recommended_drilldowns": ["card_brand", "device_risk", "issuer"],
+        },
+        ("risk_overview", "ID", "wallet", "recent_24h"): {
+            "dashboard_id": "risk_overview",
+            "title": "支付风险总览",
+            "country": "ID",
+            "channel": "wallet",
+            "time_range": "recent_24h",
+            "metric_name": "payment_pass_rate",
+            "current_value": "81.3%",
+            "baseline_value": "89.6%",
+            "trend": "down",
+            "largest_segment": "route_b",
+            "largest_segment_change": "-9.6pp",
+            "recommended_drilldowns": ["routing", "issuer", "new_user"],
+        },
+    }
+
+
+def build_rule_explanations() -> Dict[str, Dict[str, Any]]:
+    return {
+        "order:O10001": {
+            "subject_id": "O10001",
+            "subject_type": "order",
+            "strategy_id": "STRAT-001",
+            "decision": "manual_review",
+            "explanation": "订单因设备频次突增与高风险 BIN 联合命中进入人工复核。",
+            "recent_change": "2026-05-20 21:40 将 device_velocity_spike 阈值从 5 下调到 3。",
+            "owner": "risk_strategy_team",
+            "hit_rules": [
+                {
+                    "rule_id": "device_velocity_spike",
+                    "rule_name": "Device Velocity Spike",
+                    "feature": "device_order_count_10m",
+                    "operator": ">=",
+                    "threshold": 3,
+                    "actual_value": 4,
+                },
+                {
+                    "rule_id": "high_risk_bin",
+                    "rule_name": "High Risk BIN",
+                    "feature": "card_bin_risk_level",
+                    "operator": "=",
+                    "threshold": "high",
+                    "actual_value": "high",
+                },
+            ],
+        },
+        "strategy:STRAT-001": {
+            "subject_id": "STRAT-001",
+            "subject_type": "strategy",
+            "strategy_id": "STRAT-001",
+            "decision": "shadow_evaluation",
+            "explanation": "核心问题集中在设备频次规则阈值过严，导致挑战和人工复核量同步上升。",
+            "recent_change": "2026-05-20 21:40 将 device_velocity_spike 阈值从 5 下调到 3。",
+            "owner": "risk_strategy_team",
+            "hit_rules": [
+                {
+                    "rule_id": "device_velocity_spike",
+                    "rule_name": "Device Velocity Spike",
+                    "feature": "device_order_count_10m",
+                    "operator": ">=",
+                    "threshold": 3,
+                    "actual_value": 4,
+                }
+            ],
+        },
+        "rule:device_velocity_spike": {
+            "subject_id": "device_velocity_spike",
+            "subject_type": "rule",
+            "strategy_id": "STRAT-001",
+            "decision": "manual_review",
+            "explanation": "设备 10 分钟内订单频次超过阈值时进入人工复核。",
+            "recent_change": "2026-05-20 21:40 将阈值从 5 下调到 3。",
+            "owner": "risk_strategy_team",
+            "hit_rules": [
+                {
+                    "rule_id": "device_velocity_spike",
+                    "rule_name": "Device Velocity Spike",
+                    "feature": "device_order_count_10m",
+                    "operator": ">=",
+                    "threshold": 3,
+                    "actual_value": 4,
+                }
+            ],
+        },
+    }

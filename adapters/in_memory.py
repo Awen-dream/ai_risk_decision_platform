@@ -6,17 +6,23 @@ from adapters.base import KnowledgeSource, ToolAdapter
 from core.models import KnowledgeDocument, ToolResult
 from providers.base import (
     CaseRecordProvider,
+    DashboardSnapshotProvider,
     GraphRelationProvider,
     MetricSnapshotProvider,
     OrderProfileProvider,
+    RuleExplainProvider,
+    SqlQueryProvider,
     StrategyProfileProvider,
     StrategySimulationProvider,
 )
 from providers.in_memory import (
     InMemoryCaseRecordProvider,
+    InMemoryDashboardSnapshotProvider,
     InMemoryGraphRelationProvider,
     InMemoryMetricSnapshotProvider,
     InMemoryOrderProfileProvider,
+    InMemoryRuleExplainProvider,
+    InMemorySqlQueryProvider,
     InMemoryStrategyProfileProvider,
     InMemoryStrategySimulationProvider,
 )
@@ -309,4 +315,147 @@ class InMemoryGraphRelationAdapter(ToolAdapter):
             name=self.name,
             payload=payload,
             summary=f"已返回实体 {entity_id} 的图关系结果",
+        )
+
+
+class InMemorySqlQueryAdapter(ToolAdapter):
+    name = "sql_query"
+
+    def __init__(self, provider: SqlQueryProvider | None = None) -> None:
+        self._provider = provider or InMemorySqlQueryProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        query_name = str(kwargs["query_name"])
+        parameters = dict(kwargs.get("parameters", {}))
+        limit = int(kwargs.get("limit", 50))
+        payload = self._provider.get_query_result(query_name, parameters, limit=limit)
+        if payload is None:
+            return ToolResult.degraded_result(
+                name=self.name,
+                payload={},
+                summary="未找到 SQL 查询结果",
+                error=f"No SQL result for query: {query_name}",
+                error_type="not_found",
+            )
+        missing_fields = _missing_fields(
+            payload,
+            ("query_name", "description", "columns", "rows", "row_count"),
+        )
+        if missing_fields:
+            return _invalid_payload_result(
+                self.name,
+                payload,
+                missing_fields=missing_fields,
+            )
+        return ToolResult.success_result(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回查询 {query_name} 的 SQL 结果，共 {payload['row_count']} 行",
+        )
+
+
+class InMemoryDashboardSnapshotAdapter(ToolAdapter):
+    name = "dashboard_snapshot"
+
+    def __init__(self, provider: DashboardSnapshotProvider | None = None) -> None:
+        self._provider = provider or InMemoryDashboardSnapshotProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        dashboard_id = str(kwargs.get("dashboard_id", "risk_overview"))
+        country = str(kwargs["country"])
+        channel = str(kwargs["channel"])
+        time_range = str(kwargs.get("time_range", "recent_24h"))
+        payload = self._provider.get_dashboard_snapshot(
+            dashboard_id=dashboard_id,
+            country=country,
+            channel=channel,
+            time_range=time_range,
+        )
+        if payload is None:
+            return ToolResult.degraded_result(
+                name=self.name,
+                payload={},
+                summary="未找到 Dashboard 快照",
+                error=f"No dashboard snapshot for {dashboard_id}/{country}/{channel}/{time_range}",
+                error_type="not_found",
+            )
+        missing_fields = _missing_fields(
+            payload,
+            (
+                "dashboard_id",
+                "title",
+                "metric_name",
+                "current_value",
+                "baseline_value",
+                "trend",
+                "recommended_drilldowns",
+            ),
+        )
+        if missing_fields:
+            return _invalid_payload_result(
+                self.name,
+                payload,
+                missing_fields=missing_fields,
+            )
+        return ToolResult.success_result(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回 {dashboard_id} Dashboard 快照",
+        )
+
+
+class InMemoryRuleExplainAdapter(ToolAdapter):
+    name = "rule_explain"
+
+    def __init__(self, provider: RuleExplainProvider | None = None) -> None:
+        self._provider = provider or InMemoryRuleExplainProvider()
+
+    def invoke(self, **kwargs: Any) -> ToolResult:
+        payload = self._provider.get_rule_explanation(
+            rule_id=(
+                str(kwargs["rule_id"])
+                if kwargs.get("rule_id") is not None
+                else None
+            ),
+            order_id=(
+                str(kwargs["order_id"])
+                if kwargs.get("order_id") is not None
+                else None
+            ),
+            strategy_id=(
+                str(kwargs["strategy_id"])
+                if kwargs.get("strategy_id") is not None
+                else None
+            ),
+        )
+        if payload is None:
+            return ToolResult.degraded_result(
+                name=self.name,
+                payload={},
+                summary="未找到规则解释结果",
+                error="No matching rule explanation found",
+                error_type="not_found",
+            )
+        missing_fields = _missing_fields(
+            payload,
+            (
+                "subject_id",
+                "subject_type",
+                "decision",
+                "explanation",
+                "recent_change",
+                "owner",
+                "hit_rules",
+            ),
+        )
+        if missing_fields:
+            return _invalid_payload_result(
+                self.name,
+                payload,
+                missing_fields=missing_fields,
+            )
+        return ToolResult.success_result(
+            name=self.name,
+            payload=payload,
+            summary=f"已返回对象 {payload['subject_id']} 的规则解释",
         )

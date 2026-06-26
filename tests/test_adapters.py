@@ -4,9 +4,12 @@ import unittest
 
 from adapters.in_memory import (
     InMemoryCaseLookupAdapter,
+    InMemoryDashboardSnapshotAdapter,
     InMemoryKnowledgeSource,
     InMemoryMetricSnapshotAdapter,
     InMemoryOrderProfileAdapter,
+    InMemoryRuleExplainAdapter,
+    InMemorySqlQueryAdapter,
 )
 from retrieval.knowledge_base import RetrievalService
 from tools.registry import ToolRegistry
@@ -26,10 +29,20 @@ class AdapterTests(unittest.TestCase):
         registry.register_adapter(InMemoryMetricSnapshotAdapter())
         registry.register_adapter(InMemoryCaseLookupAdapter())
         registry.register_adapter(InMemoryOrderProfileAdapter())
+        registry.register_adapter(InMemorySqlQueryAdapter())
+        registry.register_adapter(InMemoryDashboardSnapshotAdapter())
+        registry.register_adapter(InMemoryRuleExplainAdapter())
 
         self.assertEqual(
             registry.list_tools(),
-            ["metric_snapshot", "case_lookup", "order_profile"],
+            [
+                "metric_snapshot",
+                "case_lookup",
+                "order_profile",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
+            ],
         )
         metric_result = registry.execute(
             "metric_snapshot",
@@ -83,6 +96,27 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.error_type, "invalid_payload")
         self.assertIn("title", result.error or "")
+
+    def test_phase1_adapters_return_expected_payloads(self) -> None:
+        sql_result = InMemorySqlQueryAdapter().invoke(
+            query_name="metric_breakdown",
+            parameters={"country": "BR", "channel": "credit_card", "time_range": "recent_24h"},
+            limit=2,
+        )
+        dashboard_result = InMemoryDashboardSnapshotAdapter().invoke(
+            dashboard_id="risk_overview",
+            country="BR",
+            channel="credit_card",
+            time_range="recent_24h",
+        )
+        rule_result = InMemoryRuleExplainAdapter().invoke(order_id="O10001")
+
+        self.assertTrue(sql_result.success)
+        self.assertEqual(sql_result.payload["row_count"], 2)
+        self.assertTrue(dashboard_result.success)
+        self.assertEqual(dashboard_result.payload["largest_segment"], "shared_device")
+        self.assertTrue(rule_result.success)
+        self.assertEqual(rule_result.payload["subject_id"], "O10001")
 
 
 if __name__ == "__main__":
