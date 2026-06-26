@@ -1,30 +1,53 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-import re
 
 from agents.base import Agent
+from agents.copilot_planner import (
+    CANONICAL_PLAN_STEPS,
+    CopilotIntent,
+    CopilotPlanCandidate,
+    CopilotPlanStep,
+    CopilotPlanner,
+    RuleBasedCopilotPlanner,
+)
 from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 from services.risk_decision import RiskDecisionPolicy
 
 
-STRATEGY_ID_PATTERN = re.compile(r"(STRAT-\d+)", re.IGNORECASE)
-ENTITY_ID_PATTERN = re.compile(r"((?:U|O)\d{5})", re.IGNORECASE)
+DEFAULT_SELECTED_REASONS = {
+    "调查": "所有风险问题都先从基础调查开始，统一定位对象、证据和影响范围。",
+    "策略": "当前问题包含策略、阈值或仿真信号，需要补充策略效果分析。",
+    "图谱": "当前问题包含实体关系、订单关联或团伙信号，需要补充关系网络分析。",
+}
+DEFAULT_UNSELECTED_REASONS = {
+    "调查": "调查步骤为必选基础环节。",
+    "策略": "当前问题缺少策略评估信号，暂不进入策略分析。",
+    "图谱": "当前问题缺少团伙或关系网络信号，暂不进入图谱分析。",
+}
 
 
-class CopilotIntent(str, Enum):
-    METRIC_ANOMALY = "metric_anomaly"
-    ORDER_CASE = "order_case"
-    STRATEGY_REVIEW = "strategy_review"
-    FRAUD_RING = "fraud_ring"
-    COMPOSITE = "composite"
+@dataclass(frozen=True)
+class ValidatedCopilotPlan:
+    intent: CopilotIntent
+    plan_steps: list[CopilotPlanStep]
+    planner_trace: list[PlannerTraceStep]
+    planner_backend: str
+    fallback_used: bool
+    validation_errors: list[str]
+    candidate_intent: str
+    candidate_steps: list[str]
 
-
-@dataclass
-class CopilotPlanStep:
-    label: str
-    reason: str
+    def to_artifact(self) -> dict[str, object]:
+        return {
+            "backend": self.planner_backend,
+            "fallback_used": self.fallback_used,
+            "validation_errors": list(self.validation_errors),
+            "candidate_intent": self.candidate_intent,
+            "candidate_steps": list(self.candidate_steps),
+            "final_intent": self.intent.value,
+            "final_steps": [step.label for step in self.plan_steps],
+        }
 
 
 class CopilotAgent(Agent):
@@ -38,23 +61,24 @@ class CopilotAgent(Agent):
         strategy_agent: Agent,
         graph_agent: Agent,
         risk_decision_policy: RiskDecisionPolicy | None = None,
+        planner: CopilotPlanner | None = None,
     ) -> None:
         self._investigation_agent = investigation_agent
         self._strategy_agent = strategy_agent
         self._graph_agent = graph_agent
         self._risk_decision_policy = risk_decision_policy or RiskDecisionPolicy.default()
+        self._planner = planner or RuleBasedCopilotPlanner()
+        self._fallback_planner = RuleBasedCopilotPlanner()
 
     def run(self, request: AgentRequest) -> AgentResponse:
         response = AgentResponse(agent_name=self.name)
-        intent = self._classify_intent(request)
-        plan_steps = self._plan(request, intent)
-        planner_trace = self._build_planner_trace(intent)
-        response.intent = intent.value
-        response.plan_steps = [step.label for step in plan_steps]
-        response.planner_trace = planner_trace
+        validated_plan = self._validated_plan(request)
+        response.intent = validated_plan.intent.value
+        response.plan_steps = [step.label for step in validated_plan.plan_steps]
+        response.planner_trace = validated_plan.planner_trace
 
         child_responses: list[tuple[str, AgentResponse]] = []
-        for step in plan_steps:
+        for step in validated_plan.plan_steps:
             if step.label == "调查":
                 child_responses.append((step.label, self._investigation_agent.run(request)))
             elif step.label == "策略":
@@ -62,18 +86,19 @@ class CopilotAgent(Agent):
             elif step.label == "图谱":
                 child_responses.append((step.label, self._graph_agent.run(request)))
 
-        response.summary = self._build_summary(intent, plan_steps, child_responses)
-        response.findings = self._merge_findings(intent, plan_steps, child_responses)
+        response.summary = self._build_summary(validated_plan.intent, validated_plan.plan_steps, child_responses)
+        response.findings = self._merge_findings(validated_plan.intent, validated_plan.plan_steps, child_responses)
         response.suggested_actions = self._merge_actions(child_responses)
         response.citations = self._merge_citations(child_responses)
         response.tool_traces = self._merge_tool_traces(child_responses)
         response.artifacts = self._merge_artifacts(child_responses)
+        response.artifacts["planner"] = validated_plan.to_artifact()
         response.confidence = round(
             sum(child.confidence for _, child in child_responses) / len(child_responses),
             2,
         )
         response.artifacts["risk_decision"] = self._risk_decision_policy.evaluate(
-            intent=intent.value,
+            intent=validated_plan.intent.value,
             child_responses=child_responses,
             confidence=response.confidence,
         )
@@ -146,93 +171,95 @@ class CopilotAgent(Agent):
             artifacts.update(child.artifacts)
         return artifacts
 
-    @staticmethod
-    def _should_include_strategy(request: AgentRequest) -> bool:
-        if "strategy_id" in request.context:
-            return True
-        lowered = request.query.lower()
-        if "策略" in request.query or "阈值" in request.query or "shadow evaluation" in lowered:
-            return True
-        return STRATEGY_ID_PATTERN.search(request.query) is not None
+    def _validated_plan(self, request: AgentRequest) -> ValidatedCopilotPlan:
+        candidate = self._planner.plan(request)
+        errors: list[str] = []
 
-    @staticmethod
-    def _should_include_graph(request: AgentRequest) -> bool:
-        if any(key in request.context for key in ("entity_id", "user_id", "order_id")):
-            return True
-        lowered = request.query.lower()
-        if "团伙" in request.query or "关系网络" in request.query or "graph" in lowered:
-            return True
-        return ENTITY_ID_PATTERN.search(request.query) is not None
+        try:
+            intent = CopilotIntent(candidate.intent)
+        except ValueError:
+            errors.append(f"unknown intent: {candidate.intent}")
+            return self._fallback_validated_plan(request, candidate, errors)
 
-    def _plan(self, request: AgentRequest, intent: CopilotIntent) -> list[CopilotPlanStep]:
-        steps = [
+        selected_steps = self._normalize_selected_steps(candidate.selected_steps)
+        if "调查" not in selected_steps:
+            errors.append("candidate omitted required step: 调查")
+            selected_steps.insert(0, "调查")
+        if not selected_steps:
+            errors.append("candidate produced no executable steps")
+            return self._fallback_validated_plan(request, candidate, errors)
+
+        plan_steps = [
             CopilotPlanStep(
-                label="调查",
-                reason="先做基础风险调查，定位异常对象、核心证据和影响范围。",
+                label=label,
+                reason=candidate.step_reasons.get(label, DEFAULT_SELECTED_REASONS[label]),
             )
+            for label in selected_steps
         ]
-        if intent in (CopilotIntent.STRATEGY_REVIEW, CopilotIntent.COMPOSITE):
-            steps.append(
-                CopilotPlanStep(
-                    label="策略",
-                    reason="问题包含策略或阈值信号，需要补充策略效果和仿真建议。",
-                )
+        return ValidatedCopilotPlan(
+            intent=intent,
+            plan_steps=plan_steps,
+            planner_trace=self._build_planner_trace(selected_steps, candidate.step_reasons),
+            planner_backend=candidate.planner_backend,
+            fallback_used=False,
+            validation_errors=errors,
+            candidate_intent=candidate.intent,
+            candidate_steps=list(candidate.selected_steps),
+        )
+
+    def _fallback_validated_plan(
+        self,
+        request: AgentRequest,
+        candidate: CopilotPlanCandidate,
+        errors: list[str],
+    ) -> ValidatedCopilotPlan:
+        fallback_candidate = self._fallback_planner.plan(request)
+        selected_steps = self._normalize_selected_steps(fallback_candidate.selected_steps)
+        plan_steps = [
+            CopilotPlanStep(
+                label=label,
+                reason=fallback_candidate.step_reasons.get(label, DEFAULT_SELECTED_REASONS[label]),
             )
-        if intent in (CopilotIntent.FRAUD_RING, CopilotIntent.ORDER_CASE, CopilotIntent.COMPOSITE):
-            steps.append(
-                CopilotPlanStep(
-                    label="图谱",
-                    reason="问题包含实体关系或团伙信号，需要补充关系网络和关键路径。",
-                )
-            )
-        return steps
+            for label in selected_steps
+        ]
+        return ValidatedCopilotPlan(
+            intent=CopilotIntent(fallback_candidate.intent),
+            plan_steps=plan_steps,
+            planner_trace=self._build_planner_trace(selected_steps, fallback_candidate.step_reasons),
+            planner_backend=fallback_candidate.planner_backend,
+            fallback_used=True,
+            validation_errors=errors,
+            candidate_intent=candidate.intent,
+            candidate_steps=list(candidate.selected_steps),
+        )
 
     @staticmethod
-    def _build_planner_trace(intent: CopilotIntent) -> list[PlannerTraceStep]:
-        strategy_selected = intent in (CopilotIntent.STRATEGY_REVIEW, CopilotIntent.COMPOSITE)
-        graph_selected = intent in (
-            CopilotIntent.FRAUD_RING,
-            CopilotIntent.ORDER_CASE,
-            CopilotIntent.COMPOSITE,
-        )
-        return [
-            PlannerTraceStep(
-                step="调查",
-                selected=True,
-                reason="所有风险问题都先从基础调查开始，统一定位对象、证据和影响范围。",
-            ),
-            PlannerTraceStep(
-                step="策略",
-                selected=strategy_selected,
-                reason=(
-                    "当前问题包含策略、阈值或仿真信号，需要补充策略效果分析。"
-                    if strategy_selected
-                    else "当前问题缺少策略评估信号，暂不进入策略分析。"
-                ),
-            ),
-            PlannerTraceStep(
-                step="图谱",
-                selected=graph_selected,
-                reason=(
-                    "当前问题包含实体关系、订单关联或团伙信号，需要补充关系网络分析。"
-                    if graph_selected
-                    else "当前问题缺少团伙或关系网络信号，暂不进入图谱分析。"
-                ),
-            ),
-        ]
+    def _normalize_selected_steps(selected_steps: list[str]) -> list[str]:
+        seen: set[str] = set()
+        selected = {step for step in selected_steps if step in CANONICAL_PLAN_STEPS}
+        normalized: list[str] = []
+        for label in CANONICAL_PLAN_STEPS:
+            if label in selected and label not in seen:
+                seen.add(label)
+                normalized.append(label)
+        return normalized
 
-    def _classify_intent(self, request: AgentRequest) -> CopilotIntent:
-        has_strategy = self._should_include_strategy(request)
-        has_graph = self._should_include_graph(request)
-        has_order = "order_id" in request.context or (
-            ENTITY_ID_PATTERN.search(request.query) is not None and "订单" in request.query
-        )
-        if has_strategy and has_graph:
-            return CopilotIntent.COMPOSITE
-        if has_strategy:
-            return CopilotIntent.STRATEGY_REVIEW
-        if has_graph:
-            if has_order:
-                return CopilotIntent.ORDER_CASE
-            return CopilotIntent.FRAUD_RING
-        return CopilotIntent.METRIC_ANOMALY
+    @staticmethod
+    def _build_planner_trace(
+        selected_steps: list[str],
+        step_reasons: dict[str, str],
+    ) -> list[PlannerTraceStep]:
+        selected = set(selected_steps)
+        planner_trace: list[PlannerTraceStep] = []
+        for label in CANONICAL_PLAN_STEPS:
+            planner_trace.append(
+                PlannerTraceStep(
+                    step=label,
+                    selected=label in selected,
+                    reason=step_reasons.get(
+                        label,
+                        DEFAULT_SELECTED_REASONS[label] if label in selected else DEFAULT_UNSELECTED_REASONS[label],
+                    ),
+                )
+            )
+        return planner_trace

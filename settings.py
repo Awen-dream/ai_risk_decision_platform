@@ -73,6 +73,7 @@ CAPABILITY_COMPOSED_AGENTS = {
 class AppConfig:
     knowledge_backend: str = "mock"
     tool_backend: str = "mock"
+    planner_backend: str = "rule"
     knowledge_dir: Path = Path("data/knowledge")
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
@@ -136,6 +137,7 @@ class AppConfig:
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
+            planner_backend=os.getenv("AI_RISK_PLANNER_BACKEND", "rule"),
             knowledge_dir=Path(os.getenv("AI_RISK_KNOWLEDGE_DIR", "data/knowledge")),
             metric_snapshot_path=Path(
                 os.getenv("AI_RISK_METRIC_SNAPSHOT_PATH", "data/risk/metric_snapshots.json")
@@ -301,6 +303,7 @@ class AppConfig:
         return cls(
             knowledge_backend="file",
             tool_backend="http",
+            planner_backend="rule",
             knowledge_dir=Path("data/knowledge"),
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
@@ -400,6 +403,9 @@ class AppConfig:
         if self.risk_decision_policy_path is not None:
             return "file"
         return "builtin"
+
+    def planner_source(self) -> str:
+        return self.planner_backend
 
     def supported_agent_capabilities(self) -> list[str]:
         return list(SUPPORTED_AGENT_CAPABILITIES)

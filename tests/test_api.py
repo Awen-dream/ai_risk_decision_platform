@@ -213,6 +213,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["knowledge_backend"], "file")
         self.assertEqual(payload["tool_backend"], "file")
+        self.assertEqual(payload["planner_backend"], "rule")
+        self.assertEqual(payload["planner_source"], "rule")
         self.assertEqual(payload["session_store_backend"], "memory")
         self.assertEqual(payload["session_store_path"], ".data/sessions.json")
         self.assertEqual(payload["case_store_backend"], "memory")

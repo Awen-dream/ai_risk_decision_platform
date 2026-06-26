@@ -159,6 +159,8 @@ class HttpEndpointContractPayload(BaseModel):
 class RuntimeInfoResponse(BaseModel):
     knowledge_backend: str
     tool_backend: str
+    planner_backend: str
+    planner_source: str
     session_store_backend: str
     session_store_path: str
     case_store_backend: str
@@ -422,6 +424,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         return RuntimeInfoResponse(
             knowledge_backend=container.config.knowledge_backend,
             tool_backend=container.config.tool_backend,
+            planner_backend=container.config.planner_backend,
+            planner_source=container.config.planner_source(),
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,

@@ -64,6 +64,7 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(config.knowledge_backend, "file")
         self.assertEqual(config.tool_backend, "http")
+        self.assertEqual(config.planner_backend, "rule")
         self.assertEqual(config.tool_http_base_url, "http://127.0.0.1:8090")
         self.assertEqual(config.tool_http_retry_attempts, 2)
         self.assertEqual(config.tool_http_retry_backoff_sec, 0.1)
@@ -85,6 +86,16 @@ class SettingsTests(unittest.TestCase):
                 config = AppConfig.from_env()
 
         self.assertEqual(config.risk_decision_policy_path, policy_path)
+
+    def test_planner_backend_loads_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AI_RISK_PLANNER_BACKEND": "rule"},
+        ):
+            config = AppConfig.from_env()
+
+        self.assertEqual(config.planner_backend, "rule")
+        self.assertEqual(config.planner_source(), "rule")
 
     def test_http_resilience_settings_load_from_environment(self) -> None:
         with patch.dict(

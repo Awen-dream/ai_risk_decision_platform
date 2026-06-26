@@ -5,12 +5,24 @@ import json
 import tempfile
 from pathlib import Path
 
+from agents.copilot import CopilotAgent
+from agents.copilot_planner import CopilotPlanCandidate, CopilotPlanner
 from agents.investigation import InvestigationAgent
 from app import build_demo_runtime, build_runtime
 from core.models import AgentRequest, ToolResult
 from retrieval.knowledge_base import RetrievalService
 from settings import AppConfig
 from tools.registry import ToolRegistry
+
+
+class StaticPlanner(CopilotPlanner):
+    name = "static"
+
+    def __init__(self, candidate: CopilotPlanCandidate) -> None:
+        self._candidate = candidate
+
+    def plan(self, request: AgentRequest) -> CopilotPlanCandidate:
+        return self._candidate
 
 
 class AgentPlatformTests(unittest.TestCase):
@@ -314,6 +326,63 @@ class AgentPlatformTests(unittest.TestCase):
             response.artifacts["risk_decision"]["recommended_action"],
             "manual_review",
         )
+
+    def test_copilot_agent_validates_candidate_plan_and_inserts_required_investigation(self) -> None:
+        planner = StaticPlanner(
+            CopilotPlanCandidate(
+                intent="fraud_ring",
+                selected_steps=["图谱"],
+                step_reasons={"图谱": "候选计划认为图谱证据最关键。"},
+                planner_backend="static",
+            )
+        )
+        agent = CopilotAgent(
+            investigation_agent=self.runtime._agents["investigation"],
+            strategy_agent=self.runtime._agents["strategy"],
+            graph_agent=self.runtime._agents["graph"],
+            planner=planner,
+        )
+
+        response = agent.run(
+            AgentRequest(
+                query="请分析用户 U10001 是否属于团伙网络",
+                context={"user_id": "U10001"},
+            )
+        )
+
+        self.assertEqual(response.intent, "fraud_ring")
+        self.assertEqual(response.plan_steps, ["调查", "图谱"])
+        self.assertFalse(response.artifacts["planner"]["fallback_used"])
+        self.assertIn("candidate omitted required step: 调查", response.artifacts["planner"]["validation_errors"])
+        self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
+        self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
+
+    def test_copilot_agent_falls_back_to_rule_planner_for_invalid_candidate_intent(self) -> None:
+        planner = StaticPlanner(
+            CopilotPlanCandidate(
+                intent="unknown_intent",
+                selected_steps=["策略", "图谱"],
+                planner_backend="static",
+            )
+        )
+        agent = CopilotAgent(
+            investigation_agent=self.runtime._agents["investigation"],
+            strategy_agent=self.runtime._agents["strategy"],
+            graph_agent=self.runtime._agents["graph"],
+            planner=planner,
+        )
+
+        response = agent.run(
+            AgentRequest(
+                query="为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+            )
+        )
+
+        self.assertEqual(response.intent, "metric_anomaly")
+        self.assertEqual(response.plan_steps, ["调查"])
+        self.assertTrue(response.artifacts["planner"]["fallback_used"])
+        self.assertEqual(response.artifacts["planner"]["backend"], "rule")
+        self.assertIn("unknown intent: unknown_intent", response.artifacts["planner"]["validation_errors"])
 
     def test_copilot_agent_uses_configured_decision_policy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

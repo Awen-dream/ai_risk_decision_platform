@@ -13,6 +13,7 @@ from adapters.in_memory import (
     InMemoryStrategySimulationAdapter,
 )
 from agents.copilot import CopilotAgent
+from agents.copilot_planner import CopilotPlanner, RuleBasedCopilotPlanner
 from agents.graph import GraphAgent
 from agents.investigation import InvestigationAgent
 from agents.knowledge import KnowledgeAgent
@@ -222,6 +223,12 @@ def build_session_store(config: AppConfig) -> SessionStore:
     return InMemorySessionStore()
 
 
+def build_copilot_planner(config: AppConfig) -> CopilotPlanner:
+    if config.planner_backend == "rule":
+        return RuleBasedCopilotPlanner()
+    raise ValueError(f"Unsupported planner backend: {config.planner_backend}")
+
+
 def build_case_service(config: AppConfig) -> CaseService:
     if config.case_store_backend == "postgres":
         return PostgresCaseService(config.postgres_dsn)
@@ -284,6 +291,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         strategy_agent=strategy_agent,
         graph_agent=graph_agent,
         risk_decision_policy=risk_decision_policy,
+        planner=build_copilot_planner(config),
     )
     runtime.register_agent(knowledge_agent)
     runtime.register_agent(investigation_agent)
