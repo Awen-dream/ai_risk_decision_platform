@@ -1,9 +1,27 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 
 from agents.base import Agent
-from core.models import AgentRequest, AgentResponse, Citation
+from agents.strategy_planner import (
+    DEFAULT_SELECTED_REASONS,
+    DEFAULT_UNSELECTED_REASONS,
+    MAX_STRATEGY_TOOLS,
+    REQUIRED_STRATEGY_TOOLS,
+    STRATEGY_TOOL_CANDIDATES,
+    RuleBasedStrategyPlanner,
+    StrategyPlanCandidate,
+    StrategyPlanner,
+)
+from core.models import (
+    AgentRequest,
+    AgentResponse,
+    Citation,
+    PlannerTraceStep,
+    ToolResult,
+    ToolTrace,
+)
 from retrieval.knowledge_base import RetrievalService
 from tools.registry import ToolRegistry
 
@@ -11,48 +29,195 @@ from tools.registry import ToolRegistry
 STRATEGY_ID_PATTERN = re.compile(r"(STRAT-\d+)", re.IGNORECASE)
 
 
+@dataclass(frozen=True)
+class ValidatedStrategyPlan:
+    selected_tools: list[str]
+    planner_trace: list[PlannerTraceStep]
+    planner_backend: str
+    fallback_used: bool
+    validation_errors: list[str]
+    candidate_tools: list[str]
+    planner_error: str
+
+    def to_artifact(self) -> dict[str, object]:
+        return {
+            "backend": self.planner_backend,
+            "fallback_used": self.fallback_used,
+            "validation_errors": list(self.validation_errors),
+            "candidate_tools": list(self.candidate_tools),
+            "planner_error": self.planner_error,
+            "final_tools": list(self.selected_tools),
+        }
+
+
 class StrategyAgent(Agent):
-    """Agent for strategy diagnosis, recommendation, and simulation summary."""
+    """Agent for strategy diagnosis with constrained tool selection."""
 
     name = "strategy"
 
-    def __init__(self, tools: ToolRegistry, retrieval: RetrievalService) -> None:
+    def __init__(
+        self,
+        tools: ToolRegistry,
+        retrieval: RetrievalService,
+        planner: StrategyPlanner | None = None,
+    ) -> None:
         self._tools = tools
         self._retrieval = retrieval
+        self._planner = planner or RuleBasedStrategyPlanner()
+        self._fallback_planner = RuleBasedStrategyPlanner()
 
     def run(self, request: AgentRequest) -> AgentResponse:
         strategy_id = self._resolve_strategy_id(request)
         response = AgentResponse(agent_name=self.name)
+        plan = self._validated_plan(request)
+        response.intent = "strategy_tool_plan"
+        response.plan_steps = list(plan.selected_tools)
+        response.planner_trace = plan.planner_trace
+        response.artifacts["strategy_plan"] = plan.to_artifact()
 
-        profile_trace = response.record_tool_trace(
-            "strategy_profile",
-            self._tools.execute("strategy_profile", strategy_id=strategy_id),
-        )
-        simulation_trace = response.record_tool_trace(
-            "strategy_simulation",
-            self._tools.execute("strategy_simulation", strategy_id=strategy_id),
-        )
-        rule_trace = response.record_tool_trace(
-            "rule_explain",
-            self._tools.execute("rule_explain", strategy_id=strategy_id),
-        )
-        profile = profile_trace.payload if profile_trace.status == "success" else None
-        simulation = simulation_trace.payload if simulation_trace.status == "success" else None
-        rule_explanation = rule_trace.payload if rule_trace.status == "success" else None
-        if profile is None:
-            impacted_entities: list[str] = []
-        else:
-            impacted_entities = list(profile.get("top_impacted_entities", []))
-        graph_relation = None
-        if impacted_entities:
-            graph_trace = response.record_tool_trace(
-                "graph_relation",
-                self._tools.execute("graph_relation", entity_id=impacted_entities[0]),
+        traces = self._execute_strategy_plan(response, strategy_id, plan.selected_tools)
+        return self._build_response(request, response, strategy_id, traces)
+
+    def _validated_plan(self, request: AgentRequest) -> ValidatedStrategyPlan:
+        candidate = self._planner.plan(request)
+        errors: list[str] = []
+        for tool_name in candidate.selected_tools:
+            if tool_name not in STRATEGY_TOOL_CANDIDATES:
+                errors.append(f"candidate selected unsupported tool: {tool_name}")
+        selected_tools = self._normalize_selected_tools(candidate.selected_tools)
+        for required_tool in REQUIRED_STRATEGY_TOOLS:
+            if required_tool not in selected_tools:
+                errors.append(f"candidate omitted required tool: {required_tool}")
+                selected_tools.insert(0, required_tool)
+                selected_tools = self._normalize_selected_tools(selected_tools)
+        if len(selected_tools) > MAX_STRATEGY_TOOLS:
+            errors.append(
+                f"candidate exceeded max tool count: {len(selected_tools)} > {MAX_STRATEGY_TOOLS}"
             )
-            if graph_trace.status == "success":
-                graph_relation = graph_trace.payload
-        else:
-            graph_trace = None
+            selected_tools = selected_tools[:MAX_STRATEGY_TOOLS]
+        if not selected_tools:
+            errors.append("candidate produced no executable tools")
+            return self._fallback_validated_plan(request, candidate, errors)
+        return ValidatedStrategyPlan(
+            selected_tools=selected_tools,
+            planner_trace=self._build_planner_trace(
+                selected_tools=selected_tools,
+                tool_reasons=candidate.tool_reasons or {},
+            ),
+            planner_backend=candidate.planner_backend,
+            fallback_used=False,
+            validation_errors=errors,
+            candidate_tools=list(candidate.selected_tools),
+            planner_error=candidate.planner_error,
+        )
+
+    def _fallback_validated_plan(
+        self,
+        request: AgentRequest,
+        candidate: StrategyPlanCandidate,
+        errors: list[str],
+    ) -> ValidatedStrategyPlan:
+        fallback = self._fallback_planner.plan(request)
+        selected_tools = self._normalize_selected_tools(fallback.selected_tools)
+        return ValidatedStrategyPlan(
+            selected_tools=selected_tools,
+            planner_trace=self._build_planner_trace(
+                selected_tools=selected_tools,
+                tool_reasons=fallback.tool_reasons or {},
+            ),
+            planner_backend=fallback.planner_backend,
+            fallback_used=True,
+            validation_errors=errors,
+            candidate_tools=list(candidate.selected_tools),
+            planner_error=candidate.planner_error,
+        )
+
+    @staticmethod
+    def _normalize_selected_tools(selected_tools: list[str]) -> list[str]:
+        selected = {tool for tool in selected_tools if tool in STRATEGY_TOOL_CANDIDATES}
+        return [tool for tool in STRATEGY_TOOL_CANDIDATES if tool in selected]
+
+    @staticmethod
+    def _build_planner_trace(
+        *,
+        selected_tools: list[str],
+        tool_reasons: dict[str, str],
+    ) -> list[PlannerTraceStep]:
+        selected = set(selected_tools)
+        traces: list[PlannerTraceStep] = []
+        for tool_name in STRATEGY_TOOL_CANDIDATES:
+            traces.append(
+                PlannerTraceStep(
+                    step=tool_name,
+                    selected=tool_name in selected,
+                    reason=tool_reasons.get(
+                        tool_name,
+                        DEFAULT_SELECTED_REASONS[tool_name]
+                        if tool_name in selected
+                        else DEFAULT_UNSELECTED_REASONS[tool_name],
+                    ),
+                )
+            )
+        return traces
+
+    def _execute_strategy_plan(
+        self,
+        response: AgentResponse,
+        strategy_id: str,
+        selected_tools: list[str],
+    ) -> dict[str, ToolTrace]:
+        traces: dict[str, ToolTrace] = {}
+        if "strategy_profile" in selected_tools:
+            traces["strategy_profile"] = response.record_tool_trace(
+                "strategy_profile",
+                self._tools.execute("strategy_profile", strategy_id=strategy_id),
+            )
+        if "strategy_simulation" in selected_tools:
+            traces["strategy_simulation"] = response.record_tool_trace(
+                "strategy_simulation",
+                self._tools.execute("strategy_simulation", strategy_id=strategy_id),
+            )
+        if "rule_explain" in selected_tools:
+            traces["rule_explain"] = response.record_tool_trace(
+                "rule_explain",
+                self._tools.execute("rule_explain", strategy_id=strategy_id),
+            )
+        if "graph_relation" in selected_tools:
+            entity_id = self._first_impacted_entity(traces.get("strategy_profile"))
+            if entity_id:
+                traces["graph_relation"] = response.record_tool_trace(
+                    "graph_relation",
+                    self._tools.execute("graph_relation", entity_id=entity_id),
+                )
+            else:
+                traces["graph_relation"] = response.record_tool_trace(
+                    "graph_relation",
+                    ToolResult.degraded_result(
+                        name="graph_relation",
+                        payload={},
+                        summary="未获取到重点影响实体",
+                        error="strategy_profile did not provide top_impacted_entities",
+                        error_type="missing_context",
+                    ),
+                )
+        return traces
+
+    def _build_response(
+        self,
+        request: AgentRequest,
+        response: AgentResponse,
+        strategy_id: str,
+        traces: dict[str, ToolTrace],
+    ) -> AgentResponse:
+        profile_trace = traces.get("strategy_profile")
+        simulation_trace = traces.get("strategy_simulation")
+        rule_trace = traces.get("rule_explain")
+        graph_trace = traces.get("graph_relation")
+        profile = profile_trace.payload if self._trace_success(profile_trace) else None
+        simulation = simulation_trace.payload if self._trace_success(simulation_trace) else None
+        rule_explanation = rule_trace.payload if self._trace_success(rule_trace) else None
+        graph_relation = graph_trace.payload if self._trace_success(graph_trace) else None
+        impacted_entities = list(profile.get("top_impacted_entities", [])) if profile else []
 
         docs = self._retrieval.search(
             f"{request.query} strategy simulation graph relation fraud ring",
@@ -132,7 +297,7 @@ class StrategyAgent(Agent):
                     f"当前问题：{profile['recent_issue']}",
                 ]
             )
-        else:
+        elif profile_trace is not None:
             response.findings.append(self._tool_status_finding("策略画像", profile_trace))
         if simulation:
             response.findings.extend(
@@ -141,7 +306,7 @@ class StrategyAgent(Agent):
                     f"收益评估：风险下降 {simulation['estimated_risk_reduction']}，收入影响 {simulation['estimated_revenue_impact']}",
                 ]
             )
-        else:
+        elif simulation_trace is not None:
             response.findings.append(self._tool_status_finding("策略仿真", simulation_trace))
         if rule_explanation:
             response.findings.extend(
@@ -150,7 +315,7 @@ class StrategyAgent(Agent):
                     f"规则变更：{rule_explanation['recent_change']}",
                 ]
             )
-        else:
+        elif rule_trace is not None:
             response.findings.append(self._tool_status_finding("规则解释", rule_trace))
         if impacted_entities:
             response.findings.append(f"重点影响实体：{', '.join(impacted_entities)}")
@@ -168,7 +333,7 @@ class StrategyAgent(Agent):
         response.suggested_actions = []
         if simulation:
             response.suggested_actions.append("先在 shadow evaluation 中验证推荐阈值")
-        else:
+        elif simulation_trace is not None:
             response.suggested_actions.append(self._tool_status_action("策略仿真", simulation_trace, strategy_id))
         if profile:
             response.suggested_actions.extend(
@@ -177,12 +342,18 @@ class StrategyAgent(Agent):
                     "如果人工投诉上升，补充相似策略和历史 Case 复核",
                 ]
             )
-        else:
+        elif profile_trace is not None:
             response.suggested_actions.append(self._tool_status_action("策略画像", profile_trace, strategy_id))
         if graph_relation:
             response.suggested_actions.append("优先核查该策略是否正在集中命中同一团伙网络，并评估是否需要分层处置")
         elif graph_trace is not None:
-            response.suggested_actions.append(self._tool_status_action("图谱关系", graph_trace, impacted_entities[0]))
+            response.suggested_actions.append(
+                self._tool_status_action(
+                    "图谱关系",
+                    graph_trace,
+                    impacted_entities[0] if impacted_entities else strategy_id,
+                )
+            )
 
         if profile and simulation:
             response.confidence = 0.81 if graph_relation or graph_trace is None else 0.72
@@ -191,6 +362,19 @@ class StrategyAgent(Agent):
         else:
             response.confidence = 0.2
         return response
+
+    @staticmethod
+    def _trace_success(trace: ToolTrace | None) -> bool:
+        return trace is not None and trace.status == "success"
+
+    @staticmethod
+    def _first_impacted_entity(profile_trace: ToolTrace | None) -> str | None:
+        if profile_trace is None or profile_trace.status != "success":
+            return None
+        impacted_entities = list(profile_trace.payload.get("top_impacted_entities", []))
+        if not impacted_entities:
+            return None
+        return str(impacted_entities[0])
 
     @staticmethod
     def _build_summary(
@@ -221,19 +405,21 @@ class StrategyAgent(Agent):
         return "STRAT-001"
 
     @staticmethod
-    def _tool_status_finding(label: str, trace) -> str:
+    def _tool_status_finding(label: str, trace: ToolTrace) -> str:
         if trace.status == "failed":
             return f"{label}：调用失败，原因 {trace.summary}"
         return f"{label}：{trace.summary}"
 
     @staticmethod
-    def _tool_status_phrase(trace, label: str) -> str:
+    def _tool_status_phrase(trace: ToolTrace | None, label: str) -> str:
+        if trace is None:
+            return f"未执行{label}"
         if trace.status == "failed":
             return f"{label}调用失败"
         return f"未获取到可用{label}"
 
     @staticmethod
-    def _tool_status_action(label: str, trace, identifier: str) -> str:
+    def _tool_status_action(label: str, trace: ToolTrace, identifier: str) -> str:
         if trace.status == "failed":
             return f"检查{label}上游服务状态与字段契约，确认 {identifier} 对应调用可恢复"
         return f"确认 {identifier} 对应的{label}数据是否已同步，必要时补齐记录后重试"

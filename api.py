@@ -175,6 +175,8 @@ class RuntimeInfoResponse(BaseModel):
     planner_source: str
     investigation_backend: str
     investigation_source: str
+    strategy_backend: str
+    strategy_source: str
     planner_openai_base_url: str
     planner_openai_model: str
     planner_openai_timeout_sec: float
@@ -187,6 +189,12 @@ class RuntimeInfoResponse(BaseModel):
     investigation_openai_reasoning_effort: str
     investigation_openai_max_output_tokens: int
     investigation_openai_api_key_source: str
+    strategy_openai_base_url: str
+    strategy_openai_model: str
+    strategy_openai_timeout_sec: float
+    strategy_openai_reasoning_effort: str
+    strategy_openai_max_output_tokens: int
+    strategy_openai_api_key_source: str
     session_store_backend: str
     session_store_path: str
     case_store_backend: str
@@ -483,6 +491,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             planner_source=container.config.planner_source(),
             investigation_backend=container.config.investigation_backend,
             investigation_source=container.config.investigation_source(),
+            strategy_backend=container.config.strategy_backend,
+            strategy_source=container.config.strategy_source(),
             planner_openai_base_url=container.config.planner_openai_base_url,
             planner_openai_model=container.config.planner_openai_model,
             planner_openai_timeout_sec=container.config.planner_openai_timeout_sec,
@@ -495,6 +505,12 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             investigation_openai_reasoning_effort=container.config.investigation_openai_reasoning_effort,
             investigation_openai_max_output_tokens=container.config.investigation_openai_max_output_tokens,
             investigation_openai_api_key_source=container.config.investigation_openai_api_key_source(),
+            strategy_openai_base_url=container.config.strategy_openai_base_url,
+            strategy_openai_model=container.config.strategy_openai_model,
+            strategy_openai_timeout_sec=container.config.strategy_openai_timeout_sec,
+            strategy_openai_reasoning_effort=container.config.strategy_openai_reasoning_effort,
+            strategy_openai_max_output_tokens=container.config.strategy_openai_max_output_tokens,
+            strategy_openai_api_key_source=container.config.strategy_openai_api_key_source(),
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,

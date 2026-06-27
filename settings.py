@@ -104,6 +104,14 @@ class AppConfig:
     investigation_openai_max_output_tokens: int = 400
     investigation_openai_api_key: str = ""
     investigation_openai_api_key_file: Optional[Path] = None
+    strategy_backend: str = "rule"
+    strategy_openai_base_url: str = "https://api.openai.com/v1"
+    strategy_openai_model: str = "gpt-4o-mini"
+    strategy_openai_timeout_sec: float = 10.0
+    strategy_openai_reasoning_effort: str = "low"
+    strategy_openai_max_output_tokens: int = 400
+    strategy_openai_api_key: str = ""
+    strategy_openai_api_key_file: Optional[Path] = None
     knowledge_dir: Path = Path("data/knowledge")
     metric_snapshot_path: Path = Path("data/risk/metric_snapshots.json")
     case_record_path: Path = Path("data/risk/case_records.json")
@@ -172,6 +180,7 @@ class AppConfig:
         postgres_dsn_file = _env_path("AI_RISK_POSTGRES_DSN_FILE")
         planner_openai_api_key_file = _env_path("AI_RISK_PLANNER_OPENAI_API_KEY_FILE")
         investigation_openai_api_key_file = _env_path("AI_RISK_INVESTIGATION_OPENAI_API_KEY_FILE")
+        strategy_openai_api_key_file = _env_path("AI_RISK_STRATEGY_OPENAI_API_KEY_FILE")
         return cls(
             knowledge_backend=os.getenv("AI_RISK_KNOWLEDGE_BACKEND", "mock"),
             tool_backend=os.getenv("AI_RISK_TOOL_BACKEND", "mock"),
@@ -223,6 +232,30 @@ class AppConfig:
                 investigation_openai_api_key_file,
             ),
             investigation_openai_api_key_file=investigation_openai_api_key_file,
+            strategy_backend=os.getenv("AI_RISK_STRATEGY_BACKEND", "rule"),
+            strategy_openai_base_url=os.getenv(
+                "AI_RISK_STRATEGY_OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ),
+            strategy_openai_model=os.getenv(
+                "AI_RISK_STRATEGY_OPENAI_MODEL",
+                "gpt-4o-mini",
+            ),
+            strategy_openai_timeout_sec=float(
+                os.getenv("AI_RISK_STRATEGY_OPENAI_TIMEOUT_SEC", "10.0")
+            ),
+            strategy_openai_reasoning_effort=os.getenv(
+                "AI_RISK_STRATEGY_OPENAI_REASONING_EFFORT",
+                "low",
+            ),
+            strategy_openai_max_output_tokens=int(
+                os.getenv("AI_RISK_STRATEGY_OPENAI_MAX_OUTPUT_TOKENS", "400")
+            ),
+            strategy_openai_api_key=_load_secret(
+                os.getenv("AI_RISK_STRATEGY_OPENAI_API_KEY", ""),
+                strategy_openai_api_key_file,
+            ),
+            strategy_openai_api_key_file=strategy_openai_api_key_file,
             knowledge_dir=Path(os.getenv("AI_RISK_KNOWLEDGE_DIR", "data/knowledge")),
             metric_snapshot_path=Path(
                 os.getenv("AI_RISK_METRIC_SNAPSHOT_PATH", "data/risk/metric_snapshots.json")
@@ -425,6 +458,14 @@ class AppConfig:
             investigation_openai_max_output_tokens=400,
             investigation_openai_api_key="",
             investigation_openai_api_key_file=None,
+            strategy_backend="rule",
+            strategy_openai_base_url="https://api.openai.com/v1",
+            strategy_openai_model="gpt-4o-mini",
+            strategy_openai_timeout_sec=10.0,
+            strategy_openai_reasoning_effort="low",
+            strategy_openai_max_output_tokens=400,
+            strategy_openai_api_key="",
+            strategy_openai_api_key_file=None,
             knowledge_dir=Path("data/knowledge"),
             metric_snapshot_path=Path("data/risk/metric_snapshots.json"),
             case_record_path=Path("data/risk/case_records.json"),
@@ -548,6 +589,16 @@ class AppConfig:
         if self.investigation_openai_api_key_file is not None:
             return "file"
         if self.investigation_openai_api_key:
+            return "env"
+        return "none"
+
+    def strategy_source(self) -> str:
+        return self.strategy_backend
+
+    def strategy_openai_api_key_source(self) -> str:
+        if self.strategy_openai_api_key_file is not None:
+            return "file"
+        if self.strategy_openai_api_key:
             return "env"
         return "none"
 

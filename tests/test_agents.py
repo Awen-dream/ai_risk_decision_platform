@@ -9,6 +9,8 @@ from agents.copilot import CopilotAgent
 from agents.copilot_planner import CopilotPlanCandidate, CopilotPlanner
 from agents.investigation import InvestigationAgent
 from agents.investigation_planner import InvestigationPlanCandidate, InvestigationPlanner
+from agents.strategy import StrategyAgent
+from agents.strategy_planner import StrategyPlanCandidate, StrategyPlanner
 from app import build_demo_runtime, build_runtime
 from core.models import AgentRequest, ToolResult
 from retrieval.knowledge_base import RetrievalService
@@ -33,6 +35,16 @@ class StaticInvestigationPlanner(InvestigationPlanner):
         self._candidate = candidate
 
     def plan(self, request: AgentRequest) -> InvestigationPlanCandidate:
+        return self._candidate
+
+
+class StaticStrategyPlanner(StrategyPlanner):
+    name = "static"
+
+    def __init__(self, candidate: StrategyPlanCandidate) -> None:
+        self._candidate = candidate
+
+    def plan(self, request: AgentRequest) -> StrategyPlanCandidate:
         return self._candidate
 
 
@@ -255,10 +267,51 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name == "rule_explain" for trace in response.tool_traces))
         self.assertTrue(any("图谱风险" in finding for finding in response.findings))
         self.assertEqual(
+            response.plan_steps,
+            ["strategy_profile", "strategy_simulation", "graph_relation", "rule_explain"],
+        )
+        self.assertEqual(
             response.artifacts["strategy_recommendation"]["strategy_id"],
             "STRAT-001",
         )
         self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
+
+    def test_strategy_agent_validates_candidate_tools_and_inserts_required_anchors(self) -> None:
+        planner = StaticStrategyPlanner(
+            StrategyPlanCandidate(
+                selected_tools=["unsupported_tool", "rule_explain"],
+                tool_reasons={"rule_explain": "只想解释规则。"},
+                planner_backend="static",
+            )
+        )
+        agent = StrategyAgent(
+            self.runtime._agents["strategy"]._tools,
+            RetrievalService(),
+            planner=planner,
+        )
+
+        response = agent.run(
+            AgentRequest(
+                query="请评估策略 STRAT-001 是否应该调整阈值",
+                context={"strategy_id": "STRAT-001"},
+            )
+        )
+
+        self.assertEqual(response.plan_steps, ["strategy_profile", "strategy_simulation", "rule_explain"])
+        self.assertFalse(response.artifacts["strategy_plan"]["fallback_used"])
+        self.assertIn(
+            "candidate selected unsupported tool: unsupported_tool",
+            response.artifacts["strategy_plan"]["validation_errors"],
+        )
+        self.assertIn(
+            "candidate omitted required tool: strategy_profile",
+            response.artifacts["strategy_plan"]["validation_errors"],
+        )
+        self.assertIn(
+            "candidate omitted required tool: strategy_simulation",
+            response.artifacts["strategy_plan"]["validation_errors"],
+        )
+        self.assertFalse(any(trace.name == "graph_relation" for trace in response.tool_traces))
 
     def test_strategy_agent_degrades_when_strategy_is_missing(self) -> None:
         _, response = self.runtime.execute(

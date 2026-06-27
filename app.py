@@ -30,6 +30,11 @@ from agents.investigation_planner import (
 )
 from agents.knowledge import KnowledgeAgent
 from agents.strategy import StrategyAgent
+from agents.strategy_planner import (
+    OpenAIStrategyPlanner,
+    RuleBasedStrategyPlanner,
+    StrategyPlanner,
+)
 from clients.file import (
     JsonCaseRecordClient,
     JsonDashboardSnapshotClient,
@@ -324,6 +329,21 @@ def build_investigation_planner(config: AppConfig) -> InvestigationPlanner:
     raise ValueError(f"Unsupported investigation backend: {config.investigation_backend}")
 
 
+def build_strategy_planner(config: AppConfig) -> StrategyPlanner:
+    if config.strategy_backend == "rule":
+        return RuleBasedStrategyPlanner()
+    if config.strategy_backend == "openai":
+        return OpenAIStrategyPlanner(
+            api_key=config.strategy_openai_api_key,
+            model=config.strategy_openai_model,
+            base_url=config.strategy_openai_base_url,
+            timeout_sec=config.strategy_openai_timeout_sec,
+            reasoning_effort=config.strategy_openai_reasoning_effort,
+            max_output_tokens=config.strategy_openai_max_output_tokens,
+        )
+    raise ValueError(f"Unsupported strategy backend: {config.strategy_backend}")
+
+
 def build_case_service(config: AppConfig) -> CaseService:
     if config.case_store_backend == "postgres":
         return PostgresCaseService(config.postgres_dsn)
@@ -378,7 +398,11 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         retrieval,
         planner=build_investigation_planner(config),
     )
-    strategy_agent = StrategyAgent(tools, retrieval)
+    strategy_agent = StrategyAgent(
+        tools,
+        retrieval,
+        planner=build_strategy_planner(config),
+    )
     graph_agent = GraphAgent(tools, retrieval)
     risk_decision_policy = (
         RiskDecisionPolicy.from_file(config.risk_decision_policy_path)
