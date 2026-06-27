@@ -26,6 +26,35 @@ Counters ending in `requests_total` and `executions_total` count started
 operations exactly once. Completion and failure counters are separate, so they
 can safely be used as SLO numerators without double-counting the denominator.
 
+## Planner and Tool Quality
+
+V2 planner quality metrics are emitted after each agent turn when the response
+contains a planner artifact. They are available in both `/admin/metrics` and
+Prometheus:
+
+- `agent.planner.plans.total`: total planned turns across copilot,
+  investigation, and strategy.
+- `agent.planner.plans.by_agent.<agent>`: planned turns per agent.
+- `agent.planner.plans.by_backend.<backend>`: rule, OpenAI, or fallback planner
+  usage.
+- `agent.planner.fallbacks.total`: planner calls that fell back to the rule
+  plan.
+- `agent.planner.validation_errors.total`: rejected or repaired candidate-plan
+  issues, such as missing required tools or unsupported tools.
+- `agent.planner.last_selected_step_count.by_agent.<agent>`: last selected
+  plan width for the agent.
+- `agent.tools.executions.by_status.<status>`: tool execution outcomes across
+  success, degraded, and failed traces.
+
+Suggested trial-run guardrails:
+
+| Signal | Trial-run objective |
+| --- | --- |
+| Planner fallback rate | < 5% over 30 minutes |
+| Planner validation error rate | < 2% over 30 minutes |
+| Tool failed trace rate | < 1% over 10 minutes |
+| Tool degraded trace rate | Investigate any sustained increase |
+
 ## Prometheus Alert Baseline
 
 Deployable alert rules live in

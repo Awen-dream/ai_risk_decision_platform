@@ -580,14 +580,20 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             ],
             observability={
                 "json_metrics_path": "/admin/metrics",
-            "prometheus_metrics_path": "/metrics",
-            "upstream_audit_path": "/admin/audit-events",
-            "upstream_audit_integrity_path": "/admin/audit-integrity",
-            "duration_histograms": [
-                "http.request.duration_seconds",
-                "agent.execution.duration_seconds",
+                "prometheus_metrics_path": "/metrics",
+                "upstream_audit_path": "/admin/audit-events",
+                "upstream_audit_integrity_path": "/admin/audit-integrity",
+                "duration_histograms": [
+                    "http.request.duration_seconds",
+                    "agent.execution.duration_seconds",
                     "upstream.http.request.duration_seconds",
                     "database.sqlite.transaction.duration_seconds",
+                ],
+                "planner_quality_counters": [
+                    "agent.planner.plans.total",
+                    "agent.planner.fallbacks.total",
+                    "agent.planner.validation_errors.total",
+                    "agent.tools.executions.total",
                 ],
                 "slo_baseline": "docs/observability-slo.md",
             },

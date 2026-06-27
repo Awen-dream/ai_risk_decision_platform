@@ -5,7 +5,7 @@ import time
 from agents.base import Agent
 from core.models import AgentRequest, AgentResponse
 from core.session_store import InMemorySessionStore, SessionStore
-from services.observability import bind_context, emit_event
+from services.observability import bind_context, emit_event, increment_counter, set_gauge
 
 
 class AgentRuntime:
@@ -57,6 +57,7 @@ class AgentRuntime:
                 tool_trace_count=len(response.tool_traces),
                 duration_seconds=time.perf_counter() - started_at,
             )
+            self._record_response_metrics(agent_name, response)
         return session.session_id, response
 
     def create_session(self) -> str:
@@ -67,3 +68,63 @@ class AgentRuntime:
 
     def get_session(self, session_id: str):
         return self._session_store.get_session(session_id)
+
+    @staticmethod
+    def _record_response_metrics(agent_name: str, response: AgentResponse) -> None:
+        planner_artifact = AgentRuntime._planner_artifact(response)
+        if planner_artifact is not None:
+            backend = str(planner_artifact.get("backend") or "unknown")
+            validation_errors = planner_artifact.get("validation_errors") or []
+            validation_error_count = (
+                len(validation_errors) if isinstance(validation_errors, list) else 0
+            )
+            increment_counter("agent.planner.plans.total")
+            increment_counter(f"agent.planner.plans.by_agent.{agent_name}")
+            increment_counter(f"agent.planner.plans.by_backend.{backend}")
+            increment_counter("agent.planner.selected_steps.total", len(response.plan_steps))
+            increment_counter(
+                f"agent.planner.selected_steps.by_agent.{agent_name}",
+                len(response.plan_steps),
+            )
+            if planner_artifact.get("fallback_used"):
+                increment_counter("agent.planner.fallbacks.total")
+                increment_counter(f"agent.planner.fallbacks.by_agent.{agent_name}")
+            if validation_error_count:
+                increment_counter("agent.planner.validation_errors.total", validation_error_count)
+                increment_counter(
+                    f"agent.planner.validation_errors.by_agent.{agent_name}",
+                    validation_error_count,
+                )
+            set_gauge(
+                f"agent.planner.last_selected_step_count.by_agent.{agent_name}",
+                float(len(response.plan_steps)),
+            )
+            set_gauge(
+                f"agent.planner.last_validation_error_count.by_agent.{agent_name}",
+                float(validation_error_count),
+            )
+
+        if response.tool_traces:
+            increment_counter("agent.tools.executions.total", len(response.tool_traces))
+            increment_counter(
+                f"agent.tools.executions.by_agent.{agent_name}",
+                len(response.tool_traces),
+            )
+            for trace in response.tool_traces:
+                status = trace.status or "unknown"
+                increment_counter(f"agent.tools.executions.by_status.{status}")
+                increment_counter(
+                    f"agent.tools.executions.by_agent.{agent_name}.by_status.{status}"
+                )
+            set_gauge(
+                f"agent.tools.last_trace_count.by_agent.{agent_name}",
+                float(len(response.tool_traces)),
+            )
+
+    @staticmethod
+    def _planner_artifact(response: AgentResponse) -> dict | None:
+        for artifact_name in ("planner", "investigation_plan", "strategy_plan"):
+            artifact = response.artifacts.get(artifact_name)
+            if isinstance(artifact, dict):
+                return artifact
+        return None

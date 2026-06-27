@@ -502,6 +502,34 @@ class AgentApiTests(unittest.TestCase):
         self.assertIn("http.request.duration_seconds", payload["histograms"])
         self.assertIn("agent.execution.duration_seconds", payload["histograms"])
 
+    def test_metrics_endpoint_reports_planner_and_tool_quality_counters(self) -> None:
+        self.client.post(
+            "/agents/strategy",
+            json={
+                "query": "请评估策略 STRAT-001 是否应该调整阈值",
+                "context": {"strategy_id": "STRAT-001"},
+            },
+        )
+
+        response = self.client.get("/admin/metrics")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["counters"]["agent.planner.plans.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.planner.plans.by_agent.strategy"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.planner.plans.by_backend.rule"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.tools.executions.by_agent.strategy"], 4)
+        self.assertGreaterEqual(payload["counters"]["agent.tools.executions.by_status.success"], 4)
+        self.assertEqual(
+            payload["gauges"]["agent.planner.last_selected_step_count.by_agent.strategy"],
+            4.0,
+        )
+        self.assertEqual(
+            payload["gauges"]["agent.planner.last_validation_error_count.by_agent.strategy"],
+            0.0,
+        )
+        self.assertEqual(payload["gauges"]["agent.tools.last_trace_count.by_agent.strategy"], 4.0)
+
     def test_prometheus_metrics_endpoint_exposes_standard_format(self) -> None:
         self.client.post(
             "/agents/knowledge",
