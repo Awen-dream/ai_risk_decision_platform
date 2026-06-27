@@ -55,6 +55,42 @@ Suggested trial-run guardrails:
 | Tool failed trace rate | < 1% over 10 minutes |
 | Tool degraded trace rate | Investigate any sustained increase |
 
+Planner fallback rate:
+
+```promql
+sum(increase(ai_risk_agent_planner_fallbacks_total[30m]))
+/
+clamp_min(sum(increase(ai_risk_agent_planner_plans_total[30m])), 1)
+> 0.05
+```
+
+Planner validation error rate:
+
+```promql
+sum(increase(ai_risk_agent_planner_validation_errors_total[30m]))
+/
+clamp_min(sum(increase(ai_risk_agent_planner_plans_total[30m])), 1)
+> 0.02
+```
+
+Tool failed trace rate:
+
+```promql
+sum(increase(ai_risk_agent_tools_executions_by_status_failed_total[10m]))
+/
+clamp_min(sum(increase(ai_risk_agent_tools_executions_total[10m])), 1)
+> 0.01
+```
+
+Tool degraded trace rate:
+
+```promql
+sum(increase(ai_risk_agent_tools_executions_by_status_degraded_total[10m]))
+/
+clamp_min(sum(increase(ai_risk_agent_tools_executions_total[10m])), 1)
+> 0.05
+```
+
 ## Prometheus Alert Baseline
 
 Deployable alert rules live in

@@ -23,6 +23,10 @@ REQUIRED_ALERTS = [
     "AIRiskUpstreamCircuitOpen",
     "AIRiskAuditWriteFailure",
     "AIRiskAdminUnauthorizedSpike",
+    "AIRiskPlannerHighFallbackRate",
+    "AIRiskPlannerHighValidationErrorRate",
+    "AIRiskToolHighFailedTraceRate",
+    "AIRiskToolHighDegradedTraceRate",
 ]
 
 

@@ -97,3 +97,51 @@ groups:
           severity: warn
         annotations:
           summary: "AI Risk admin endpoint unauthorized requests spiked"
+
+      - alert: AIRiskPlannerHighFallbackRate
+        expr: |
+          sum(increase(ai_risk_agent_planner_fallbacks_total[30m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_planner_plans_total[30m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk planner fallback rate is above 5%"
+
+      - alert: AIRiskPlannerHighValidationErrorRate
+        expr: |
+          sum(increase(ai_risk_agent_planner_validation_errors_total[30m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_planner_plans_total[30m])), 1)
+          > 0.02
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk planner validation error rate is above 2%"
+
+      - alert: AIRiskToolHighFailedTraceRate
+        expr: |
+          sum(increase(ai_risk_agent_tools_executions_by_status_failed_total[10m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_tools_executions_total[10m])), 1)
+          > 0.01
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "AI Risk tool failed trace rate is above 1%"
+
+      - alert: AIRiskToolHighDegradedTraceRate
+        expr: |
+          sum(increase(ai_risk_agent_tools_executions_by_status_degraded_total[10m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_tools_executions_total[10m])), 1)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk tool degraded trace rate is above 5%"

@@ -27,6 +27,8 @@ class ReadinessValidationTests(unittest.TestCase):
         detail = validate_alert_rules_file(Path("config/prometheus/ai-risk-alerts.yml"))
 
         self.assertIn(str(len(REQUIRED_ALERTS)), detail)
+        self.assertIn("AIRiskPlannerHighFallbackRate", REQUIRED_ALERTS)
+        self.assertIn("AIRiskToolHighFailedTraceRate", REQUIRED_ALERTS)
 
     def test_runtime_security_requires_admin_token_file(self) -> None:
         payload = {
