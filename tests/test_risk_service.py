@@ -77,6 +77,49 @@ class RiskServiceApiTests(unittest.TestCase):
         self.assertEqual(payload["risk_level"], "high")
         self.assertEqual(payload["community_size"], 5)
 
+    def test_sql_query_endpoint(self) -> None:
+        response = self.client.get(
+            "/sql-queries/metric_breakdown",
+            params={
+                "country": "BR",
+                "channel": "credit_card",
+                "time_range": "recent_24h",
+                "limit": 2,
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["query_name"], "metric_breakdown")
+        self.assertEqual(payload["row_count"], 2)
+        self.assertEqual(payload["limit"], 2)
+        self.assertEqual(len(payload["rows"]), 2)
+
+    def test_dashboard_snapshot_endpoint(self) -> None:
+        response = self.client.get(
+            "/dashboard-snapshots/risk_overview",
+            params={"country": "BR", "channel": "credit_card", "time_range": "recent_24h"},
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["dashboard_id"], "risk_overview")
+        self.assertEqual(payload["trend"], "up")
+        self.assertIn("device_risk", payload["recommended_drilldowns"])
+
+    def test_rule_explanations_endpoint(self) -> None:
+        response = self.client.get(
+            "/rule-explanations",
+            params={"strategy_id": "STRAT-001"},
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["subject_id"], "STRAT-001")
+        self.assertEqual(payload["subject_type"], "strategy")
+        self.assertEqual(payload["strategy_id"], "STRAT-001")
+        self.assertTrue(payload["hit_rules"])
+
     def test_not_found_cases(self) -> None:
         metric_response = self.client.get(
             "/metric-snapshots",
@@ -88,11 +131,31 @@ class RiskServiceApiTests(unittest.TestCase):
         )
         order_response = self.client.get("/order-profiles/MISSING")
         graph_response = self.client.get("/graph-relations/MISSING")
+        sql_response = self.client.get(
+            "/sql-queries/metric_breakdown",
+            params={"country": "JP", "channel": "wallet", "time_range": "recent_24h"},
+        )
+        dashboard_response = self.client.get(
+            "/dashboard-snapshots/risk_overview",
+            params={"country": "JP", "channel": "wallet", "time_range": "recent_24h"},
+        )
+        rule_response = self.client.get(
+            "/rule-explanations",
+            params={"strategy_id": "MISSING"},
+        )
 
         self.assertEqual(metric_response.status_code, 404)
         self.assertEqual(case_response.status_code, 404)
         self.assertEqual(order_response.status_code, 404)
         self.assertEqual(graph_response.status_code, 404)
+        self.assertEqual(sql_response.status_code, 404)
+        self.assertEqual(dashboard_response.status_code, 404)
+        self.assertEqual(rule_response.status_code, 404)
+
+    def test_rule_explanations_requires_lookup_key(self) -> None:
+        response = self.client.get("/rule-explanations")
+
+        self.assertEqual(response.status_code, 400)
 
     def test_fault_control_endpoint_is_disabled_by_default(self) -> None:
         response = self.client.get("/admin/faults")

@@ -56,6 +56,9 @@ class StagingValidationTests(unittest.TestCase):
                 "strategy_profile",
                 "strategy_simulation",
                 "graph_relation",
+                "sql_query",
+                "dashboard_snapshot",
+                "rule_explain",
             ],
             "readiness": {"status": "ready"},
         }

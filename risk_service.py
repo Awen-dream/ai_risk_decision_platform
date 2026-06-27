@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -9,9 +9,12 @@ from pydantic import BaseModel, Field
 
 from clients.file import (
     JsonCaseRecordClient,
+    JsonDashboardSnapshotClient,
     JsonGraphRelationClient,
     JsonMetricSnapshotSqlClient,
     JsonOrderProfileClient,
+    JsonRuleExplainClient,
+    JsonSqlQueryClient,
     JsonStrategyProfileClient,
     JsonStrategySimulationClient,
 )
@@ -86,6 +89,60 @@ class GraphRelationResponse(BaseModel):
     risk_reason: str
 
 
+class SqlQueryRowResponse(BaseModel):
+    segment: str
+    current_value: str
+    baseline_value: str
+    delta: str
+
+
+class SqlQueryResponse(BaseModel):
+    query_name: str
+    country: str
+    channel: str
+    time_range: str
+    description: str
+    columns: List[str]
+    rows: List[SqlQueryRowResponse]
+    row_count: int
+    limit: int
+
+
+class DashboardSnapshotResponse(BaseModel):
+    dashboard_id: str
+    title: str
+    country: str
+    channel: str
+    time_range: str
+    metric_name: str
+    current_value: str
+    baseline_value: str
+    trend: str
+    largest_segment: str
+    largest_segment_change: str
+    recommended_drilldowns: List[str]
+
+
+class RuleHitResponse(BaseModel):
+    rule_id: str
+    rule_name: str
+    feature: str
+    operator: str
+    threshold: Union[str, int, float]
+    actual_value: Union[str, int, float]
+
+
+class RuleExplanationResponse(BaseModel):
+    subject_id: str
+    subject_type: str
+    strategy_id: str
+    decision: str
+    explanation: str
+    recent_change: str
+    owner: str
+    hit_rules: List[RuleHitResponse]
+
+
 class FaultRuleRequest(BaseModel):
     target_path: str = Field(..., min_length=1)
     status_code: int = Field(default=503, ge=400, le=599)
@@ -101,6 +158,9 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
     strategy_client = JsonStrategyProfileClient(config.strategy_profile_path)
     simulation_client = JsonStrategySimulationClient(config.strategy_simulation_path)
     graph_client = JsonGraphRelationClient(config.graph_relation_path)
+    sql_query_client = JsonSqlQueryClient(config.sql_query_result_path)
+    dashboard_client = JsonDashboardSnapshotClient(config.dashboard_snapshot_path)
+    rule_explain_client = JsonRuleExplainClient(config.rule_explanation_path)
     fault_controller = FaultController()
 
     fastapi_app = FastAPI(
@@ -211,6 +271,67 @@ def create_risk_service_app(config: Optional[AppConfig] = None) -> FastAPI:
         if relation is None:
             raise HTTPException(status_code=404, detail="Graph relation not found")
         return GraphRelationResponse(**relation)
+
+    @fastapi_app.get("/sql-queries/{query_name}", response_model=SqlQueryResponse)
+    def get_sql_query(
+        query_name: str,
+        country: str = Query(..., min_length=2),
+        channel: str = Query(..., min_length=2),
+        time_range: str = Query("recent_24h", min_length=3),
+        limit: int = Query(50, ge=1, le=500),
+    ) -> SqlQueryResponse:
+        result = sql_query_client.fetch_sql_query(
+            query_name=query_name,
+            parameters={
+                "country": country.upper(),
+                "channel": channel.lower(),
+                "time_range": time_range,
+            },
+            limit=limit,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="SQL query result not found")
+        return SqlQueryResponse(**result)
+
+    @fastapi_app.get(
+        "/dashboard-snapshots/{dashboard_id}",
+        response_model=DashboardSnapshotResponse,
+    )
+    def get_dashboard_snapshot(
+        dashboard_id: str,
+        country: str = Query(..., min_length=2),
+        channel: str = Query(..., min_length=2),
+        time_range: str = Query("recent_24h", min_length=3),
+    ) -> DashboardSnapshotResponse:
+        snapshot = dashboard_client.fetch_dashboard_snapshot(
+            dashboard_id=dashboard_id,
+            country=country.upper(),
+            channel=channel.lower(),
+            time_range=time_range,
+        )
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Dashboard snapshot not found")
+        return DashboardSnapshotResponse(**snapshot)
+
+    @fastapi_app.get("/rule-explanations", response_model=RuleExplanationResponse)
+    def get_rule_explanation(
+        rule_id: Optional[str] = Query(None),
+        order_id: Optional[str] = Query(None),
+        strategy_id: Optional[str] = Query(None),
+    ) -> RuleExplanationResponse:
+        if not any((rule_id, order_id, strategy_id)):
+            raise HTTPException(
+                status_code=400,
+                detail="rule_id, order_id, or strategy_id is required",
+            )
+        explanation = rule_explain_client.fetch_rule_explanation(
+            rule_id=rule_id,
+            order_id=order_id,
+            strategy_id=strategy_id,
+        )
+        if explanation is None:
+            raise HTTPException(status_code=404, detail="Rule explanation not found")
+        return RuleExplanationResponse(**explanation)
 
     return fastapi_app
 
