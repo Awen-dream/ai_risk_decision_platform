@@ -124,37 +124,14 @@ def run_planner_eval(
     eval_cases = cases or list(DEFAULT_EVAL_CASES)
     eval_thresholds = thresholds or PlannerEvalThresholds()
     results = [_run_case(runtime, case) for case in eval_cases]
-    total = len(results)
-    passed = sum(result.status == "passed" for result in results)
-    intent_cases = [result for result in results if result.intent_matched is not None]
-    intent_passed = sum(result.intent_matched is True for result in intent_cases)
-    summary = {
-        "total": total,
-        "passed": passed,
-        "failed": total - passed,
-        "intent_accuracy": _ratio(intent_passed, len(intent_cases)),
-        "plan_step_accuracy": _ratio(
-            sum(result.plan_steps_matched for result in results),
-            total,
-        ),
-        "tool_coverage_rate": _ratio(
-            sum(result.tool_coverage_matched for result in results),
-            total,
-        ),
-        "no_fallback_rate": _ratio(
-            sum(not result.fallback_used for result in results),
-            total,
-        ),
-        "no_validation_error_rate": _ratio(
-            sum(result.validation_error_count == 0 for result in results),
-            total,
-        ),
-    }
+    summary = _summarize_results(results)
     threshold_failures = _threshold_failures(summary, eval_thresholds)
     report = {
-        "status": "passed" if passed == total and not threshold_failures else "failed",
+        "status": "passed" if summary["failed"] == 0 and not threshold_failures else "failed",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "summary": summary,
+        "by_agent": _summarize_by_agent(results),
+        "by_backend": _summarize_by_backend(results),
         "thresholds": asdict(eval_thresholds),
         "threshold_failures": threshold_failures,
         "cases": [asdict(result) for result in results],
@@ -243,6 +220,55 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 1.0
     return numerator / denominator
+
+
+def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
+    total = len(results)
+    passed = sum(result.status == "passed" for result in results)
+    intent_cases = [result for result in results if result.intent_matched is not None]
+    intent_passed = sum(result.intent_matched is True for result in intent_cases)
+    return {
+        "total": total,
+        "passed": passed,
+        "failed": total - passed,
+        "intent_accuracy": _ratio(intent_passed, len(intent_cases)),
+        "plan_step_accuracy": _ratio(
+            sum(result.plan_steps_matched for result in results),
+            total,
+        ),
+        "tool_coverage_rate": _ratio(
+            sum(result.tool_coverage_matched for result in results),
+            total,
+        ),
+        "no_fallback_rate": _ratio(
+            sum(not result.fallback_used for result in results),
+            total,
+        ),
+        "no_validation_error_rate": _ratio(
+            sum(result.validation_error_count == 0 for result in results),
+            total,
+        ),
+    }
+
+
+def _summarize_by_agent(results: list[PlannerEvalCaseResult]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[PlannerEvalCaseResult]] = {}
+    for result in results:
+        grouped.setdefault(result.agent_name, []).append(result)
+    return {
+        agent_name: _summarize_results(agent_results)
+        for agent_name, agent_results in sorted(grouped.items())
+    }
+
+
+def _summarize_by_backend(results: list[PlannerEvalCaseResult]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[PlannerEvalCaseResult]] = {}
+    for result in results:
+        grouped.setdefault(result.planner_backend, []).append(result)
+    return {
+        backend: _summarize_results(backend_results)
+        for backend, backend_results in sorted(grouped.items())
+    }
 
 
 def _case_from_payload(payload: Any, index: int) -> PlannerEvalCase:

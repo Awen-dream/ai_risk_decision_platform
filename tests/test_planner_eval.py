@@ -28,6 +28,10 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(report["summary"]["tool_coverage_rate"], 1.0)
         self.assertEqual(report["summary"]["no_fallback_rate"], 1.0)
         self.assertEqual(report["summary"]["no_validation_error_rate"], 1.0)
+        self.assertEqual(report["by_agent"]["copilot"]["total"], 2)
+        self.assertEqual(report["by_agent"]["investigation"]["total"], 2)
+        self.assertEqual(report["by_agent"]["strategy"]["total"], 1)
+        self.assertEqual(report["by_backend"]["rule"]["total"], 5)
         self.assertEqual(report["threshold_failures"], [])
 
     def test_planner_eval_reports_failed_golden_case(self) -> None:
@@ -47,6 +51,8 @@ class PlannerEvalTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertEqual(report["summary"]["plan_step_accuracy"], 0.0)
+        self.assertEqual(report["by_agent"]["investigation"]["failed"], 1)
+        self.assertEqual(report["by_backend"]["rule"]["failed"], 1)
         self.assertFalse(report["cases"][0]["plan_steps_matched"])
         self.assertEqual(
             report["cases"][0]["actual_plan_steps"],

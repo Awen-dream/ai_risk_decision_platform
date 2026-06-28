@@ -46,6 +46,8 @@ The report includes:
 - `tool_coverage_rate`: expected tool trace coverage.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
+- `by_agent`: the same quality summary grouped by agent.
+- `by_backend`: the same quality summary grouped by planner backend.
 - `thresholds`: configured minimum rates for the current run.
 - `threshold_failures`: any metrics below the configured thresholds.
 
