@@ -17,6 +17,20 @@ make validate-planner-eval \
   PLANNER_EVAL_ARGS="--output .data/reports/planner-eval.json"
 ```
 
+Run a custom golden set:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--cases-file config/planner-eval/golden-cases.example.json"
+```
+
+Relax or tighten gates explicitly:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--min-plan-step-accuracy 0.98 --min-tool-coverage-rate 1.0"
+```
+
 The default suite checks:
 
 - `copilot` composite routing for order + strategy + graph analysis.
@@ -32,6 +46,26 @@ The report includes:
 - `tool_coverage_rate`: expected tool trace coverage.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
+- `thresholds`: configured minimum rates for the current run.
+- `threshold_failures`: any metrics below the configured thresholds.
+
+Custom cases use this JSON shape:
+
+```json
+{
+  "cases": [
+    {
+      "name": "investigation_metric_default",
+      "agent_name": "investigation",
+      "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+      "context": {"country": "BR", "channel": "credit_card"},
+      "expected_intent": "metric_investigation",
+      "expected_plan_steps": ["metric_snapshot", "case_lookup", "dashboard_snapshot"],
+      "expected_tool_traces": ["metric_snapshot", "case_lookup", "dashboard_snapshot"]
+    }
+  ]
+}
+```
 
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus

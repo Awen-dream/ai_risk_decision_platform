@@ -23,6 +23,15 @@ class PlannerEvalCase:
     expected_tool_trace_prefixes: list[str] | None = None
 
 
+@dataclass(frozen=True)
+class PlannerEvalThresholds:
+    min_intent_accuracy: float = 1.0
+    min_plan_step_accuracy: float = 1.0
+    min_tool_coverage_rate: float = 1.0
+    min_no_fallback_rate: float = 1.0
+    min_no_validation_error_rate: float = 1.0
+
+
 @dataclass
 class PlannerEvalCaseResult:
     name: str
@@ -109,42 +118,59 @@ DEFAULT_EVAL_CASES = [
 
 def run_planner_eval(
     cases: list[PlannerEvalCase] | None = None,
+    thresholds: PlannerEvalThresholds | None = None,
 ) -> dict[str, Any]:
     runtime = build_demo_runtime()
     eval_cases = cases or list(DEFAULT_EVAL_CASES)
+    eval_thresholds = thresholds or PlannerEvalThresholds()
     results = [_run_case(runtime, case) for case in eval_cases]
     total = len(results)
     passed = sum(result.status == "passed" for result in results)
     intent_cases = [result for result in results if result.intent_matched is not None]
     intent_passed = sum(result.intent_matched is True for result in intent_cases)
+    summary = {
+        "total": total,
+        "passed": passed,
+        "failed": total - passed,
+        "intent_accuracy": _ratio(intent_passed, len(intent_cases)),
+        "plan_step_accuracy": _ratio(
+            sum(result.plan_steps_matched for result in results),
+            total,
+        ),
+        "tool_coverage_rate": _ratio(
+            sum(result.tool_coverage_matched for result in results),
+            total,
+        ),
+        "no_fallback_rate": _ratio(
+            sum(not result.fallback_used for result in results),
+            total,
+        ),
+        "no_validation_error_rate": _ratio(
+            sum(result.validation_error_count == 0 for result in results),
+            total,
+        ),
+    }
+    threshold_failures = _threshold_failures(summary, eval_thresholds)
     report = {
-        "status": "passed" if passed == total else "failed",
+        "status": "passed" if passed == total and not threshold_failures else "failed",
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "summary": {
-            "total": total,
-            "passed": passed,
-            "failed": total - passed,
-            "intent_accuracy": _ratio(intent_passed, len(intent_cases)),
-            "plan_step_accuracy": _ratio(
-                sum(result.plan_steps_matched for result in results),
-                total,
-            ),
-            "tool_coverage_rate": _ratio(
-                sum(result.tool_coverage_matched for result in results),
-                total,
-            ),
-            "no_fallback_rate": _ratio(
-                sum(not result.fallback_used for result in results),
-                total,
-            ),
-            "no_validation_error_rate": _ratio(
-                sum(result.validation_error_count == 0 for result in results),
-                total,
-            ),
-        },
+        "summary": summary,
+        "thresholds": asdict(eval_thresholds),
+        "threshold_failures": threshold_failures,
         "cases": [asdict(result) for result in results],
     }
     return report
+
+
+def load_eval_cases(path: Path) -> list[PlannerEvalCase]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, dict):
+        raw_cases = payload.get("cases")
+    else:
+        raw_cases = payload
+    if not isinstance(raw_cases, list) or not raw_cases:
+        raise ValueError("planner eval cases file must contain a non-empty cases list")
+    return [_case_from_payload(item, index) for index, item in enumerate(raw_cases)]
 
 
 def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
@@ -219,12 +245,91 @@ def _ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator
 
 
+def _case_from_payload(payload: Any, index: int) -> PlannerEvalCase:
+    if not isinstance(payload, dict):
+        raise ValueError(f"planner eval case at index {index} must be an object")
+    required_fields = ("name", "agent_name", "query", "expected_plan_steps")
+    missing = [field for field in required_fields if field not in payload]
+    if missing:
+        raise ValueError(f"planner eval case at index {index} missing fields: {missing}")
+    context = payload.get("context", {})
+    if not isinstance(context, dict):
+        raise ValueError(f"planner eval case {payload['name']} context must be an object")
+    return PlannerEvalCase(
+        name=str(payload["name"]),
+        agent_name=str(payload["agent_name"]),
+        query=str(payload["query"]),
+        context=dict(context),
+        expected_intent=_optional_str(payload.get("expected_intent")),
+        expected_plan_steps=_string_list(payload["expected_plan_steps"], "expected_plan_steps"),
+        expected_tool_traces=_optional_string_list(
+            payload.get("expected_tool_traces"),
+            "expected_tool_traces",
+        ),
+        expected_tool_trace_prefixes=_optional_string_list(
+            payload.get("expected_tool_trace_prefixes"),
+            "expected_tool_trace_prefixes",
+        ),
+    )
+
+
+def _threshold_failures(
+    summary: dict[str, Any],
+    thresholds: PlannerEvalThresholds,
+) -> list[str]:
+    checks = {
+        "intent_accuracy": thresholds.min_intent_accuracy,
+        "plan_step_accuracy": thresholds.min_plan_step_accuracy,
+        "tool_coverage_rate": thresholds.min_tool_coverage_rate,
+        "no_fallback_rate": thresholds.min_no_fallback_rate,
+        "no_validation_error_rate": thresholds.min_no_validation_error_rate,
+    }
+    failures: list[str] = []
+    for metric_name, minimum in checks.items():
+        actual = float(summary.get(metric_name, 0.0))
+        if actual < minimum:
+            failures.append(f"{metric_name}={actual:.4f} < {minimum:.4f}")
+    return failures
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_string_list(value: Any, field_name: str) -> list[str] | None:
+    if value is None:
+        return None
+    return _string_list(value, field_name)
+
+
+def _string_list(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    return [str(item) for item in value]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run offline planner golden-set evaluation.")
+    parser.add_argument("--cases-file", help="Optional JSON golden-set cases file.")
+    parser.add_argument("--min-intent-accuracy", type=float, default=1.0)
+    parser.add_argument("--min-plan-step-accuracy", type=float, default=1.0)
+    parser.add_argument("--min-tool-coverage-rate", type=float, default=1.0)
+    parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
+    parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
     parser.add_argument("--output", help="Optional JSON report path.")
     args = parser.parse_args(argv)
 
-    report = run_planner_eval()
+    cases = load_eval_cases(Path(args.cases_file)) if args.cases_file else None
+    thresholds = PlannerEvalThresholds(
+        min_intent_accuracy=args.min_intent_accuracy,
+        min_plan_step_accuracy=args.min_plan_step_accuracy,
+        min_tool_coverage_rate=args.min_tool_coverage_rate,
+        min_no_fallback_rate=args.min_no_fallback_rate,
+        min_no_validation_error_rate=args.min_no_validation_error_rate,
+    )
+    report = run_planner_eval(cases=cases, thresholds=thresholds)
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         output_path = Path(args.output)
