@@ -68,6 +68,7 @@ summary = {
     "exit_code": exit_code,
     "gates": {
         "unit_tests": "unknown",
+        "planner_eval": "unknown",
         "local_signoff": "unknown",
         "signoff_evidence": "unknown",
         "archive_verification": "unknown",
@@ -75,6 +76,7 @@ summary = {
     "artifacts": {
         "archive": str(report_dir / "signoff-archive.tar.gz"),
         "checksum": str(report_dir / "signoff-archive.sha256"),
+        "planner_eval": str(report_dir / "planner-eval.json"),
         "ci_summary": str(report_dir / "ci-signoff-summary.json"),
     },
 }
@@ -96,6 +98,10 @@ trap on_error ERR
 echo "==> unit-tests"
 CURRENT_GATE="unit_tests"
 "$PYTHON_BIN" -m unittest discover -v
+
+echo "==> planner-eval"
+CURRENT_GATE="planner_eval"
+"$MAKE_BIN" validate-planner-eval PLANNER_EVAL_ARGS="--output ${REPORT_DIR}/planner-eval.json"
 
 echo "==> local-signoff-with-release-metadata"
 CURRENT_GATE="local_signoff"
@@ -127,6 +133,7 @@ release = {
 
 signoff_summary = json.loads((report_dir / "signoff-summary.json").read_text(encoding="utf-8"))
 signoff_evidence = json.loads((report_dir / "signoff-evidence.json").read_text(encoding="utf-8"))
+planner_eval = json.loads((report_dir / "planner-eval.json").read_text(encoding="utf-8"))
 checksum_path = report_dir / "signoff-archive.sha256"
 archive_path = report_dir / "signoff-archive.tar.gz"
 archive_checksum = checksum_path.read_text(encoding="utf-8").split()[0]
@@ -138,6 +145,7 @@ summary = {
     "release": release,
     "gates": {
         "unit_tests": "passed",
+        "planner_eval": planner_eval.get("status"),
         "local_signoff": signoff_summary.get("status"),
         "signoff_evidence": signoff_evidence.get("status"),
         "archive_verification": "passed",
@@ -146,6 +154,7 @@ summary = {
         "archive": str(archive_path),
         "checksum": str(checksum_path),
         "archive_sha256": archive_checksum,
+        "planner_eval": str(report_dir / "planner-eval.json"),
         "ci_summary": str(report_dir / "ci-signoff-summary.json"),
     },
 }

@@ -49,8 +49,9 @@ export AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT=true
 ## Run signoff
 
 Before using real staging credentials, run the CI signoff gate. It runs the
-unit test suite, then runs the local signoff with release metadata enforcement
-enabled and writes a CI sidecar summary next to the signoff archive:
+unit test suite, the offline planner golden-set evaluation, then the local
+signoff with release metadata enforcement enabled and writes a CI sidecar
+summary next to the signoff archive:
 
 ```bash
 make ci-signoff
@@ -66,6 +67,10 @@ The GitHub Actions template in `.github/workflows/ci-signoff.yml` runs the same
 gate on pull requests, pushes to `main`, and manual dispatches. It uploads the
 CI report directory as an artifact even when the gate fails, so failed runs still
 retain `ci-signoff-summary.json` for diagnosis.
+
+The planner evaluation report is written as `planner-eval.json` in the CI
+report directory. It is a local demo-runtime quality gate, so it complements
+but does not replace the real staging readiness and contract checks.
 
 For a faster local harness check, run the local dry-run. It starts the mock risk
 service, agent API, and central audit sink, then exercises the same signoff
@@ -109,6 +114,7 @@ Expected files:
 - `signoff-evidence.json`
 - `signoff-archive.tar.gz`
 - `signoff-archive.sha256`
+- `planner-eval.json` for `make ci-signoff` runs only
 - `ci-signoff-summary.json` for `make ci-signoff` runs only
 
 To re-check an archived or copied report directory before release signoff:

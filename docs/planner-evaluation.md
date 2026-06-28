@@ -36,3 +36,6 @@ The report includes:
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus
 alerts, and the readiness gate.
+
+`make ci-signoff` runs the same gate automatically after unit tests and writes
+`planner-eval.json` into the CI report directory.
