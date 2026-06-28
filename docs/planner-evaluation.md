@@ -31,6 +31,20 @@ make validate-planner-eval \
   PLANNER_EVAL_ARGS="--min-plan-step-accuracy 0.98 --min-tool-coverage-rate 1.0"
 ```
 
+Compare against a previous report and fail on any quality regression:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--baseline-file .data/reports/previous-planner-eval.json"
+```
+
+Allow a small regression tolerance:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--baseline-file .data/reports/previous-planner-eval.json --max-allowed-regression 0.01"
+```
+
 The default suite checks:
 
 - `copilot` composite routing for order + strategy + graph analysis.
@@ -50,6 +64,8 @@ The report includes:
 - `by_backend`: the same quality summary grouped by planner backend.
 - `thresholds`: configured minimum rates for the current run.
 - `threshold_failures`: any metrics below the configured thresholds.
+- `baseline_comparison`: metric deltas versus a previous report when
+  `--baseline-file` is provided.
 
 Custom cases use this JSON shape:
 

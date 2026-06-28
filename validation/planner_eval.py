@@ -11,6 +11,15 @@ from app import build_demo_runtime
 from core.models import AgentRequest, AgentResponse
 
 
+QUALITY_METRICS = (
+    "intent_accuracy",
+    "plan_step_accuracy",
+    "tool_coverage_rate",
+    "no_fallback_rate",
+    "no_validation_error_rate",
+)
+
+
 @dataclass(frozen=True)
 class PlannerEvalCase:
     name: str
@@ -119,6 +128,8 @@ DEFAULT_EVAL_CASES = [
 def run_planner_eval(
     cases: list[PlannerEvalCase] | None = None,
     thresholds: PlannerEvalThresholds | None = None,
+    baseline_report: dict[str, Any] | None = None,
+    max_allowed_regression: float = 0.0,
 ) -> dict[str, Any]:
     runtime = build_demo_runtime()
     eval_cases = cases or list(DEFAULT_EVAL_CASES)
@@ -126,14 +137,31 @@ def run_planner_eval(
     results = [_run_case(runtime, case) for case in eval_cases]
     summary = _summarize_results(results)
     threshold_failures = _threshold_failures(summary, eval_thresholds)
+    baseline_comparison = (
+        _compare_baseline(
+            summary,
+            baseline_report,
+            max_allowed_regression=max_allowed_regression,
+        )
+        if baseline_report is not None
+        else None
+    )
+    baseline_failures = (
+        baseline_comparison.get("failures", []) if baseline_comparison else []
+    )
     report = {
-        "status": "passed" if summary["failed"] == 0 and not threshold_failures else "failed",
+        "status": (
+            "passed"
+            if summary["failed"] == 0 and not threshold_failures and not baseline_failures
+            else "failed"
+        ),
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "summary": summary,
         "by_agent": _summarize_by_agent(results),
         "by_backend": _summarize_by_backend(results),
         "thresholds": asdict(eval_thresholds),
         "threshold_failures": threshold_failures,
+        "baseline_comparison": baseline_comparison,
         "cases": [asdict(result) for result in results],
     }
     return report
@@ -251,6 +279,39 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
     }
 
 
+def _compare_baseline(
+    summary: dict[str, Any],
+    baseline_report: dict[str, Any],
+    *,
+    max_allowed_regression: float,
+) -> dict[str, Any]:
+    baseline_summary = baseline_report.get("summary")
+    if not isinstance(baseline_summary, dict):
+        raise ValueError("baseline planner eval report must contain a summary object")
+    metrics: dict[str, dict[str, float]] = {}
+    failures: list[str] = []
+    for metric_name in QUALITY_METRICS:
+        current = float(summary.get(metric_name, 0.0))
+        baseline = float(baseline_summary.get(metric_name, 0.0))
+        delta = current - baseline
+        regression = max(0.0, baseline - current)
+        metrics[metric_name] = {
+            "baseline": baseline,
+            "current": current,
+            "delta": delta,
+            "regression": regression,
+        }
+        if regression > max_allowed_regression:
+            failures.append(
+                f"{metric_name} regression={regression:.4f} > {max_allowed_regression:.4f}"
+            )
+    return {
+        "max_allowed_regression": max_allowed_regression,
+        "metrics": metrics,
+        "failures": failures,
+    }
+
+
 def _summarize_by_agent(results: list[PlannerEvalCaseResult]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[PlannerEvalCaseResult]] = {}
     for result in results:
@@ -344,10 +405,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-tool-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
     parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
+    parser.add_argument("--baseline-file", help="Optional previous planner eval report.")
+    parser.add_argument("--max-allowed-regression", type=float, default=0.0)
     parser.add_argument("--output", help="Optional JSON report path.")
     args = parser.parse_args(argv)
 
     cases = load_eval_cases(Path(args.cases_file)) if args.cases_file else None
+    baseline_report = (
+        json.loads(Path(args.baseline_file).read_text(encoding="utf-8"))
+        if args.baseline_file
+        else None
+    )
     thresholds = PlannerEvalThresholds(
         min_intent_accuracy=args.min_intent_accuracy,
         min_plan_step_accuracy=args.min_plan_step_accuracy,
@@ -355,7 +423,12 @@ def main(argv: list[str] | None = None) -> int:
         min_no_fallback_rate=args.min_no_fallback_rate,
         min_no_validation_error_rate=args.min_no_validation_error_rate,
     )
-    report = run_planner_eval(cases=cases, thresholds=thresholds)
+    report = run_planner_eval(
+        cases=cases,
+        thresholds=thresholds,
+        baseline_report=baseline_report,
+        max_allowed_regression=args.max_allowed_regression,
+    )
     rendered = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:
         output_path = Path(args.output)

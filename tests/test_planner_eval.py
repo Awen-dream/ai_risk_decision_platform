@@ -33,6 +33,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(report["by_agent"]["strategy"]["total"], 1)
         self.assertEqual(report["by_backend"]["rule"]["total"], 5)
         self.assertEqual(report["threshold_failures"], [])
+        self.assertIsNone(report["baseline_comparison"])
 
     def test_planner_eval_reports_failed_golden_case(self) -> None:
         report = run_planner_eval(
@@ -77,6 +78,43 @@ class PlannerEvalTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertIn("plan_step_accuracy=0.0000 < 0.5000", report["threshold_failures"])
+
+    def test_planner_eval_passes_when_baseline_has_no_regression(self) -> None:
+        baseline = run_planner_eval()
+
+        report = run_planner_eval(baseline_report=baseline)
+
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["baseline_comparison"]["failures"], [])
+        self.assertEqual(
+            report["baseline_comparison"]["metrics"]["plan_step_accuracy"]["delta"],
+            0.0,
+        )
+
+    def test_planner_eval_reports_baseline_regression(self) -> None:
+        baseline = run_planner_eval()
+        report = run_planner_eval(
+            [
+                PlannerEvalCase(
+                    name="wrong_expected_plan",
+                    agent_name="investigation",
+                    query="为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+                    context={"country": "BR", "channel": "credit_card"},
+                    expected_intent="metric_investigation",
+                    expected_plan_steps=["sql_query"],
+                    expected_tool_traces=["metric_snapshot"],
+                )
+            ],
+            thresholds=PlannerEvalThresholds(min_plan_step_accuracy=0.0),
+            baseline_report=baseline,
+            max_allowed_regression=0.0,
+        )
+
+        self.assertEqual(report["status"], "failed")
+        self.assertIn(
+            "plan_step_accuracy regression=1.0000 > 0.0000",
+            report["baseline_comparison"]["failures"],
+        )
 
     def test_planner_eval_loads_cases_from_json_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -141,6 +179,7 @@ class PlannerEvalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             cases_path = Path(tmp_dir) / "planner-cases.json"
             output_path = Path(tmp_dir) / "planner-eval.json"
+            baseline_path = Path(tmp_dir) / "planner-baseline.json"
             cases_path.write_text(
                 json.dumps(
                     [
@@ -168,6 +207,10 @@ class PlannerEvalTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            baseline_path.write_text(
+                json.dumps(run_planner_eval(), ensure_ascii=False),
+                encoding="utf-8",
+            )
 
             with contextlib.redirect_stdout(io.StringIO()):
                 exit_code = main(
@@ -175,6 +218,10 @@ class PlannerEvalTests(unittest.TestCase):
                         "--cases-file",
                         str(cases_path),
                         "--min-plan-step-accuracy",
+                        "1.0",
+                        "--baseline-file",
+                        str(baseline_path),
+                        "--max-allowed-regression",
                         "1.0",
                         "--output",
                         str(output_path),
@@ -186,6 +233,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["summary"]["total"], 1)
         self.assertEqual(payload["thresholds"]["min_plan_step_accuracy"], 1.0)
+        self.assertEqual(payload["baseline_comparison"]["max_allowed_regression"], 1.0)
 
     def test_makefile_exposes_planner_eval_target(self) -> None:
         payload = Path("Makefile").read_text(encoding="utf-8")
