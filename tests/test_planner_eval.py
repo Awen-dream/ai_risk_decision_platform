@@ -87,7 +87,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(report["status"], "passed")
         self.assertEqual(report["baseline_comparison"]["failures"], [])
         self.assertEqual(
-            report["baseline_comparison"]["metrics"]["plan_step_accuracy"]["delta"],
+            report["baseline_comparison"]["summary"]["plan_step_accuracy"]["delta"],
             0.0,
         )
 
@@ -112,7 +112,37 @@ class PlannerEvalTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertIn(
-            "plan_step_accuracy regression=1.0000 > 0.0000",
+            "summary.plan_step_accuracy regression=1.0000 > 0.0000",
+            report["baseline_comparison"]["failures"],
+        )
+
+    def test_planner_eval_reports_agent_level_baseline_regression(self) -> None:
+        baseline = run_planner_eval()
+        baseline["summary"]["plan_step_accuracy"] = 0.0
+        report = run_planner_eval(
+            [
+                PlannerEvalCase(
+                    name="wrong_expected_plan",
+                    agent_name="investigation",
+                    query="为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+                    context={"country": "BR", "channel": "credit_card"},
+                    expected_intent="metric_investigation",
+                    expected_plan_steps=["sql_query"],
+                    expected_tool_traces=["metric_snapshot"],
+                )
+            ],
+            thresholds=PlannerEvalThresholds(min_plan_step_accuracy=0.0),
+            baseline_report=baseline,
+            max_allowed_regression=0.0,
+        )
+
+        self.assertEqual(report["status"], "failed")
+        self.assertNotIn(
+            "summary.plan_step_accuracy regression=1.0000 > 0.0000",
+            report["baseline_comparison"]["failures"],
+        )
+        self.assertIn(
+            "by_agent.investigation.plan_step_accuracy regression=1.0000 > 0.0000",
             report["baseline_comparison"]["failures"],
         )
 

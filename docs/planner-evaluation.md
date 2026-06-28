@@ -65,7 +65,8 @@ The report includes:
 - `thresholds`: configured minimum rates for the current run.
 - `threshold_failures`: any metrics below the configured thresholds.
 - `baseline_comparison`: metric deltas versus a previous report when
-  `--baseline-file` is provided.
+  `--baseline-file` is provided. It compares overall summary metrics, agent
+  groups, and backend groups.
 
 Custom cases use this JSON shape:
 

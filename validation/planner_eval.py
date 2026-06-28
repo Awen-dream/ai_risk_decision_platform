@@ -136,10 +136,14 @@ def run_planner_eval(
     eval_thresholds = thresholds or PlannerEvalThresholds()
     results = [_run_case(runtime, case) for case in eval_cases]
     summary = _summarize_results(results)
+    by_agent = _summarize_by_agent(results)
+    by_backend = _summarize_by_backend(results)
     threshold_failures = _threshold_failures(summary, eval_thresholds)
     baseline_comparison = (
         _compare_baseline(
             summary,
+            by_agent,
+            by_backend,
             baseline_report,
             max_allowed_regression=max_allowed_regression,
         )
@@ -157,8 +161,8 @@ def run_planner_eval(
         ),
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "summary": summary,
-        "by_agent": _summarize_by_agent(results),
-        "by_backend": _summarize_by_backend(results),
+        "by_agent": by_agent,
+        "by_backend": by_backend,
         "thresholds": asdict(eval_thresholds),
         "threshold_failures": threshold_failures,
         "baseline_comparison": baseline_comparison,
@@ -281,17 +285,49 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
 
 def _compare_baseline(
     summary: dict[str, Any],
+    by_agent: dict[str, dict[str, Any]],
+    by_backend: dict[str, dict[str, Any]],
     baseline_report: dict[str, Any],
     *,
     max_allowed_regression: float,
 ) -> dict[str, Any]:
-    baseline_summary = baseline_report.get("summary")
-    if not isinstance(baseline_summary, dict):
-        raise ValueError("baseline planner eval report must contain a summary object")
-    metrics: dict[str, dict[str, float]] = {}
+    comparisons = {
+        "summary": _compare_summary_metrics(
+            summary,
+            _baseline_mapping(baseline_report, "summary"),
+        ),
+        "by_agent": _compare_grouped_metrics(
+            by_agent,
+            _baseline_mapping(baseline_report, "by_agent"),
+        ),
+        "by_backend": _compare_grouped_metrics(
+            by_backend,
+            _baseline_mapping(baseline_report, "by_backend"),
+        ),
+    }
     failures: list[str] = []
+    for scope, scoped_comparison in comparisons.items():
+        failures.extend(
+            _baseline_failures(
+                scope,
+                scoped_comparison,
+                max_allowed_regression=max_allowed_regression,
+            )
+        )
+    return {
+        "max_allowed_regression": max_allowed_regression,
+        **comparisons,
+        "failures": failures,
+    }
+
+
+def _compare_summary_metrics(
+    current_summary: dict[str, Any],
+    baseline_summary: dict[str, Any],
+) -> dict[str, dict[str, float]]:
+    metrics: dict[str, dict[str, float]] = {}
     for metric_name in QUALITY_METRICS:
-        current = float(summary.get(metric_name, 0.0))
+        current = float(current_summary.get(metric_name, 0.0))
         baseline = float(baseline_summary.get(metric_name, 0.0))
         delta = current - baseline
         regression = max(0.0, baseline - current)
@@ -301,15 +337,56 @@ def _compare_baseline(
             "delta": delta,
             "regression": regression,
         }
-        if regression > max_allowed_regression:
-            failures.append(
-                f"{metric_name} regression={regression:.4f} > {max_allowed_regression:.4f}"
+    return metrics
+
+
+def _compare_grouped_metrics(
+    current_groups: dict[str, dict[str, Any]],
+    baseline_groups: dict[str, Any],
+) -> dict[str, dict[str, dict[str, float]]]:
+    comparisons: dict[str, dict[str, dict[str, float]]] = {}
+    for group_name, current_summary in sorted(current_groups.items()):
+        baseline_summary = baseline_groups.get(group_name)
+        if isinstance(baseline_summary, dict):
+            comparisons[group_name] = _compare_summary_metrics(
+                current_summary,
+                baseline_summary,
             )
-    return {
-        "max_allowed_regression": max_allowed_regression,
-        "metrics": metrics,
-        "failures": failures,
-    }
+    return comparisons
+
+
+def _baseline_failures(
+    scope: str,
+    comparison: dict[str, Any],
+    *,
+    max_allowed_regression: float,
+) -> list[str]:
+    failures: list[str] = []
+    if scope == "summary":
+        for metric_name, metric in comparison.items():
+            regression = float(metric["regression"])
+            if regression > max_allowed_regression:
+                failures.append(
+                    f"summary.{metric_name} regression={regression:.4f} > {max_allowed_regression:.4f}"
+                )
+        return failures
+    for group_name, group_metrics in comparison.items():
+        for metric_name, metric in group_metrics.items():
+            regression = float(metric["regression"])
+            if regression > max_allowed_regression:
+                failures.append(
+                    f"{scope}.{group_name}.{metric_name} regression={regression:.4f} > {max_allowed_regression:.4f}"
+                )
+    return failures
+
+
+def _baseline_mapping(report: dict[str, Any], key: str) -> dict[str, Any]:
+    payload = report.get(key)
+    if not isinstance(payload, dict):
+        if key == "summary":
+            raise ValueError("baseline planner eval report must contain a summary object")
+        return {}
+    return payload
 
 
 def _summarize_by_agent(results: list[PlannerEvalCaseResult]) -> dict[str, dict[str, Any]]:
