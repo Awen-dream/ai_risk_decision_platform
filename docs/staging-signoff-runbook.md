@@ -72,6 +72,13 @@ The planner evaluation report is written as `planner-eval.json` in the CI
 report directory. It is a local demo-runtime quality gate, so it complements
 but does not replace the real staging readiness and contract checks.
 
+To compare planner quality against a previous CI report, set:
+
+```bash
+export AI_RISK_PLANNER_EVAL_BASELINE_FILE=.data/reports/previous/planner-eval.json
+export AI_RISK_PLANNER_EVAL_MAX_ALLOWED_REGRESSION=0.01
+```
+
 For a faster local harness check, run the local dry-run. It starts the mock risk
 service, agent API, and central audit sink, then exercises the same signoff
 script with PostgreSQL explicitly skipped:

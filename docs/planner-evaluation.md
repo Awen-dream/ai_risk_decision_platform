@@ -91,3 +91,11 @@ alerts, and the readiness gate.
 
 `make ci-signoff` runs the same gate automatically after unit tests and writes
 `planner-eval.json` into the CI report directory.
+
+CI signoff can also compare against a previous planner eval report:
+
+```bash
+AI_RISK_PLANNER_EVAL_BASELINE_FILE=.data/reports/previous/planner-eval.json \
+AI_RISK_PLANNER_EVAL_MAX_ALLOWED_REGRESSION=0.01 \
+make ci-signoff
+```

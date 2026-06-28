@@ -13,6 +13,8 @@ MAKE_BIN="${MAKE:-make}"
 TIMESTAMP="$("$PYTHON_BIN" -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))")"
 REPORT_ROOT="${AI_RISK_CI_SIGNOFF_REPORT_ROOT:-.data/reports}"
 REPORT_DIR="${AI_RISK_CI_SIGNOFF_REPORT_DIR:-${REPORT_ROOT}/ci-signoff-${TIMESTAMP}}"
+PLANNER_EVAL_BASELINE_FILE="${AI_RISK_PLANNER_EVAL_BASELINE_FILE:-}"
+PLANNER_EVAL_MAX_ALLOWED_REGRESSION="${AI_RISK_PLANNER_EVAL_MAX_ALLOWED_REGRESSION:-}"
 
 GIT_SHORT_SHA="$("$PYTHON_BIN" - <<'PY'
 import subprocess
@@ -101,7 +103,15 @@ CURRENT_GATE="unit_tests"
 
 echo "==> planner-eval"
 CURRENT_GATE="planner_eval"
-"$MAKE_BIN" validate-planner-eval PLANNER_EVAL_ARGS="--output ${REPORT_DIR}/planner-eval.json"
+PLANNER_EVAL_ARGS=("--output" "${REPORT_DIR}/planner-eval.json")
+if [[ -n "$PLANNER_EVAL_BASELINE_FILE" ]]; then
+  PLANNER_EVAL_ARGS+=("--baseline-file" "$PLANNER_EVAL_BASELINE_FILE")
+fi
+if [[ -n "$PLANNER_EVAL_MAX_ALLOWED_REGRESSION" ]]; then
+  PLANNER_EVAL_ARGS+=("--max-allowed-regression" "$PLANNER_EVAL_MAX_ALLOWED_REGRESSION")
+fi
+printf -v PLANNER_EVAL_ARGS_RENDERED "%q " "${PLANNER_EVAL_ARGS[@]}"
+"$MAKE_BIN" validate-planner-eval PLANNER_EVAL_ARGS="$PLANNER_EVAL_ARGS_RENDERED"
 
 echo "==> local-signoff-with-release-metadata"
 CURRENT_GATE="local_signoff"
@@ -149,6 +159,11 @@ summary = {
         "local_signoff": signoff_summary.get("status"),
         "signoff_evidence": signoff_evidence.get("status"),
         "archive_verification": "passed",
+    },
+    "planner_eval": {
+        "summary": planner_eval.get("summary", {}),
+        "threshold_failures": planner_eval.get("threshold_failures", []),
+        "baseline_comparison": planner_eval.get("baseline_comparison"),
     },
     "artifacts": {
         "archive": str(archive_path),
