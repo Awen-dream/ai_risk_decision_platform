@@ -1,0 +1,45 @@
+{
+  "cases": [
+    {
+      "name": "investigation_metric_default",
+      "agent_name": "investigation",
+      "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？",
+      "context": {
+        "country": "BR",
+        "channel": "credit_card"
+      },
+      "expected_intent": "metric_investigation",
+      "expected_plan_steps": [
+        "metric_snapshot",
+        "case_lookup",
+        "dashboard_snapshot"
+      ],
+      "expected_tool_traces": [
+        "metric_snapshot",
+        "case_lookup",
+        "dashboard_snapshot"
+      ]
+    },
+    {
+      "name": "strategy_default",
+      "agent_name": "strategy",
+      "query": "请评估策略 STRAT-001 是否应该调整阈值",
+      "context": {
+        "strategy_id": "STRAT-001"
+      },
+      "expected_intent": "strategy_tool_plan",
+      "expected_plan_steps": [
+        "strategy_profile",
+        "strategy_simulation",
+        "graph_relation",
+        "rule_explain"
+      ],
+      "expected_tool_traces": [
+        "strategy_profile",
+        "strategy_simulation",
+        "graph_relation",
+        "rule_explain"
+      ]
+    }
+  ]
+}
