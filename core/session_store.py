@@ -9,10 +9,12 @@ from pathlib import Path
 from core.models import (
     AgentRequest,
     AgentResponse,
+    EvidenceGap,
     EvidenceRecord,
     PlannerTraceStep,
     SessionRecord,
     SessionTurn,
+    ToolSelectionReason,
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
@@ -360,6 +362,7 @@ def build_session_turn(request: AgentRequest, response: AgentResponse) -> Sessio
         context=request.context,
         summary=response.summary,
         intent=response.intent,
+        thought_summary=response.thought_summary,
         plan_steps=response.plan_steps,
         planner_trace=[
             PlannerTraceStep(
@@ -368,6 +371,24 @@ def build_session_turn(request: AgentRequest, response: AgentResponse) -> Sessio
                 reason=trace.reason,
             )
             for trace in response.planner_trace
+        ],
+        tool_selection_reason=[
+            ToolSelectionReason(
+                tool=reason.tool,
+                selected=reason.selected,
+                reason=reason.reason,
+            )
+            for reason in response.tool_selection_reason
+        ],
+        evidence_gap=[
+            EvidenceGap(
+                gap=gap.gap,
+                source=gap.source,
+                severity=gap.severity,
+                next_action=gap.next_action,
+                blocking=gap.blocking,
+            )
+            for gap in response.evidence_gap
         ],
         confidence=response.confidence,
         suggested_actions=list(response.suggested_actions),
@@ -397,6 +418,7 @@ def _serialize_session_record(session: SessionRecord) -> dict[str, object]:
                 "summary": turn.summary,
                 "confidence": turn.confidence,
                 "intent": turn.intent,
+                "thought_summary": turn.thought_summary,
                 "plan_steps": turn.plan_steps,
                 "suggested_actions": turn.suggested_actions,
                 "evidence": [
@@ -419,6 +441,24 @@ def _serialize_session_record(session: SessionRecord) -> dict[str, object]:
                     }
                     for trace in turn.planner_trace
                 ],
+                "tool_selection_reason": [
+                    {
+                        "tool": reason.tool,
+                        "selected": reason.selected,
+                        "reason": reason.reason,
+                    }
+                    for reason in turn.tool_selection_reason
+                ],
+                "evidence_gap": [
+                    {
+                        "gap": gap.gap,
+                        "source": gap.source,
+                        "severity": gap.severity,
+                        "next_action": gap.next_action,
+                        "blocking": gap.blocking,
+                    }
+                    for gap in turn.evidence_gap
+                ],
             }
             for turn in session.turns
         ],
@@ -437,6 +477,7 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
                 summary=str(item["summary"]),
                 confidence=float(item.get("confidence", 0.0)),
                 intent=str(item["intent"]) if item.get("intent") is not None else None,
+                thought_summary=str(item.get("thought_summary", "")),
                 plan_steps=list(item.get("plan_steps", [])),
                 suggested_actions=list(item.get("suggested_actions", [])),
                 evidence=[
@@ -462,6 +503,24 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
                         reason=str(trace["reason"]),
                     )
                     for trace in item.get("planner_trace", [])
+                ],
+                tool_selection_reason=[
+                    ToolSelectionReason(
+                        tool=str(reason["tool"]),
+                        selected=bool(reason["selected"]),
+                        reason=str(reason["reason"]),
+                    )
+                    for reason in item.get("tool_selection_reason", [])
+                ],
+                evidence_gap=[
+                    EvidenceGap(
+                        gap=str(gap["gap"]),
+                        source=str(gap["source"]),
+                        severity=str(gap.get("severity", "medium")),
+                        next_action=str(gap.get("next_action", "")),
+                        blocking=bool(gap.get("blocking", False)),
+                    )
+                    for gap in item.get("evidence_gap", [])
                 ],
             )
         )

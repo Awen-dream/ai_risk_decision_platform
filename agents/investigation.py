@@ -14,6 +14,7 @@ from agents.investigation_planner import (
     TOOL_CANDIDATES_BY_MODE,
 )
 from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
+from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
 from tools.registry import ToolRegistry
 
@@ -46,6 +47,7 @@ class ValidatedInvestigationPlan:
     validation_errors: list[str]
     candidate_mode: str
     candidate_tools: list[str]
+    plan_reason: str
     planner_error: str
 
     def to_artifact(self) -> dict[str, object]:
@@ -55,9 +57,11 @@ class ValidatedInvestigationPlan:
             "validation_errors": list(self.validation_errors),
             "candidate_mode": self.candidate_mode,
             "candidate_tools": list(self.candidate_tools),
+            "plan_reason": self.plan_reason,
             "planner_error": self.planner_error,
             "final_mode": self.mode,
             "final_tools": list(self.selected_tools),
+            "step_budget": MAX_TOOLS_BY_MODE[self.mode],
         }
 
 
@@ -88,6 +92,7 @@ class InvestigationAgent(Agent):
         if plan.mode == "order":
             order_id = self._resolve_order_id(request)
             traces = self._execute_order_plan(response, order_id, plan.selected_tools)
+            self._attach_intermediate_state(response, plan, traces)
             return self._build_order_response(request, response, order_id, traces)
 
         country = self._resolve_country(request)
@@ -100,6 +105,7 @@ class InvestigationAgent(Agent):
             time_range=time_range,
             selected_tools=plan.selected_tools,
         )
+        self._attach_intermediate_state(response, plan, traces)
         return self._build_metric_response(
             request,
             response,
@@ -143,6 +149,7 @@ class InvestigationAgent(Agent):
             validation_errors=errors,
             candidate_mode=candidate.mode,
             candidate_tools=list(candidate.selected_tools),
+            plan_reason=candidate.mode_reason,
             planner_error=candidate.planner_error,
         )
 
@@ -168,7 +175,52 @@ class InvestigationAgent(Agent):
             validation_errors=errors,
             candidate_mode=candidate.mode,
             candidate_tools=list(candidate.selected_tools),
+            plan_reason=fallback.mode_reason,
             planner_error=candidate.planner_error,
+        )
+
+    @staticmethod
+    def _attach_intermediate_state(
+        response: AgentResponse,
+        plan: ValidatedInvestigationPlan,
+        traces: dict[str, ToolTrace],
+    ) -> None:
+        labels = {
+            "metric_snapshot": "指标快照",
+            "case_lookup": "历史案例",
+            "dashboard_snapshot": "看板快照",
+            "sql_query": "SQL 下钻",
+            "order_profile": "订单画像",
+            "graph_relation": "关系图谱",
+            "rule_explain": "规则解释",
+        }
+        next_actions = {
+            "metric_snapshot": "检查指标服务或缩小 country/channel/time_range 后重试",
+            "case_lookup": "补充历史 case 索引后复查相似案例",
+            "dashboard_snapshot": "确认看板分层数据同步完成后重试",
+            "sql_query": "确认 SQL 结果集或查询名配置后重试",
+            "order_profile": "确认订单画像数据已同步后重试",
+            "graph_relation": "确认实体关系图谱数据已同步后重试",
+            "rule_explain": "确认规则解释服务可用并补齐 rule/order 上下文",
+        }
+        response.attach_intermediate_state(
+            build_tool_using_state(
+                thought_summary=(
+                    plan.plan_reason
+                    or f"按 {plan.mode} 调查模式在 {MAX_TOOLS_BY_MODE[plan.mode]} 步预算内选择工具。"
+                ),
+                planner_trace=plan.planner_trace,
+                selected_steps=plan.selected_tools,
+                step_budget=MAX_TOOLS_BY_MODE[plan.mode],
+                planner_backend=plan.planner_backend,
+                fallback_used=plan.fallback_used,
+                validation_errors=plan.validation_errors,
+                evidence_gap=evidence_gaps_from_traces(
+                    list(traces.values()),
+                    label_by_tool=labels,
+                    next_action_by_tool=next_actions,
+                ),
+            )
         )
 
     @staticmethod

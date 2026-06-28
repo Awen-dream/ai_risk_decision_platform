@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from core.models import EvidenceRecord, PlannerTraceStep, SessionTurn
+from core.models import EvidenceGap, EvidenceRecord, PlannerTraceStep, SessionTurn, ToolSelectionReason
 
 
 @dataclass
@@ -19,8 +19,11 @@ class SessionTurnView:
     severity: str
     expanded_sections: list[str] = field(default_factory=list)
     intent: Optional[str] = None
+    thought_summary: str = ""
     plan_steps: list[str] = field(default_factory=list)
     planner_trace: list[PlannerTraceStep] = field(default_factory=list)
+    tool_selection_reason: list[ToolSelectionReason] = field(default_factory=list)
+    evidence_gap: list[EvidenceGap] = field(default_factory=list)
     confidence: float = 0.0
     evidence: list[EvidenceRecord] = field(default_factory=list)
     artifacts: dict[str, Any] = field(default_factory=dict)
@@ -108,6 +111,7 @@ def build_session_turn_view(turn: SessionTurn) -> SessionTurnView:
         severity=build_severity(turn.agent_name, turn.intent),
         expanded_sections=build_expanded_sections(turn.agent_name),
         intent=turn.intent,
+        thought_summary=turn.thought_summary,
         plan_steps=list(turn.plan_steps),
         planner_trace=[
             PlannerTraceStep(
@@ -116,6 +120,24 @@ def build_session_turn_view(turn: SessionTurn) -> SessionTurnView:
                 reason=trace.reason,
             )
             for trace in turn.planner_trace
+        ],
+        tool_selection_reason=[
+            ToolSelectionReason(
+                tool=reason.tool,
+                selected=reason.selected,
+                reason=reason.reason,
+            )
+            for reason in turn.tool_selection_reason
+        ],
+        evidence_gap=[
+            EvidenceGap(
+                gap=gap.gap,
+                source=gap.source,
+                severity=gap.severity,
+                next_action=gap.next_action,
+                blocking=gap.blocking,
+            )
+            for gap in turn.evidence_gap
         ],
         confidence=turn.confidence,
         evidence=[

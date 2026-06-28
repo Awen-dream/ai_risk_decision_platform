@@ -22,6 +22,7 @@ from core.models import (
     ToolResult,
     ToolTrace,
 )
+from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
 from tools.registry import ToolRegistry
 
@@ -37,6 +38,7 @@ class ValidatedStrategyPlan:
     fallback_used: bool
     validation_errors: list[str]
     candidate_tools: list[str]
+    plan_reason: str
     planner_error: str
 
     def to_artifact(self) -> dict[str, object]:
@@ -45,8 +47,10 @@ class ValidatedStrategyPlan:
             "fallback_used": self.fallback_used,
             "validation_errors": list(self.validation_errors),
             "candidate_tools": list(self.candidate_tools),
+            "plan_reason": self.plan_reason,
             "planner_error": self.planner_error,
             "final_tools": list(self.selected_tools),
+            "step_budget": MAX_STRATEGY_TOOLS,
         }
 
 
@@ -76,6 +80,7 @@ class StrategyAgent(Agent):
         response.artifacts["strategy_plan"] = plan.to_artifact()
 
         traces = self._execute_strategy_plan(response, strategy_id, plan.selected_tools)
+        self._attach_intermediate_state(response, plan, traces)
         return self._build_response(request, response, strategy_id, traces)
 
     def _validated_plan(self, request: AgentRequest) -> ValidatedStrategyPlan:
@@ -108,6 +113,7 @@ class StrategyAgent(Agent):
             fallback_used=False,
             validation_errors=errors,
             candidate_tools=list(candidate.selected_tools),
+            plan_reason=candidate.plan_reason,
             planner_error=candidate.planner_error,
         )
 
@@ -129,7 +135,46 @@ class StrategyAgent(Agent):
             fallback_used=True,
             validation_errors=errors,
             candidate_tools=list(candidate.selected_tools),
+            plan_reason=fallback.plan_reason,
             planner_error=candidate.planner_error,
+        )
+
+    @staticmethod
+    def _attach_intermediate_state(
+        response: AgentResponse,
+        plan: ValidatedStrategyPlan,
+        traces: dict[str, ToolTrace],
+    ) -> None:
+        labels = {
+            "strategy_profile": "策略画像",
+            "strategy_simulation": "策略仿真",
+            "graph_relation": "关系图谱",
+            "rule_explain": "规则解释",
+        }
+        next_actions = {
+            "strategy_profile": "确认策略画像服务可用并补齐 strategy_id 数据",
+            "strategy_simulation": "检查仿真结果产出链路或重新触发 shadow evaluation",
+            "graph_relation": "先补齐重点影响实体，再执行关系图谱分析",
+            "rule_explain": "确认规则解释服务可用并补齐 strategy_id/rule 上下文",
+        }
+        response.attach_intermediate_state(
+            build_tool_using_state(
+                thought_summary=(
+                    plan.plan_reason
+                    or f"围绕策略画像和仿真锚点，在 {MAX_STRATEGY_TOOLS} 步预算内选择辅助工具。"
+                ),
+                planner_trace=plan.planner_trace,
+                selected_steps=plan.selected_tools,
+                step_budget=MAX_STRATEGY_TOOLS,
+                planner_backend=plan.planner_backend,
+                fallback_used=plan.fallback_used,
+                validation_errors=plan.validation_errors,
+                evidence_gap=evidence_gaps_from_traces(
+                    list(traces.values()),
+                    label_by_tool=labels,
+                    next_action_by_tool=next_actions,
+                ),
+            )
         )
 
     @staticmethod

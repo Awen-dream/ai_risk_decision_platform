@@ -7,6 +7,8 @@ from pathlib import Path
 
 from agents.copilot import CopilotAgent
 from agents.copilot_planner import CopilotPlanCandidate, CopilotPlanner
+from agents.graph import GraphAgent
+from agents.graph_planner import GraphPlanCandidate, GraphPlanner
 from agents.investigation import InvestigationAgent
 from agents.investigation_planner import InvestigationPlanCandidate, InvestigationPlanner
 from agents.strategy import StrategyAgent
@@ -48,6 +50,16 @@ class StaticStrategyPlanner(StrategyPlanner):
         return self._candidate
 
 
+class StaticGraphPlanner(GraphPlanner):
+    name = "static"
+
+    def __init__(self, candidate: GraphPlanCandidate) -> None:
+        self._candidate = candidate
+
+    def plan(self, request: AgentRequest) -> GraphPlanCandidate:
+        return self._candidate
+
+
 class AgentPlatformTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = build_demo_runtime()
@@ -77,6 +89,9 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any("历史相似案例" in finding for finding in response.findings))
         self.assertTrue(any(evidence.source == "dashboard_snapshot" for evidence in response.evidence))
         self.assertEqual(response.plan_steps, ["metric_snapshot", "case_lookup", "dashboard_snapshot"])
+        self.assertTrue(response.thought_summary)
+        self.assertEqual(response.artifacts["tool_using_plan"]["step_budget"], 3)
+        self.assertTrue(any(reason.tool == "metric_snapshot" for reason in response.tool_selection_reason))
 
     def test_metric_investigation_uses_time_range_context(self) -> None:
         _, response = self.runtime.execute(
@@ -338,6 +353,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("U10001", response.summary)
         self.assertTrue(any("共享设备" in finding for finding in response.findings))
         self.assertTrue(any(trace.name == "graph_relation" for trace in response.tool_traces))
+        self.assertEqual(response.intent, "graph_tool_plan")
+        self.assertEqual(response.plan_steps, ["graph_relation"])
+        self.assertFalse(response.artifacts["graph_plan"]["fallback_used"])
+        self.assertEqual(response.artifacts["tool_using_plan"]["step_budget"], 1)
+        self.assertTrue(any(reason.tool == "graph_relation" for reason in response.tool_selection_reason))
 
     def test_graph_agent_degrades_when_relation_is_missing(self) -> None:
         _, response = self.runtime.execute(
@@ -350,6 +370,32 @@ class AgentPlatformTests(unittest.TestCase):
 
         self.assertIn("暂时无法完成实体 MISSING 的图谱分析", response.summary)
         self.assertEqual(response.tool_traces[0].status, "degraded")
+        self.assertTrue(response.evidence_gap)
+        self.assertEqual(response.evidence_gap[0].source, "graph_relation")
+
+    def test_graph_agent_validates_candidate_tools_and_inserts_required_relation_tool(self) -> None:
+        planner = StaticGraphPlanner(
+            GraphPlanCandidate(
+                selected_tools=[],
+                plan_reason="候选计划认为暂不需要图谱工具。",
+                planner_backend="static",
+            )
+        )
+        agent = GraphAgent(self.runtime._agents["graph"]._tools, RetrievalService(), planner=planner)
+
+        response = agent.run(
+            AgentRequest(
+                query="请分析用户 U10001 是否属于团伙网络",
+                context={"entity_id": "U10001"},
+            )
+        )
+
+        self.assertEqual(response.plan_steps, ["graph_relation"])
+        self.assertFalse(response.artifacts["graph_plan"]["fallback_used"])
+        self.assertIn(
+            "candidate omitted required tool: graph_relation",
+            response.artifacts["graph_plan"]["validation_errors"],
+        )
 
     def test_copilot_agent_merges_investigation_strategy_and_graph(self) -> None:
         _, response = self.runtime.execute(

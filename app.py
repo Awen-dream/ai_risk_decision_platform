@@ -22,6 +22,11 @@ from agents.copilot_planner import (
     RuleBasedCopilotPlanner,
 )
 from agents.graph import GraphAgent
+from agents.graph_planner import (
+    GraphPlanner,
+    OpenAIGraphPlanner,
+    RuleBasedGraphPlanner,
+)
 from agents.investigation import InvestigationAgent
 from agents.investigation_planner import (
     InvestigationPlanner,
@@ -344,6 +349,21 @@ def build_strategy_planner(config: AppConfig) -> StrategyPlanner:
     raise ValueError(f"Unsupported strategy backend: {config.strategy_backend}")
 
 
+def build_graph_planner(config: AppConfig) -> GraphPlanner:
+    if config.graph_backend == "rule":
+        return RuleBasedGraphPlanner()
+    if config.graph_backend == "openai":
+        return OpenAIGraphPlanner(
+            api_key=config.graph_openai_api_key,
+            model=config.graph_openai_model,
+            base_url=config.graph_openai_base_url,
+            timeout_sec=config.graph_openai_timeout_sec,
+            reasoning_effort=config.graph_openai_reasoning_effort,
+            max_output_tokens=config.graph_openai_max_output_tokens,
+        )
+    raise ValueError(f"Unsupported graph backend: {config.graph_backend}")
+
+
 def build_case_service(config: AppConfig) -> CaseService:
     if config.case_store_backend == "postgres":
         return PostgresCaseService(config.postgres_dsn)
@@ -403,7 +423,11 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         retrieval,
         planner=build_strategy_planner(config),
     )
-    graph_agent = GraphAgent(tools, retrieval)
+    graph_agent = GraphAgent(
+        tools,
+        retrieval,
+        planner=build_graph_planner(config),
+    )
     risk_decision_policy = (
         RiskDecisionPolicy.from_file(config.risk_decision_policy_path)
         if config.risk_decision_policy_path is not None

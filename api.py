@@ -13,6 +13,7 @@ from app import build_app_container
 from core.models import (
     AgentRequest,
     AgentResponse,
+    EvidenceGap,
     EvidenceRecord,
     RiskActionPlanRecord,
     RiskDecisionRecord,
@@ -82,13 +83,30 @@ class PlannerTracePayload(BaseModel):
     reason: str
 
 
+class ToolSelectionReasonPayload(BaseModel):
+    tool: str
+    selected: bool
+    reason: str
+
+
+class EvidenceGapPayload(BaseModel):
+    gap: str
+    source: str
+    severity: str = "medium"
+    next_action: str = ""
+    blocking: bool = False
+
+
 class AgentInvokeResponse(BaseModel):
     session_id: str
     agent_name: str
     summary: str
     intent: Optional[str] = None
+    thought_summary: str = ""
     plan_steps: List[str] = Field(default_factory=list)
     planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
+    tool_selection_reason: List[ToolSelectionReasonPayload] = Field(default_factory=list)
+    evidence_gap: List[EvidenceGapPayload] = Field(default_factory=list)
     findings: List[str]
     suggested_actions: List[str]
     citations: List[CitationPayload]
@@ -110,8 +128,11 @@ class SessionTurnPayload(BaseModel):
     severity: str
     expanded_sections: List[str] = Field(default_factory=list)
     intent: Optional[str] = None
+    thought_summary: str = ""
     plan_steps: List[str] = Field(default_factory=list)
     planner_trace: List[PlannerTracePayload] = Field(default_factory=list)
+    tool_selection_reason: List[ToolSelectionReasonPayload] = Field(default_factory=list)
+    evidence_gap: List[EvidenceGapPayload] = Field(default_factory=list)
     confidence: float
     evidence: List[EvidencePayload] = Field(default_factory=list)
     artifacts: Dict[str, Any] = Field(default_factory=dict)
@@ -177,6 +198,8 @@ class RuntimeInfoResponse(BaseModel):
     investigation_source: str
     strategy_backend: str
     strategy_source: str
+    graph_backend: str
+    graph_source: str
     planner_openai_base_url: str
     planner_openai_model: str
     planner_openai_timeout_sec: float
@@ -195,6 +218,12 @@ class RuntimeInfoResponse(BaseModel):
     strategy_openai_reasoning_effort: str
     strategy_openai_max_output_tokens: int
     strategy_openai_api_key_source: str
+    graph_openai_base_url: str
+    graph_openai_model: str
+    graph_openai_timeout_sec: float
+    graph_openai_reasoning_effort: str
+    graph_openai_max_output_tokens: int
+    graph_openai_api_key_source: str
     session_store_backend: str
     session_store_path: str
     case_store_backend: str
@@ -493,6 +522,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             investigation_source=container.config.investigation_source(),
             strategy_backend=container.config.strategy_backend,
             strategy_source=container.config.strategy_source(),
+            graph_backend=container.config.graph_backend,
+            graph_source=container.config.graph_source(),
             planner_openai_base_url=container.config.planner_openai_base_url,
             planner_openai_model=container.config.planner_openai_model,
             planner_openai_timeout_sec=container.config.planner_openai_timeout_sec,
@@ -511,6 +542,12 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             strategy_openai_reasoning_effort=container.config.strategy_openai_reasoning_effort,
             strategy_openai_max_output_tokens=container.config.strategy_openai_max_output_tokens,
             strategy_openai_api_key_source=container.config.strategy_openai_api_key_source(),
+            graph_openai_base_url=container.config.graph_openai_base_url,
+            graph_openai_model=container.config.graph_openai_model,
+            graph_openai_timeout_sec=container.config.graph_openai_timeout_sec,
+            graph_openai_reasoning_effort=container.config.graph_openai_reasoning_effort,
+            graph_openai_max_output_tokens=container.config.graph_openai_max_output_tokens,
+            graph_openai_api_key_source=container.config.graph_openai_api_key_source(),
             session_store_backend=container.config.session_store_backend,
             session_store_path=str(container.config.session_store_path),
             case_store_backend=container.config.case_store_backend,
@@ -974,6 +1011,7 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
         agent_name=response.agent_name,
         summary=response.summary,
         intent=response.intent,
+        thought_summary=response.thought_summary,
         plan_steps=response.plan_steps,
         planner_trace=[
             PlannerTracePayload(
@@ -983,6 +1021,15 @@ def _to_response_model(session_id: str, response: AgentResponse) -> AgentInvokeR
             )
             for trace in response.planner_trace
         ],
+        tool_selection_reason=[
+            ToolSelectionReasonPayload(
+                tool=reason.tool,
+                selected=reason.selected,
+                reason=reason.reason,
+            )
+            for reason in response.tool_selection_reason
+        ],
+        evidence_gap=[_to_evidence_gap_payload(gap) for gap in response.evidence_gap],
         findings=response.findings,
         suggested_actions=response.suggested_actions,
         citations=[
@@ -1023,6 +1070,7 @@ def _to_session_response(session) -> SessionResponse:
             severity=turn.severity,
             expanded_sections=turn.expanded_sections,
             intent=turn.intent,
+            thought_summary=turn.thought_summary,
             plan_steps=turn.plan_steps,
             planner_trace=[
                 PlannerTracePayload(
@@ -1032,6 +1080,15 @@ def _to_session_response(session) -> SessionResponse:
                 )
                 for trace in turn.planner_trace
             ],
+            tool_selection_reason=[
+                ToolSelectionReasonPayload(
+                    tool=reason.tool,
+                    selected=reason.selected,
+                    reason=reason.reason,
+                )
+                for reason in turn.tool_selection_reason
+            ],
+            evidence_gap=[_to_evidence_gap_payload(gap) for gap in turn.evidence_gap],
             confidence=turn.confidence,
             evidence=[_to_evidence_payload(evidence) for evidence in turn.evidence],
             artifacts=turn.artifacts,
@@ -1069,6 +1126,16 @@ def _to_evidence_payload(evidence: EvidenceRecord) -> EvidencePayload:
         payload=evidence.payload,
         confidence=evidence.confidence,
         observed_at=evidence.observed_at,
+    )
+
+
+def _to_evidence_gap_payload(gap: EvidenceGap) -> EvidenceGapPayload:
+    return EvidenceGapPayload(
+        gap=gap.gap,
+        source=gap.source,
+        severity=gap.severity,
+        next_action=gap.next_action,
+        blocking=gap.blocking,
     )
 
 

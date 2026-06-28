@@ -123,7 +123,13 @@ class AgentRuntime:
 
     @staticmethod
     def _planner_artifact(response: AgentResponse) -> dict | None:
-        for artifact_name in ("planner", "investigation_plan", "strategy_plan"):
+        for artifact_name in (
+            "planner",
+            "tool_using_plan",
+            "investigation_plan",
+            "strategy_plan",
+            "graph_plan",
+        ):
             artifact = response.artifacts.get(artifact_name)
             if isinstance(artifact, dict):
                 return artifact
