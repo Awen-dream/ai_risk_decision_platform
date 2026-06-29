@@ -710,6 +710,45 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "order_case")
         self.assertEqual(payload["plan_steps"], ["调查", "图谱"])
 
+    def test_copilot_uses_long_term_case_memory_refs(self) -> None:
+        client = TestClient(create_app())
+        created = client.post("/sessions")
+        session_id = created.json()["session_id"]
+        first = client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+        case_response = client.post(f"/cases/from-session/{session_id}")
+        second = client.post(
+            "/agents/copilot",
+            json={
+                "query": "再看订单 O10001 是否和之前的团伙风险案例相似",
+                "context": {"order_id": "O10001", "entity_id": "U10001"},
+            },
+        )
+
+        payload = second.json()
+        refs = payload["artifacts"]["working_memory"]["long_term_memory_refs"]
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(case_response.status_code, 200)
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["memory_type"], "workflow_case")
+        self.assertEqual(refs[0]["case_id"], case_response.json()["case_id"])
+
+        metrics = client.get("/admin/metrics").json()
+        self.assertGreaterEqual(
+            metrics["counters"]["agent.memory.long_term_refs.by_agent.copilot"],
+            1,
+        )
+        self.assertGreaterEqual(
+            metrics["gauges"]["agent.memory.last_long_term_ref_count.by_agent.copilot"],
+            1.0,
+        )
+
     def test_create_case_from_copilot_session_and_update_status(self) -> None:
         client = TestClient(create_app())
         created = client.post("/sessions")

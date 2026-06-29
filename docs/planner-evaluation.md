@@ -144,6 +144,9 @@ For multi-turn copilot sessions, the runtime injects short-term session memory
 into the execution request. The stored user turn context remains unchanged, but
 the V3 `working_memory.session_memory_refs` artifact can cite recent turn
 summaries, intents, evidence sources, and open evidence-gap sources.
+When workflow cases exist, copilot also retrieves lightweight long-term case
+memory into `working_memory.long_term_memory_refs`, including case ID, summary,
+intent, severity, risk level, and recommended action.
 
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus

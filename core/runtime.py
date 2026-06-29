@@ -184,7 +184,9 @@ class AgentRuntime:
         working_memory = response.artifacts.get("working_memory")
         if isinstance(working_memory, dict):
             session_refs = working_memory.get("session_memory_refs") or []
+            long_term_refs = working_memory.get("long_term_memory_refs") or []
             session_ref_count = len(session_refs) if isinstance(session_refs, list) else 0
+            long_term_ref_count = len(long_term_refs) if isinstance(long_term_refs, list) else 0
             increment_counter("agent.memory.snapshots.total")
             increment_counter(f"agent.memory.snapshots.by_agent.{agent_name}")
             if session_ref_count:
@@ -193,9 +195,19 @@ class AgentRuntime:
                     f"agent.memory.session_refs.by_agent.{agent_name}",
                     session_ref_count,
                 )
+            if long_term_ref_count:
+                increment_counter("agent.memory.long_term_refs.total", long_term_ref_count)
+                increment_counter(
+                    f"agent.memory.long_term_refs.by_agent.{agent_name}",
+                    long_term_ref_count,
+                )
             set_gauge(
                 f"agent.memory.last_session_ref_count.by_agent.{agent_name}",
                 float(session_ref_count),
+            )
+            set_gauge(
+                f"agent.memory.last_long_term_ref_count.by_agent.{agent_name}",
+                float(long_term_ref_count),
             )
 
         if response.tool_traces:

@@ -18,6 +18,7 @@ from core.global_planning import (
 )
 from core.models import AgentRequest, AgentResponse, Citation, EvidenceRecord, PlannerTraceStep, ToolTrace
 from services.risk_decision import RiskDecisionPolicy
+from services.memory import LongTermMemoryProvider
 
 
 DEFAULT_SELECTED_REASONS = {
@@ -69,6 +70,7 @@ class CopilotAgent(Agent):
         graph_agent: Agent,
         risk_decision_policy: RiskDecisionPolicy | None = None,
         planner: CopilotPlanner | None = None,
+        long_term_memory: LongTermMemoryProvider | None = None,
     ) -> None:
         self._investigation_agent = investigation_agent
         self._strategy_agent = strategy_agent
@@ -76,6 +78,7 @@ class CopilotAgent(Agent):
         self._risk_decision_policy = risk_decision_policy or RiskDecisionPolicy.default()
         self._planner = planner or RuleBasedCopilotPlanner()
         self._fallback_planner = RuleBasedCopilotPlanner()
+        self._long_term_memory = long_term_memory
 
     def run(self, request: AgentRequest) -> AgentResponse:
         response = AgentResponse(agent_name=self.name)
@@ -121,9 +124,15 @@ class CopilotAgent(Agent):
             confidence=response.confidence,
         )
         response.artifacts["risk_decision"] = risk_decision
+        long_term_memory_refs = (
+            self._long_term_memory.retrieve(request)
+            if self._long_term_memory is not None
+            else []
+        )
         response.artifacts["working_memory"] = build_working_memory_snapshot(
             request=request,
             child_responses=child_responses,
+            long_term_memory_refs=long_term_memory_refs,
         )
         response.artifacts["evidence_graph"] = build_evidence_graph(
             request=request,

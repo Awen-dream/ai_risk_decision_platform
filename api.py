@@ -637,6 +637,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                     "agent.evidence_graphs.total",
                     "agent.memory.snapshots.total",
                     "agent.memory.session_refs.total",
+                    "agent.memory.long_term_refs.total",
                 ],
                 "slo_baseline": "docs/observability-slo.md",
             },

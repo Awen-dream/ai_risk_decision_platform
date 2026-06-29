@@ -112,6 +112,7 @@ def build_working_memory_snapshot(
     *,
     request: AgentRequest,
     child_responses: list[tuple[str, AgentResponse]],
+    long_term_memory_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     open_gaps = []
     for label, child in child_responses:
@@ -149,6 +150,7 @@ def build_working_memory_snapshot(
         "context_keys": public_context_keys(request.context),
         "entities": _extract_entities(request.context),
         "session_memory_refs": _session_memory_refs(request.context),
+        "long_term_memory_refs": list(long_term_memory_refs or []),
         "child_summaries": [
             {
                 "step": label,

@@ -99,6 +99,7 @@ from services.audit import (
 )
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
+from services.memory import CaseMemoryProvider
 from services.risk_decision import RiskDecisionPolicy
 from settings import AppConfig
 from tools.registry import ToolRegistry
@@ -412,6 +413,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         tools.register_adapter(adapter)
 
     runtime = AgentRuntime(session_store=build_session_store(config))
+    case_service = build_case_service(config)
     knowledge_agent = KnowledgeAgent(retrieval)
     investigation_agent = InvestigationAgent(
         tools,
@@ -439,6 +441,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         graph_agent=graph_agent,
         risk_decision_policy=risk_decision_policy,
         planner=build_copilot_planner(config),
+        long_term_memory=CaseMemoryProvider(case_service),
     )
     runtime.register_agent(knowledge_agent)
     runtime.register_agent(investigation_agent)
@@ -451,7 +454,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         retrieval=retrieval,
         tools=tools,
         knowledge_sync_service=KnowledgeSyncService(retrieval, knowledge_sources),
-        case_service=build_case_service(config),
+        case_service=case_service,
         audit_log=audit_log,
     )
 
