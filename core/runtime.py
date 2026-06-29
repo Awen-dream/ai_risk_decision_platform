@@ -209,6 +209,29 @@ class AgentRuntime:
                 f"agent.memory.last_long_term_ref_count.by_agent.{agent_name}",
                 float(long_term_ref_count),
             )
+        plan_quality = response.artifacts.get("global_plan_quality")
+        if isinstance(plan_quality, dict):
+            overall_score = float(plan_quality.get("overall_score", 0.0) or 0.0)
+            diagnostics = (
+                plan_quality.get("diagnostics")
+                if isinstance(plan_quality.get("diagnostics"), dict)
+                else {}
+            )
+            increment_counter("agent.global_plan_quality.evaluations.total")
+            increment_counter(f"agent.global_plan_quality.evaluations.by_agent.{agent_name}")
+            if plan_quality.get("status") == "needs_attention":
+                increment_counter("agent.global_plan_quality.needs_attention.total")
+                increment_counter(
+                    f"agent.global_plan_quality.needs_attention.by_agent.{agent_name}"
+                )
+            set_gauge(
+                f"agent.global_plan_quality.last_overall_score.by_agent.{agent_name}",
+                overall_score,
+            )
+            set_gauge(
+                f"agent.global_plan_quality.last_blocking_gap_count.by_agent.{agent_name}",
+                float(diagnostics.get("blocking_gap_count", 0) or 0),
+            )
 
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))

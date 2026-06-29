@@ -254,6 +254,101 @@ def build_evidence_graph(
     }
 
 
+def evaluate_global_plan_quality(
+    *,
+    global_plan: GlobalPlan,
+    evidence_graph: dict[str, Any],
+    working_memory: dict[str, Any],
+    child_responses: list[tuple[str, AgentResponse]],
+) -> dict[str, Any]:
+    evidence_summary = evidence_graph.get("summary", {})
+    evidence_count = int(evidence_summary.get("evidence_count", 0) or 0)
+    evidence_gap_count = int(evidence_summary.get("evidence_gap_count", 0) or 0)
+    step_count = len(global_plan.steps)
+    covered_steps = {
+        label
+        for label, child in child_responses
+        if child.tool_traces or child.evidence or child.findings
+    }
+    expected_steps = {step.label for step in global_plan.steps}
+    coverage_score = _ratio(len(covered_steps & expected_steps), max(1, step_count))
+    evidence_score = min(1.0, evidence_count / max(1, step_count))
+    gap_penalty = min(0.6, evidence_gap_count * 0.2)
+    gap_score = max(0.0, 1.0 - gap_penalty)
+    memory_refs = (
+        len(working_memory.get("session_memory_refs", []) or [])
+        + len(working_memory.get("long_term_memory_refs", []) or [])
+    )
+    memory_score = 1.0 if memory_refs else 0.5
+    audit_score = _audit_score(global_plan, evidence_graph, working_memory)
+    overall_score = round(
+        (
+            coverage_score * 0.30
+            + evidence_score * 0.30
+            + gap_score * 0.20
+            + memory_score * 0.10
+            + audit_score * 0.10
+        ),
+        3,
+    )
+    blocking_gaps = [
+        gap
+        for gap in working_memory.get("open_evidence_gaps", []) or []
+        if isinstance(gap, dict) and gap.get("blocking")
+    ]
+    recommended_next_steps: list[str] = []
+    if blocking_gaps:
+        recommended_next_steps.append("优先补齐 blocking evidence gaps 后再收敛结论。")
+    if evidence_score < 1.0:
+        recommended_next_steps.append("补充每个全局步骤的至少一条可引用证据。")
+    if not memory_refs:
+        recommended_next_steps.append("如为持续案件，建议关联 session 或历史 case memory。")
+    if not recommended_next_steps:
+        recommended_next_steps.append("当前全局计划证据链可进入人工复核或策略动作。")
+    return {
+        "version": "v3d",
+        "overall_score": overall_score,
+        "status": "passed" if overall_score >= 0.75 and not blocking_gaps else "needs_attention",
+        "scores": {
+            "plan_coverage": round(coverage_score, 3),
+            "evidence_sufficiency": round(evidence_score, 3),
+            "evidence_gap_control": round(gap_score, 3),
+            "memory_utilization": round(memory_score, 3),
+            "auditability": round(audit_score, 3),
+        },
+        "diagnostics": {
+            "step_count": step_count,
+            "covered_step_count": len(covered_steps & expected_steps),
+            "evidence_count": evidence_count,
+            "evidence_gap_count": evidence_gap_count,
+            "memory_ref_count": memory_refs,
+            "blocking_gap_count": len(blocking_gaps),
+        },
+        "recommended_next_steps": recommended_next_steps,
+    }
+
+
+def _audit_score(
+    global_plan: GlobalPlan,
+    evidence_graph: dict[str, Any],
+    working_memory: dict[str, Any],
+) -> float:
+    checks = [
+        bool(global_plan.steps),
+        all(step.reason for step in global_plan.steps),
+        bool(evidence_graph.get("nodes")),
+        bool(evidence_graph.get("edges")),
+        working_memory.get("version") == "v3a",
+    ]
+    return _ratio(sum(checks), len(checks))
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 1.0
+    return numerator / denominator
+
+
 def _extract_entities(context: dict[str, Any]) -> dict[str, str]:
     entity_keys = ("order_id", "strategy_id", "entity_id", "user_id", "country", "channel")
     return {

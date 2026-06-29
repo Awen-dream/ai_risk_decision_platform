@@ -27,6 +27,7 @@ REQUIRED_ALERTS = [
     "AIRiskPlannerHighValidationErrorRate",
     "AIRiskIntermediateStateMissingRate",
     "AIRiskEvidenceGapHighRate",
+    "AIRiskGlobalPlanQualityNeedsAttention",
     "AIRiskToolHighFailedTraceRate",
     "AIRiskToolHighDegradedTraceRate",
 ]

@@ -52,6 +52,7 @@ Suggested trial-run guardrails:
 | --- | --- |
 | Planner fallback rate | < 5% over 30 minutes |
 | Planner validation error rate | < 2% over 30 minutes |
+| Global-plan needs-attention rate | < 5% over 30 minutes |
 | Tool failed trace rate | < 1% over 10 minutes |
 | Tool degraded trace rate | Investigate any sustained increase |
 
@@ -88,6 +89,15 @@ Tool degraded trace rate:
 sum(increase(ai_risk_agent_tools_executions_by_status_degraded_total[10m]))
 /
 clamp_min(sum(increase(ai_risk_agent_tools_executions_total[10m])), 1)
+> 0.05
+```
+
+Global-plan needs-attention rate:
+
+```promql
+sum(increase(ai_risk_agent_global_plan_quality_needs_attention_total[30m]))
+/
+clamp_min(sum(increase(ai_risk_agent_global_plan_quality_evaluations_total[30m])), 1)
 > 0.05
 ```
 
@@ -177,6 +187,14 @@ V3 long-term workflow-case memory reuse can be monitored with:
 
 ```promql
 sum(increase(ai_risk_agent_memory_long_term_refs_total[30m]))
+```
+
+V3 global-plan quality attention rate can be monitored with:
+
+```promql
+sum(increase(ai_risk_agent_global_plan_quality_needs_attention_total[30m]))
+/
+clamp_min(sum(increase(ai_risk_agent_global_plan_quality_evaluations_total[30m])), 1)
 ```
 
 External HTTP audit writes are append-only JSONL records. Audit records retain

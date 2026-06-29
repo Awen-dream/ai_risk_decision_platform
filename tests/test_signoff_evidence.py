@@ -104,6 +104,7 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(rejected["status"], "failed")
         self.assertIn("planner eval", _failed_details(rejected))
         self.assertEqual(accepted["status"], "passed")
+        self.assertIn("V3 global-planning gates", _passed_details(accepted))
 
     def test_planner_eval_evidence_rejects_v2_metric_regression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -294,6 +295,16 @@ def _failed_details(report: dict[str, object]) -> str:
         str(check["detail"])
         for check in checks
         if isinstance(check, dict) and check.get("status") == "failed"
+    )
+
+
+def _passed_details(report: dict[str, object]) -> str:
+    checks = report["checks"]
+    assert isinstance(checks, list)
+    return "\n".join(
+        str(check["detail"])
+        for check in checks
+        if isinstance(check, dict) and check.get("status") == "passed"
     )
 
 

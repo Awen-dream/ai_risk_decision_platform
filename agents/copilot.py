@@ -15,6 +15,7 @@ from core.global_planning import (
     build_evidence_graph,
     build_global_plan,
     build_working_memory_snapshot,
+    evaluate_global_plan_quality,
 )
 from core.models import AgentRequest, AgentResponse, Citation, EvidenceRecord, PlannerTraceStep, ToolTrace
 from services.risk_decision import RiskDecisionPolicy
@@ -129,16 +130,24 @@ class CopilotAgent(Agent):
             if self._long_term_memory is not None
             else []
         )
-        response.artifacts["working_memory"] = build_working_memory_snapshot(
+        working_memory = build_working_memory_snapshot(
             request=request,
             child_responses=child_responses,
             long_term_memory_refs=long_term_memory_refs,
         )
-        response.artifacts["evidence_graph"] = build_evidence_graph(
+        response.artifacts["working_memory"] = working_memory
+        evidence_graph = build_evidence_graph(
             request=request,
             global_plan=global_plan,
             child_responses=child_responses,
             risk_decision=risk_decision,
+        )
+        response.artifacts["evidence_graph"] = evidence_graph
+        response.artifacts["global_plan_quality"] = evaluate_global_plan_quality(
+            global_plan=global_plan,
+            evidence_graph=evidence_graph,
+            working_memory=working_memory,
+            child_responses=child_responses,
         )
         return response
 

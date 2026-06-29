@@ -73,12 +73,17 @@ report directory. It is a local demo-runtime quality gate, so it complements
 but does not replace the real staging readiness and contract checks.
 For `make ci-signoff`, planner evaluation is required signoff evidence: the
 manifest and archive include `planner-eval.json`, and `signoff-evidence.json`
-requires the V2 intermediate-state and V3 global-planning metrics to pass:
+requires the V2 intermediate-state and V3 global-planning quality metrics to pass:
 
 - `intermediate_state_coverage_rate == 1.0`
 - `tool_reason_coverage_rate == 1.0`
 - `evidence_gap_accuracy == 1.0`
 - `global_planning_coverage_rate == 1.0`
+
+For V3 copilot cases, `global_planning_coverage_rate` requires
+`global_plan_quality.version == "v3d"` and `overall_score >= 0.75`, so the
+signoff evidence covers the global plan, evidence graph, working memory, and
+quality score together.
 
 To compare planner quality against a previous CI report, set:
 

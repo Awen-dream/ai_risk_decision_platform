@@ -456,6 +456,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(working_memory["entities"]["order_id"], "O10001")
         self.assertEqual(working_memory["entities"]["strategy_id"], "STRAT-001")
         self.assertIn("调查", response.artifacts["child_artifacts"])
+        quality = response.artifacts["global_plan_quality"]
+        self.assertEqual(quality["version"], "v3d")
+        self.assertGreaterEqual(quality["overall_score"], 0.75)
+        self.assertEqual(quality["scores"]["plan_coverage"], 1.0)
         decision = response.artifacts["risk_decision"]
         self.assertEqual(decision["decision"], "escalate_review")
         self.assertEqual(decision["risk_level"], "high")
@@ -501,9 +505,12 @@ class AgentPlatformTests(unittest.TestCase):
 
         evidence_graph = response.artifacts["evidence_graph"]
         working_memory = response.artifacts["working_memory"]
+        quality = response.artifacts["global_plan_quality"]
         self.assertGreaterEqual(evidence_graph["summary"]["evidence_gap_count"], 1)
         self.assertTrue(any(node["type"] == "evidence_gap" for node in evidence_graph["nodes"]))
         self.assertTrue(working_memory["open_evidence_gaps"])
+        self.assertGreaterEqual(quality["diagnostics"]["evidence_gap_count"], 1)
+        self.assertLess(quality["scores"]["evidence_gap_control"], 1.0)
 
     def test_copilot_working_memory_uses_previous_session_turns(self) -> None:
         session_id, first = self.runtime.execute(

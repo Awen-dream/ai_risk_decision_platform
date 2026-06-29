@@ -153,6 +153,18 @@ groups:
         annotations:
           summary: "AI Risk evidence gap rate is above 10%"
 
+      - alert: AIRiskGlobalPlanQualityNeedsAttention
+        expr: |
+          sum(increase(ai_risk_agent_global_plan_quality_needs_attention_total[30m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_global_plan_quality_evaluations_total[30m])), 1)
+          > 0.05
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk global-plan quality needs-attention rate is above 5%"
+
       - alert: AIRiskToolHighFailedTraceRate
         expr: |
           sum(increase(ai_risk_agent_tools_executions_by_status_failed_total[10m]))
