@@ -21,17 +21,21 @@ class PlannerEvalTests(unittest.TestCase):
         report = run_planner_eval()
 
         self.assertEqual(report["status"], "passed")
-        self.assertEqual(report["summary"]["total"], 5)
-        self.assertEqual(report["summary"]["passed"], 5)
+        self.assertEqual(report["summary"]["total"], 7)
+        self.assertEqual(report["summary"]["passed"], 7)
         self.assertEqual(report["summary"]["intent_accuracy"], 1.0)
         self.assertEqual(report["summary"]["plan_step_accuracy"], 1.0)
         self.assertEqual(report["summary"]["tool_coverage_rate"], 1.0)
+        self.assertEqual(report["summary"]["intermediate_state_coverage_rate"], 1.0)
+        self.assertEqual(report["summary"]["tool_reason_coverage_rate"], 1.0)
+        self.assertEqual(report["summary"]["evidence_gap_accuracy"], 1.0)
         self.assertEqual(report["summary"]["no_fallback_rate"], 1.0)
         self.assertEqual(report["summary"]["no_validation_error_rate"], 1.0)
         self.assertEqual(report["by_agent"]["copilot"]["total"], 2)
         self.assertEqual(report["by_agent"]["investigation"]["total"], 2)
         self.assertEqual(report["by_agent"]["strategy"]["total"], 1)
-        self.assertEqual(report["by_backend"]["rule"]["total"], 5)
+        self.assertEqual(report["by_agent"]["graph"]["total"], 2)
+        self.assertEqual(report["by_backend"]["rule"]["total"], 7)
         self.assertEqual(report["threshold_failures"], [])
         self.assertIsNone(report["baseline_comparison"])
 
@@ -52,6 +56,7 @@ class PlannerEvalTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertEqual(report["summary"]["plan_step_accuracy"], 0.0)
+        self.assertEqual(report["summary"]["intermediate_state_coverage_rate"], 1.0)
         self.assertEqual(report["by_agent"]["investigation"]["failed"], 1)
         self.assertEqual(report["by_backend"]["rule"]["failed"], 1)
         self.assertFalse(report["cases"][0]["plan_steps_matched"])
@@ -78,6 +83,29 @@ class PlannerEvalTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "failed")
         self.assertIn("plan_step_accuracy=0.0000 < 0.5000", report["threshold_failures"])
+
+    def test_planner_eval_reports_missing_expected_evidence_gap(self) -> None:
+        report = run_planner_eval(
+            [
+                PlannerEvalCase(
+                    name="missing_expected_gap",
+                    agent_name="graph",
+                    query="请分析用户 U10001 是否属于团伙网络",
+                    context={"entity_id": "U10001"},
+                    expected_intent="graph_tool_plan",
+                    expected_plan_steps=["graph_relation"],
+                    expected_tool_traces=["graph_relation"],
+                    expected_evidence_gap_sources=["graph_relation"],
+                )
+            ]
+        )
+
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["summary"]["evidence_gap_accuracy"], 0.0)
+        self.assertEqual(
+            report["cases"][0]["missing_evidence_gap_sources"],
+            ["graph_relation"],
+        )
 
     def test_planner_eval_passes_when_baseline_has_no_regression(self) -> None:
         baseline = run_planner_eval()
@@ -263,6 +291,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["summary"]["total"], 1)
         self.assertEqual(payload["thresholds"]["min_plan_step_accuracy"], 1.0)
+        self.assertEqual(payload["thresholds"]["min_intermediate_state_coverage_rate"], 1.0)
         self.assertEqual(payload["baseline_comparison"]["max_allowed_regression"], 1.0)
 
     def test_makefile_exposes_planner_eval_target(self) -> None:

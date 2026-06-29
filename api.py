@@ -631,6 +631,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                     "agent.planner.fallbacks.total",
                     "agent.planner.validation_errors.total",
                     "agent.tools.executions.total",
+                    "agent.intermediate_states.total",
+                    "agent.intermediate_states.evidence_gaps.total",
                 ],
                 "slo_baseline": "docs/observability-slo.md",
             },

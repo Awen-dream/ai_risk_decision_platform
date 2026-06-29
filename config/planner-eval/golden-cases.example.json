@@ -40,6 +40,39 @@
         "graph_relation",
         "rule_explain"
       ]
+    },
+    {
+      "name": "graph_default",
+      "agent_name": "graph",
+      "query": "请分析用户 U10001 是否属于团伙网络",
+      "context": {
+        "entity_id": "U10001"
+      },
+      "expected_intent": "graph_tool_plan",
+      "expected_plan_steps": [
+        "graph_relation"
+      ],
+      "expected_tool_traces": [
+        "graph_relation"
+      ]
+    },
+    {
+      "name": "graph_missing_relation_evidence_gap",
+      "agent_name": "graph",
+      "query": "请分析用户 MISSING 是否属于团伙网络",
+      "context": {
+        "entity_id": "MISSING"
+      },
+      "expected_intent": "graph_tool_plan",
+      "expected_plan_steps": [
+        "graph_relation"
+      ],
+      "expected_tool_traces": [
+        "graph_relation"
+      ],
+      "expected_evidence_gap_sources": [
+        "graph_relation"
+      ]
     }
   ]
 }

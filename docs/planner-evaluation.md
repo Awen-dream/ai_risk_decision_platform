@@ -1,8 +1,8 @@
 # Planner Evaluation
 
 V2 planner evaluation is an offline golden-set gate for copilot,
-investigation, and strategy routing quality. It runs fully locally against the
-demo runtime and does not call external LLM or tool services.
+investigation, strategy, and graph routing quality. It runs fully locally
+against the demo runtime and does not call external LLM or tool services.
 
 Run the default golden set:
 
@@ -31,6 +31,13 @@ make validate-planner-eval \
   PLANNER_EVAL_ARGS="--min-plan-step-accuracy 0.98 --min-tool-coverage-rate 1.0"
 ```
 
+Gate V2 intermediate-state quality explicitly:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--min-intermediate-state-coverage-rate 1.0 --min-tool-reason-coverage-rate 1.0 --min-evidence-gap-accuracy 1.0"
+```
+
 Compare against a previous report and fail on any quality regression:
 
 ```bash
@@ -52,12 +59,20 @@ The default suite checks:
 - `investigation` metric tool selection.
 - `investigation` order tool selection.
 - `strategy` tool selection for profile, simulation, graph, and rule evidence.
+- `graph` tool selection for graph relation evidence.
+- `graph` missing-data behavior that must surface an `evidence_gap`.
 
 The report includes:
 
 - `intent_accuracy`: expected intent match rate.
 - `plan_step_accuracy`: exact plan-step match rate.
 - `tool_coverage_rate`: expected tool trace coverage.
+- `intermediate_state_coverage_rate`: share of cases with required
+  `thought_summary` and `tool_using_plan` state.
+- `tool_reason_coverage_rate`: share of cases where every selected tool has an
+  auditable `tool_selection_reason`.
+- `evidence_gap_accuracy`: share of cases whose actual evidence-gap sources
+  match the expected missing-evidence contract.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
 - `by_agent`: the same quality summary grouped by agent.
@@ -80,11 +95,26 @@ Custom cases use this JSON shape:
       "context": {"country": "BR", "channel": "credit_card"},
       "expected_intent": "metric_investigation",
       "expected_plan_steps": ["metric_snapshot", "case_lookup", "dashboard_snapshot"],
-      "expected_tool_traces": ["metric_snapshot", "case_lookup", "dashboard_snapshot"]
+      "expected_tool_traces": ["metric_snapshot", "case_lookup", "dashboard_snapshot"],
+      "expected_evidence_gap_sources": []
+    },
+    {
+      "name": "graph_missing_relation_evidence_gap",
+      "agent_name": "graph",
+      "query": "请分析用户 MISSING 是否属于团伙网络",
+      "context": {"entity_id": "MISSING"},
+      "expected_intent": "graph_tool_plan",
+      "expected_plan_steps": ["graph_relation"],
+      "expected_tool_traces": ["graph_relation"],
+      "expected_evidence_gap_sources": ["graph_relation"]
     }
   ]
 }
 ```
+
+Set `"require_intermediate_state": false` for orchestration-only cases such as
+`copilot` when the case is testing high-level routing rather than V2
+tool-using agent internals.
 
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus

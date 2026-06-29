@@ -16,6 +16,7 @@ from agents.strategy_planner import StrategyPlanCandidate, StrategyPlanner
 from app import build_demo_runtime, build_runtime
 from core.models import AgentRequest, ToolResult
 from retrieval.knowledge_base import RetrievalService
+from services.observability import get_gauges_snapshot, get_metrics_snapshot
 from settings import AppConfig
 from tools.registry import ToolRegistry
 
@@ -360,6 +361,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(reason.tool == "graph_relation" for reason in response.tool_selection_reason))
 
     def test_graph_agent_degrades_when_relation_is_missing(self) -> None:
+        counters_before = get_metrics_snapshot()
         _, response = self.runtime.execute(
             "graph",
             AgentRequest(
@@ -372,6 +374,17 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(response.tool_traces[0].status, "degraded")
         self.assertTrue(response.evidence_gap)
         self.assertEqual(response.evidence_gap[0].source, "graph_relation")
+        counters_after = get_metrics_snapshot()
+        gauges = get_gauges_snapshot()
+        self.assertEqual(
+            counters_after["agent.intermediate_states.evidence_gaps.by_agent.graph"]
+            - counters_before.get("agent.intermediate_states.evidence_gaps.by_agent.graph", 0),
+            1,
+        )
+        self.assertEqual(
+            gauges["agent.intermediate_states.last_evidence_gap_count.by_agent.graph"],
+            1.0,
+        )
 
     def test_graph_agent_validates_candidate_tools_and_inserts_required_relation_tool(self) -> None:
         planner = StaticGraphPlanner(

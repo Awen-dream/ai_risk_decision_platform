@@ -104,6 +104,37 @@ class AgentRuntime:
                 float(validation_error_count),
             )
 
+        if (
+            response.thought_summary
+            or response.tool_selection_reason
+            or response.evidence_gap
+            or response.artifacts.get("tool_using_plan")
+        ):
+            increment_counter("agent.intermediate_states.total")
+            increment_counter(f"agent.intermediate_states.by_agent.{agent_name}")
+            increment_counter(
+                "agent.intermediate_states.tool_reasons.total",
+                len(response.tool_selection_reason),
+            )
+            increment_counter(
+                f"agent.intermediate_states.tool_reasons.by_agent.{agent_name}",
+                len(response.tool_selection_reason),
+            )
+            if response.evidence_gap:
+                increment_counter("agent.intermediate_states.evidence_gaps.total", len(response.evidence_gap))
+                increment_counter(
+                    f"agent.intermediate_states.evidence_gaps.by_agent.{agent_name}",
+                    len(response.evidence_gap),
+                )
+            set_gauge(
+                f"agent.intermediate_states.last_tool_reason_count.by_agent.{agent_name}",
+                float(len(response.tool_selection_reason)),
+            )
+            set_gauge(
+                f"agent.intermediate_states.last_evidence_gap_count.by_agent.{agent_name}",
+                float(len(response.evidence_gap)),
+            )
+
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))
             increment_counter(

@@ -15,6 +15,9 @@ QUALITY_METRICS = (
     "intent_accuracy",
     "plan_step_accuracy",
     "tool_coverage_rate",
+    "intermediate_state_coverage_rate",
+    "tool_reason_coverage_rate",
+    "evidence_gap_accuracy",
     "no_fallback_rate",
     "no_validation_error_rate",
 )
@@ -30,6 +33,8 @@ class PlannerEvalCase:
     expected_intent: str | None = None
     expected_tool_traces: list[str] | None = None
     expected_tool_trace_prefixes: list[str] | None = None
+    expected_evidence_gap_sources: list[str] | None = None
+    require_intermediate_state: bool = True
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,9 @@ class PlannerEvalThresholds:
     min_intent_accuracy: float = 1.0
     min_plan_step_accuracy: float = 1.0
     min_tool_coverage_rate: float = 1.0
+    min_intermediate_state_coverage_rate: float = 1.0
+    min_tool_reason_coverage_rate: float = 1.0
+    min_evidence_gap_accuracy: float = 1.0
     min_no_fallback_rate: float = 1.0
     min_no_validation_error_rate: float = 1.0
 
@@ -49,6 +57,9 @@ class PlannerEvalCaseResult:
     intent_matched: bool | None
     plan_steps_matched: bool
     tool_coverage_matched: bool
+    intermediate_state_matched: bool
+    tool_reason_coverage_matched: bool
+    evidence_gap_matched: bool
     fallback_used: bool
     validation_error_count: int
     expected_intent: str | None
@@ -59,6 +70,9 @@ class PlannerEvalCaseResult:
     actual_tool_traces: list[str]
     missing_tool_traces: list[str]
     missing_tool_trace_prefixes: list[str]
+    expected_evidence_gap_sources: list[str]
+    actual_evidence_gap_sources: list[str]
+    missing_evidence_gap_sources: list[str]
     planner_backend: str
 
 
@@ -75,6 +89,7 @@ DEFAULT_EVAL_CASES = [
         expected_intent="composite",
         expected_plan_steps=["调查", "策略", "图谱"],
         expected_tool_trace_prefixes=["调查::", "策略::", "图谱::"],
+        require_intermediate_state=False,
     ),
     PlannerEvalCase(
         name="copilot_metric_anomaly",
@@ -84,6 +99,7 @@ DEFAULT_EVAL_CASES = [
         expected_intent="metric_anomaly",
         expected_plan_steps=["调查"],
         expected_tool_trace_prefixes=["调查::"],
+        require_intermediate_state=False,
     ),
     PlannerEvalCase(
         name="investigation_metric_default",
@@ -121,6 +137,25 @@ DEFAULT_EVAL_CASES = [
             "graph_relation",
             "rule_explain",
         ],
+    ),
+    PlannerEvalCase(
+        name="graph_default",
+        agent_name="graph",
+        query="请分析用户 U10001 是否属于团伙网络",
+        context={"entity_id": "U10001"},
+        expected_intent="graph_tool_plan",
+        expected_plan_steps=["graph_relation"],
+        expected_tool_traces=["graph_relation"],
+    ),
+    PlannerEvalCase(
+        name="graph_missing_relation_evidence_gap",
+        agent_name="graph",
+        query="请分析用户 MISSING 是否属于团伙网络",
+        context={"entity_id": "MISSING"},
+        expected_intent="graph_tool_plan",
+        expected_plan_steps=["graph_relation"],
+        expected_tool_traces=["graph_relation"],
+        expected_evidence_gap_sources=["graph_relation"],
     ),
 ]
 
@@ -193,8 +228,10 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
     fallback_used = bool(artifact.get("fallback_used")) if artifact else False
     planner_backend = str(artifact.get("backend") or "unknown") if artifact else "none"
     actual_tool_traces = [trace.name for trace in response.tool_traces]
+    actual_gap_sources = [gap.source for gap in response.evidence_gap]
     expected_tool_traces = list(case.expected_tool_traces or [])
     expected_prefixes = list(case.expected_tool_trace_prefixes or [])
+    expected_gap_sources = list(case.expected_evidence_gap_sources or [])
     missing_tool_traces = [
         tool_name for tool_name in expected_tool_traces if tool_name not in actual_tool_traces
     ]
@@ -203,17 +240,43 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         for prefix in expected_prefixes
         if not any(tool_name.startswith(prefix) for tool_name in actual_tool_traces)
     ]
+    missing_gap_sources = [
+        source for source in expected_gap_sources if source not in actual_gap_sources
+    ]
     intent_matched = (
         None if case.expected_intent is None else response.intent == case.expected_intent
     )
     plan_steps_matched = response.plan_steps == case.expected_plan_steps
     tool_coverage_matched = not missing_tool_traces and not missing_prefixes
+    intermediate_state_matched = (
+        True
+        if not case.require_intermediate_state
+        else bool(response.thought_summary and response.artifacts.get("tool_using_plan"))
+    )
+    selected_tool_reasons = {
+        reason.tool for reason in response.tool_selection_reason if reason.selected
+    }
+    tool_reason_coverage_matched = (
+        True
+        if not case.require_intermediate_state
+        else all(step in selected_tool_reasons for step in response.plan_steps)
+    )
+    evidence_gap_matched = (
+        not missing_gap_sources
+        and (
+            bool(expected_gap_sources)
+            or not actual_gap_sources
+        )
+    )
     status = (
         "passed"
         if (
             intent_matched is not False
             and plan_steps_matched
             and tool_coverage_matched
+            and intermediate_state_matched
+            and tool_reason_coverage_matched
+            and evidence_gap_matched
             and not fallback_used
             and validation_error_count == 0
         )
@@ -226,6 +289,9 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         intent_matched=intent_matched,
         plan_steps_matched=plan_steps_matched,
         tool_coverage_matched=tool_coverage_matched,
+        intermediate_state_matched=intermediate_state_matched,
+        tool_reason_coverage_matched=tool_reason_coverage_matched,
+        evidence_gap_matched=evidence_gap_matched,
         fallback_used=fallback_used,
         validation_error_count=validation_error_count,
         expected_intent=case.expected_intent,
@@ -236,12 +302,21 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         actual_tool_traces=actual_tool_traces,
         missing_tool_traces=missing_tool_traces,
         missing_tool_trace_prefixes=missing_prefixes,
+        expected_evidence_gap_sources=expected_gap_sources,
+        actual_evidence_gap_sources=actual_gap_sources,
+        missing_evidence_gap_sources=missing_gap_sources,
         planner_backend=planner_backend,
     )
 
 
 def _planner_artifact(response: AgentResponse) -> dict[str, Any] | None:
-    for artifact_name in ("planner", "investigation_plan", "strategy_plan"):
+    for artifact_name in (
+        "planner",
+        "tool_using_plan",
+        "investigation_plan",
+        "strategy_plan",
+        "graph_plan",
+    ):
         artifact = response.artifacts.get(artifact_name)
         if isinstance(artifact, dict):
             return artifact
@@ -270,6 +345,18 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
         ),
         "tool_coverage_rate": _ratio(
             sum(result.tool_coverage_matched for result in results),
+            total,
+        ),
+        "intermediate_state_coverage_rate": _ratio(
+            sum(result.intermediate_state_matched for result in results),
+            total,
+        ),
+        "tool_reason_coverage_rate": _ratio(
+            sum(result.tool_reason_coverage_matched for result in results),
+            total,
+        ),
+        "evidence_gap_accuracy": _ratio(
+            sum(result.evidence_gap_matched for result in results),
             total,
         ),
         "no_fallback_rate": _ratio(
@@ -434,6 +521,11 @@ def _case_from_payload(payload: Any, index: int) -> PlannerEvalCase:
             payload.get("expected_tool_trace_prefixes"),
             "expected_tool_trace_prefixes",
         ),
+        expected_evidence_gap_sources=_optional_string_list(
+            payload.get("expected_evidence_gap_sources"),
+            "expected_evidence_gap_sources",
+        ),
+        require_intermediate_state=bool(payload.get("require_intermediate_state", True)),
     )
 
 
@@ -445,6 +537,9 @@ def _threshold_failures(
         "intent_accuracy": thresholds.min_intent_accuracy,
         "plan_step_accuracy": thresholds.min_plan_step_accuracy,
         "tool_coverage_rate": thresholds.min_tool_coverage_rate,
+        "intermediate_state_coverage_rate": thresholds.min_intermediate_state_coverage_rate,
+        "tool_reason_coverage_rate": thresholds.min_tool_reason_coverage_rate,
+        "evidence_gap_accuracy": thresholds.min_evidence_gap_accuracy,
         "no_fallback_rate": thresholds.min_no_fallback_rate,
         "no_validation_error_rate": thresholds.min_no_validation_error_rate,
     }
@@ -480,6 +575,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-intent-accuracy", type=float, default=1.0)
     parser.add_argument("--min-plan-step-accuracy", type=float, default=1.0)
     parser.add_argument("--min-tool-coverage-rate", type=float, default=1.0)
+    parser.add_argument("--min-intermediate-state-coverage-rate", type=float, default=1.0)
+    parser.add_argument("--min-tool-reason-coverage-rate", type=float, default=1.0)
+    parser.add_argument("--min-evidence-gap-accuracy", type=float, default=1.0)
     parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
     parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
     parser.add_argument("--baseline-file", help="Optional previous planner eval report.")
@@ -497,6 +595,9 @@ def main(argv: list[str] | None = None) -> int:
         min_intent_accuracy=args.min_intent_accuracy,
         min_plan_step_accuracy=args.min_plan_step_accuracy,
         min_tool_coverage_rate=args.min_tool_coverage_rate,
+        min_intermediate_state_coverage_rate=args.min_intermediate_state_coverage_rate,
+        min_tool_reason_coverage_rate=args.min_tool_reason_coverage_rate,
+        min_evidence_gap_accuracy=args.min_evidence_gap_accuracy,
         min_no_fallback_rate=args.min_no_fallback_rate,
         min_no_validation_error_rate=args.min_no_validation_error_rate,
     )
