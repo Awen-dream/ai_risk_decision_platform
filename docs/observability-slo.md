@@ -197,6 +197,12 @@ sum(increase(ai_risk_agent_global_plan_quality_needs_attention_total[30m]))
 clamp_min(sum(increase(ai_risk_agent_global_plan_quality_evaluations_total[30m])), 1)
 ```
 
+V3 execution-readiness outcomes can be monitored with:
+
+```promql
+sum(increase(ai_risk_agent_execution_readiness_evaluations_total[30m])) by (__name__)
+```
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.

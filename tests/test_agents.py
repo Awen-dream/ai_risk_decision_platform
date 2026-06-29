@@ -460,6 +460,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(quality["version"], "v3d")
         self.assertGreaterEqual(quality["overall_score"], 0.75)
         self.assertEqual(quality["scores"]["plan_coverage"], 1.0)
+        readiness = response.artifacts["execution_readiness"]
+        self.assertEqual(readiness["version"], "v3f")
+        self.assertEqual(readiness["status"], "requires_review")
+        self.assertIn("manual_review_queue", readiness["required_controls"])
+        self.assertIn("queue:manual_review_queue", readiness["allowed_actions"])
         decision = response.artifacts["risk_decision"]
         self.assertEqual(decision["decision"], "escalate_review")
         self.assertEqual(decision["risk_level"], "high")
@@ -511,6 +516,9 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(working_memory["open_evidence_gaps"])
         self.assertGreaterEqual(quality["diagnostics"]["evidence_gap_count"], 1)
         self.assertLess(quality["scores"]["evidence_gap_control"], 1.0)
+        readiness = response.artifacts["execution_readiness"]
+        self.assertGreaterEqual(readiness["diagnostics"]["evidence_gap_count"], 1)
+        self.assertIn("collect_missing_evidence", readiness["allowed_actions"])
 
     def test_copilot_working_memory_uses_previous_session_turns(self) -> None:
         session_id, first = self.runtime.execute(

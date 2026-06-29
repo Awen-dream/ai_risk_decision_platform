@@ -327,9 +327,16 @@ def _has_global_planning_artifacts(response: AgentResponse) -> bool:
     evidence_graph = response.artifacts.get("evidence_graph")
     working_memory = response.artifacts.get("working_memory")
     plan_quality = response.artifacts.get("global_plan_quality")
+    execution_readiness = response.artifacts.get("execution_readiness")
     if not all(
         isinstance(item, dict)
-        for item in (global_plan, evidence_graph, working_memory, plan_quality)
+        for item in (
+            global_plan,
+            evidence_graph,
+            working_memory,
+            plan_quality,
+            execution_readiness,
+        )
     ):
         return False
     steps = global_plan.get("steps", [])  # type: ignore[union-attr]
@@ -340,6 +347,8 @@ def _has_global_planning_artifacts(response: AgentResponse) -> bool:
         and working_memory.get("version") == "v3a"  # type: ignore[union-attr]
         and plan_quality.get("version") == "v3d"  # type: ignore[union-attr]
         and float(plan_quality.get("overall_score", 0.0) or 0.0) >= 0.75  # type: ignore[union-attr]
+        and execution_readiness.get("version") == "v3f"  # type: ignore[union-attr]
+        and execution_readiness.get("status") in {"ready", "requires_review", "blocked"}  # type: ignore[union-attr]
         and isinstance(steps, list)
         and len(steps) == len(response.plan_steps)
         and isinstance(graph_summary, dict)

@@ -232,6 +232,31 @@ class AgentRuntime:
                 f"agent.global_plan_quality.last_blocking_gap_count.by_agent.{agent_name}",
                 float(diagnostics.get("blocking_gap_count", 0) or 0),
             )
+        execution_readiness = response.artifacts.get("execution_readiness")
+        if isinstance(execution_readiness, dict):
+            status = str(execution_readiness.get("status") or "unknown")
+            actionability_score = float(
+                execution_readiness.get("actionability_score", 0.0) or 0.0
+            )
+            diagnostics = (
+                execution_readiness.get("diagnostics")
+                if isinstance(execution_readiness.get("diagnostics"), dict)
+                else {}
+            )
+            increment_counter("agent.execution_readiness.evaluations.total")
+            increment_counter(f"agent.execution_readiness.evaluations.by_agent.{agent_name}")
+            increment_counter(f"agent.execution_readiness.evaluations.by_status.{status}")
+            increment_counter(
+                f"agent.execution_readiness.evaluations.by_agent.{agent_name}.by_status.{status}"
+            )
+            set_gauge(
+                f"agent.execution_readiness.last_actionability_score.by_agent.{agent_name}",
+                actionability_score,
+            )
+            set_gauge(
+                f"agent.execution_readiness.last_required_control_count.by_agent.{agent_name}",
+                float(diagnostics.get("policy_control_count", 0) or 0),
+            )
 
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))

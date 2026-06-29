@@ -563,6 +563,16 @@ class AgentApiTests(unittest.TestCase):
             payload["counters"]["agent.global_plan_quality.evaluations.by_agent.copilot"],
             1,
         )
+        self.assertGreaterEqual(
+            payload["counters"]["agent.execution_readiness.evaluations.by_agent.copilot"],
+            1,
+        )
+        self.assertGreaterEqual(
+            payload["counters"][
+                "agent.execution_readiness.evaluations.by_agent.copilot.by_status.requires_review"
+            ],
+            1,
+        )
         self.assertEqual(
             payload["gauges"]["agent.memory.last_session_ref_count.by_agent.copilot"],
             1.0,
@@ -570,6 +580,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(
             payload["gauges"]["agent.global_plan_quality.last_overall_score.by_agent.copilot"],
             0.75,
+        )
+        self.assertGreaterEqual(
+            payload["gauges"][
+                "agent.execution_readiness.last_actionability_score.by_agent.copilot"
+            ],
+            0.0,
         )
         self.assertGreater(
             payload["gauges"]["agent.evidence_graphs.last_evidence_count.by_agent.copilot"],
@@ -663,6 +679,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["artifacts"]["working_memory"]["scope"], "short_term")
         self.assertEqual(payload["artifacts"]["global_plan_quality"]["version"], "v3d")
         self.assertGreaterEqual(payload["artifacts"]["global_plan_quality"]["overall_score"], 0.75)
+        self.assertEqual(payload["artifacts"]["execution_readiness"]["version"], "v3f")
+        self.assertEqual(payload["artifacts"]["execution_readiness"]["status"], "requires_review")
         self.assertEqual(
             payload["artifacts"]["risk_decision"]["action_plan"]["queue"],
             "manual_review_queue",
@@ -688,6 +706,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(turn["artifacts"]["global_plan"]["version"], "v3a")
         self.assertGreater(turn["artifacts"]["evidence_graph"]["summary"]["evidence_count"], 0)
         self.assertEqual(turn["artifacts"]["global_plan_quality"]["version"], "v3d")
+        self.assertEqual(turn["artifacts"]["execution_readiness"]["version"], "v3f")
         self.assertEqual(
             turn["artifacts"]["risk_decision"]["action_plan"]["priority"],
             "high",

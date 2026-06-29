@@ -328,6 +328,110 @@ def evaluate_global_plan_quality(
     }
 
 
+def build_execution_readiness(
+    *,
+    global_plan_quality: dict[str, Any],
+    risk_decision: dict[str, Any],
+    working_memory: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostics = (
+        global_plan_quality.get("diagnostics")
+        if isinstance(global_plan_quality.get("diagnostics"), dict)
+        else {}
+    )
+    action_plan = (
+        risk_decision.get("action_plan")
+        if isinstance(risk_decision.get("action_plan"), dict)
+        else {}
+    )
+    policy_controls = [
+        str(item)
+        for item in risk_decision.get("policy_controls", [])
+        if item is not None
+    ]
+    quality_score = float(global_plan_quality.get("overall_score", 0.0) or 0.0)
+    blocking_gap_count = int(diagnostics.get("blocking_gap_count", 0) or 0)
+    evidence_gap_count = int(diagnostics.get("evidence_gap_count", 0) or 0)
+    status = "ready"
+    blockers: list[str] = []
+    reasons: list[str] = []
+    required_controls = list(dict.fromkeys(policy_controls))
+    allowed_actions = ["create_case"]
+
+    if blocking_gap_count:
+        status = "blocked"
+        blockers.append("blocking_evidence_gap")
+        reasons.append("存在阻断型 evidence gap，必须先补证再执行处置动作。")
+        required_controls.append("evidence_gap_review")
+        allowed_actions = ["collect_missing_evidence", "queue_manual_review"]
+    elif global_plan_quality.get("status") == "needs_attention" or quality_score < 0.75:
+        status = "requires_review"
+        reasons.append("全局计划质量未达到自动执行阈值，需要人工复核计划和证据链。")
+        required_controls.append("global_plan_quality_review")
+        allowed_actions.extend(["queue_manual_review", "collect_missing_evidence"])
+
+    if policy_controls and status == "ready":
+        status = "requires_review"
+        reasons.append("风险决策包含策略控制项，执行前需要进入对应复核或 shadow 流程。")
+    if policy_controls:
+        allowed_actions.extend(_policy_control_actions(policy_controls, action_plan))
+    if evidence_gap_count and "collect_missing_evidence" not in allowed_actions:
+        allowed_actions.append("collect_missing_evidence")
+    if not reasons:
+        reasons.append("全局计划质量、证据链和风险决策控制项允许进入执行交接。")
+
+    allowed_actions = list(dict.fromkeys(allowed_actions))
+    required_controls = list(dict.fromkeys(required_controls))
+    actionability_score = quality_score
+    if status == "blocked":
+        actionability_score = min(actionability_score, 0.4)
+    elif status == "requires_review":
+        actionability_score = min(actionability_score, 0.74)
+
+    return {
+        "version": "v3f",
+        "status": status,
+        "actionability_score": round(actionability_score, 3),
+        "quality_score": round(quality_score, 3),
+        "risk_level": risk_decision.get("risk_level"),
+        "decision": risk_decision.get("decision"),
+        "recommended_action": risk_decision.get("recommended_action"),
+        "required_controls": required_controls,
+        "allowed_actions": allowed_actions,
+        "blockers": blockers,
+        "reasons": reasons,
+        "diagnostics": {
+            "evidence_gap_count": evidence_gap_count,
+            "blocking_gap_count": blocking_gap_count,
+            "policy_control_count": len(policy_controls),
+            "open_evidence_gap_count": len(working_memory.get("open_evidence_gaps", []) or []),
+        },
+        "handoff": {
+            "queue": action_plan.get("queue"),
+            "priority": action_plan.get("priority"),
+            "sla_hours": action_plan.get("sla_hours"),
+        },
+    }
+
+
+def _policy_control_actions(
+    policy_controls: list[str],
+    action_plan: dict[str, Any],
+) -> list[str]:
+    actions: list[str] = []
+    queue = action_plan.get("queue")
+    if isinstance(queue, str) and queue:
+        actions.append(f"queue:{queue}")
+    for control in policy_controls:
+        if "shadow" in control:
+            actions.append("start_shadow_evaluation")
+        elif "review" in control or "queue" in control:
+            actions.append("queue_manual_review")
+        else:
+            actions.append(f"apply_control:{control}")
+    return actions
+
+
 def _audit_score(
     global_plan: GlobalPlan,
     evidence_graph: dict[str, Any],

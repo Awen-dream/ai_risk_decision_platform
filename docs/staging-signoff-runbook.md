@@ -82,8 +82,8 @@ requires the V2 intermediate-state and V3 global-planning quality metrics to pas
 
 For V3 copilot cases, `global_planning_coverage_rate` requires
 `global_plan_quality.version == "v3d"` and `overall_score >= 0.75`, so the
-signoff evidence covers the global plan, evidence graph, working memory, and
-quality score together.
+signoff evidence covers the global plan, evidence graph, working memory, quality
+score, and `execution_readiness.version == "v3f"` execution gate together.
 
 To compare planner quality against a previous CI report, set:
 

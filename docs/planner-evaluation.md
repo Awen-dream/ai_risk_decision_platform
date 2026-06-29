@@ -84,7 +84,8 @@ The report includes:
   match the expected missing-evidence contract.
 - `global_planning_coverage_rate`: share of cases that require and produce V3
   `global_plan`, `evidence_graph`, `working_memory`, and
-  `global_plan_quality` artifacts.
+  `global_plan_quality` artifacts, plus the V3f `execution_readiness`
+  execution-governance gate.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
 - `by_agent`: the same quality summary grouped by agent.
@@ -140,7 +141,9 @@ Set `"require_intermediate_state": false` for orchestration-only cases such as
 tool-using agent internals.
 Set `"require_global_planning": true` for copilot cases that must produce the
 V3 global-planning artifact set. Required quality artifacts include
-`global_plan_quality.version == "v3d"` and `overall_score >= 0.75`.
+`global_plan_quality.version == "v3d"`, `overall_score >= 0.75`, and
+`execution_readiness.version == "v3f"` with a valid `ready`,
+`requires_review`, or `blocked` status.
 
 For multi-turn copilot sessions, the runtime injects short-term session memory
 into the execution request. The stored user turn context remains unchanged, but

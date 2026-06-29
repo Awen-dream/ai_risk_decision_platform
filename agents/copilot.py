@@ -12,6 +12,7 @@ from agents.copilot_planner import (
     RuleBasedCopilotPlanner,
 )
 from core.global_planning import (
+    build_execution_readiness,
     build_evidence_graph,
     build_global_plan,
     build_working_memory_snapshot,
@@ -143,12 +144,21 @@ class CopilotAgent(Agent):
             risk_decision=risk_decision,
         )
         response.artifacts["evidence_graph"] = evidence_graph
-        response.artifacts["global_plan_quality"] = evaluate_global_plan_quality(
+        global_plan_quality = evaluate_global_plan_quality(
             global_plan=global_plan,
             evidence_graph=evidence_graph,
             working_memory=working_memory,
             child_responses=child_responses,
         )
+        response.artifacts["global_plan_quality"] = global_plan_quality
+        execution_readiness = build_execution_readiness(
+            global_plan_quality=global_plan_quality,
+            risk_decision=risk_decision,
+            working_memory=working_memory,
+        )
+        response.artifacts["execution_readiness"] = execution_readiness
+        if execution_readiness["status"] != "ready":
+            response.suggested_actions.append(execution_readiness["reasons"][0])
         return response
 
     @staticmethod
