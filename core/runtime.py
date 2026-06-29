@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 from agents.base import Agent
+from core.memory import build_session_memory_context
 from core.models import AgentRequest, AgentResponse
 from core.session_store import InMemorySessionStore, SessionStore
 from services.observability import bind_context, emit_event, increment_counter, set_gauge
@@ -37,7 +38,8 @@ class AgentRuntime:
                 provided_session_id=bool(session_id),
             )
             try:
-                response = self._agents[agent_name].run(request)
+                execution_request = self._request_with_session_memory(request, session)
+                response = self._agents[agent_name].run(execution_request)
                 session = self._session_store.append_turn(
                     session.session_id,
                     request,
@@ -59,6 +61,21 @@ class AgentRuntime:
             )
             self._record_response_metrics(agent_name, response)
         return session.session_id, response
+
+    @staticmethod
+    def _request_with_session_memory(
+        request: AgentRequest,
+        session,
+    ) -> AgentRequest:
+        if not session.turns:
+            return request
+        context = dict(request.context)
+        context["_session_memory"] = build_session_memory_context(session)
+        return AgentRequest(
+            query=request.query,
+            context=context,
+            user_role=request.user_role,
+        )
 
     def create_session(self) -> str:
         session_id = self._session_store.create_session().session_id
@@ -163,6 +180,22 @@ class AgentRuntime:
             set_gauge(
                 f"agent.evidence_graphs.last_evidence_gap_count.by_agent.{agent_name}",
                 float(evidence_gap_count),
+            )
+        working_memory = response.artifacts.get("working_memory")
+        if isinstance(working_memory, dict):
+            session_refs = working_memory.get("session_memory_refs") or []
+            session_ref_count = len(session_refs) if isinstance(session_refs, list) else 0
+            increment_counter("agent.memory.snapshots.total")
+            increment_counter(f"agent.memory.snapshots.by_agent.{agent_name}")
+            if session_ref_count:
+                increment_counter("agent.memory.session_refs.total", session_ref_count)
+                increment_counter(
+                    f"agent.memory.session_refs.by_agent.{agent_name}",
+                    session_ref_count,
+                )
+            set_gauge(
+                f"agent.memory.last_session_ref_count.by_agent.{agent_name}",
+                float(session_ref_count),
             )
 
         if response.tool_traces:

@@ -140,6 +140,11 @@ tool-using agent internals.
 Set `"require_global_planning": true` for copilot cases that must produce the
 V3 global-planning artifact trio.
 
+For multi-turn copilot sessions, the runtime injects short-term session memory
+into the execution request. The stored user turn context remains unchanged, but
+the V3 `working_memory.session_memory_refs` artifact can cite recent turn
+summaries, intents, evidence sources, and open evidence-gap sources.
+
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus
 alerts, and the readiness gate.

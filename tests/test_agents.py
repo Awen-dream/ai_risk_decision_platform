@@ -505,6 +505,29 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(node["type"] == "evidence_gap" for node in evidence_graph["nodes"]))
         self.assertTrue(working_memory["open_evidence_gaps"])
 
+    def test_copilot_working_memory_uses_previous_session_turns(self) -> None:
+        session_id, first = self.runtime.execute(
+            "copilot",
+            AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
+        )
+
+        _, second = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="继续看这个问题是否涉及团伙网络",
+                context={"entity_id": "U10001"},
+            ),
+            session_id=session_id,
+        )
+
+        memory_refs = second.artifacts["working_memory"]["session_memory_refs"]
+        session = self.runtime.get_session(session_id)
+        self.assertTrue(memory_refs)
+        self.assertEqual(memory_refs[0]["agent_name"], "copilot")
+        self.assertEqual(memory_refs[0]["summary"], first.summary)
+        self.assertIsNotNone(session)
+        self.assertNotIn("_session_memory", session.turns[1].context)
+
     def test_copilot_agent_classifies_graph_only_question(self) -> None:
         _, response = self.runtime.execute(
             "copilot",

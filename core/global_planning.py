@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.memory import public_context_keys
 from core.models import AgentRequest, AgentResponse
 
 
@@ -145,8 +146,9 @@ def build_working_memory_snapshot(
         "version": "v3a",
         "scope": "short_term",
         "query": request.query,
-        "context_keys": sorted(request.context),
+        "context_keys": public_context_keys(request.context),
         "entities": _extract_entities(request.context),
+        "session_memory_refs": _session_memory_refs(request.context),
         "child_summaries": [
             {
                 "step": label,
@@ -257,3 +259,32 @@ def _extract_entities(context: dict[str, Any]) -> dict[str, str]:
         for key in entity_keys
         if key in context and context[key] is not None
     }
+
+
+def _session_memory_refs(context: dict[str, Any]) -> list[dict[str, Any]]:
+    memory = context.get("_session_memory")
+    if not isinstance(memory, dict):
+        return []
+    turns = memory.get("turns", [])
+    if not isinstance(turns, list):
+        return []
+    refs: list[dict[str, Any]] = []
+    for item in turns:
+        if not isinstance(item, dict):
+            continue
+        refs.append(
+            {
+                "turn_index": item.get("turn_index"),
+                "agent_name": item.get("agent_name"),
+                "intent": item.get("intent"),
+                "summary": item.get("summary"),
+                "confidence": item.get("confidence"),
+                "evidence_sources": list(item.get("evidence_sources", []))
+                if isinstance(item.get("evidence_sources"), list)
+                else [],
+                "open_evidence_gap_sources": list(item.get("open_evidence_gap_sources", []))
+                if isinstance(item.get("open_evidence_gap_sources"), list)
+                else [],
+            }
+        )
+    return refs

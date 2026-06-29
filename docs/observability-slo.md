@@ -167,6 +167,12 @@ clamp_min(sum(increase(ai_risk_agent_intermediate_states_total[30m])), 1)
 > 0.10
 ```
 
+V3 session-memory reuse can be monitored with:
+
+```promql
+sum(increase(ai_risk_agent_memory_session_refs_total[30m]))
+```
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.

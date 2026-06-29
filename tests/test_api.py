@@ -531,11 +531,22 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["gauges"]["agent.tools.last_trace_count.by_agent.strategy"], 4.0)
 
     def test_metrics_endpoint_reports_global_planning_counters(self) -> None:
+        created = self.client.post("/sessions")
+        session_id = created.json()["session_id"]
         self.client.post(
             "/agents/copilot",
             json={
                 "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
                 "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+        self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "继续确认这个风险是否有历史上下文",
+                "context": {"entity_id": "U10001"},
+                "session_id": session_id,
             },
         )
 
@@ -546,9 +557,11 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(payload["counters"]["agent.global_plans.total"], 1)
         self.assertGreaterEqual(payload["counters"]["agent.global_plans.by_agent.copilot"], 1)
         self.assertGreaterEqual(payload["counters"]["agent.evidence_graphs.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.memory.snapshots.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.memory.session_refs.by_agent.copilot"], 1)
         self.assertEqual(
-            payload["gauges"]["agent.global_plans.last_step_count.by_agent.copilot"],
-            3.0,
+            payload["gauges"]["agent.memory.last_session_ref_count.by_agent.copilot"],
+            1.0,
         )
         self.assertGreater(
             payload["gauges"]["agent.evidence_graphs.last_evidence_count.by_agent.copilot"],
