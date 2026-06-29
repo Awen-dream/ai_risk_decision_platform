@@ -440,6 +440,22 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(any(trace.name.startswith("策略::") for trace in response.tool_traces))
         self.assertTrue(any(trace.name.startswith("图谱::") for trace in response.tool_traces))
         self.assertTrue(any(evidence.source.startswith("调查::") for evidence in response.evidence))
+        global_plan = response.artifacts["global_plan"]
+        self.assertEqual(global_plan["version"], "v3a")
+        self.assertEqual(
+            [step["agent_name"] for step in global_plan["steps"]],
+            ["investigation", "strategy", "graph"],
+        )
+        self.assertEqual(global_plan["steps"][1]["depends_on"], ["global_step_1"])
+        evidence_graph = response.artifacts["evidence_graph"]
+        self.assertEqual(evidence_graph["version"], "v3a")
+        self.assertGreater(evidence_graph["summary"]["evidence_count"], 0)
+        self.assertTrue(any(node["id"] == "risk_decision" for node in evidence_graph["nodes"]))
+        working_memory = response.artifacts["working_memory"]
+        self.assertEqual(working_memory["scope"], "short_term")
+        self.assertEqual(working_memory["entities"]["order_id"], "O10001")
+        self.assertEqual(working_memory["entities"]["strategy_id"], "STRAT-001")
+        self.assertIn("调查", response.artifacts["child_artifacts"])
         decision = response.artifacts["risk_decision"]
         self.assertEqual(decision["decision"], "escalate_review")
         self.assertEqual(decision["risk_level"], "high")
@@ -469,6 +485,25 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 图谱") for finding in response.findings))
         self.assertTrue(all(trace.name.startswith("调查::") for trace in response.tool_traces))
+        self.assertEqual(
+            [step["agent_name"] for step in response.artifacts["global_plan"]["steps"]],
+            ["investigation"],
+        )
+
+    def test_copilot_evidence_graph_tracks_child_evidence_gaps(self) -> None:
+        _, response = self.runtime.execute(
+            "copilot",
+            AgentRequest(
+                query="请分析用户 MISSING 是否属于团伙网络",
+                context={"entity_id": "MISSING"},
+            ),
+        )
+
+        evidence_graph = response.artifacts["evidence_graph"]
+        working_memory = response.artifacts["working_memory"]
+        self.assertGreaterEqual(evidence_graph["summary"]["evidence_gap_count"], 1)
+        self.assertTrue(any(node["type"] == "evidence_gap" for node in evidence_graph["nodes"]))
+        self.assertTrue(working_memory["open_evidence_gaps"])
 
     def test_copilot_agent_classifies_graph_only_question(self) -> None:
         _, response = self.runtime.execute(

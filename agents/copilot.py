@@ -11,6 +11,11 @@ from agents.copilot_planner import (
     CopilotPlanner,
     RuleBasedCopilotPlanner,
 )
+from core.global_planning import (
+    build_evidence_graph,
+    build_global_plan,
+    build_working_memory_snapshot,
+)
 from core.models import AgentRequest, AgentResponse, Citation, EvidenceRecord, PlannerTraceStep, ToolTrace
 from services.risk_decision import RiskDecisionPolicy
 
@@ -78,6 +83,15 @@ class CopilotAgent(Agent):
         response.intent = validated_plan.intent.value
         response.plan_steps = [step.label for step in validated_plan.plan_steps]
         response.planner_trace = validated_plan.planner_trace
+        global_plan = build_global_plan(
+            request=request,
+            intent=validated_plan.intent.value,
+            planner_trace=validated_plan.planner_trace,
+            plan_steps=validated_plan.plan_steps,
+            planner_backend=validated_plan.planner_backend,
+            fallback_used=validated_plan.fallback_used,
+            validation_errors=validated_plan.validation_errors,
+        )
 
         child_responses: list[tuple[str, AgentResponse]] = []
         for step in validated_plan.plan_steps:
@@ -96,14 +110,26 @@ class CopilotAgent(Agent):
         response.evidence = self._merge_evidence(child_responses)
         response.artifacts = self._merge_artifacts(child_responses)
         response.artifacts["planner"] = validated_plan.to_artifact()
+        response.artifacts["global_plan"] = global_plan.to_artifact()
         response.confidence = round(
             sum(child.confidence for _, child in child_responses) / len(child_responses),
             2,
         )
-        response.artifacts["risk_decision"] = self._risk_decision_policy.evaluate(
+        risk_decision = self._risk_decision_policy.evaluate(
             intent=validated_plan.intent.value,
             child_responses=child_responses,
             confidence=response.confidence,
+        )
+        response.artifacts["risk_decision"] = risk_decision
+        response.artifacts["working_memory"] = build_working_memory_snapshot(
+            request=request,
+            child_responses=child_responses,
+        )
+        response.artifacts["evidence_graph"] = build_evidence_graph(
+            request=request,
+            global_plan=global_plan,
+            child_responses=child_responses,
+            risk_decision=risk_decision,
         )
         return response
 
@@ -192,8 +218,11 @@ class CopilotAgent(Agent):
     @staticmethod
     def _merge_artifacts(child_responses: list[tuple[str, AgentResponse]]) -> dict[str, object]:
         artifacts: dict[str, object] = {}
-        for _, child in child_responses:
+        child_artifacts: dict[str, object] = {}
+        for label, child in child_responses:
             artifacts.update(child.artifacts)
+            child_artifacts[label] = dict(child.artifacts)
+        artifacts["child_artifacts"] = child_artifacts
         return artifacts
 
     def _validated_plan(self, request: AgentRequest) -> ValidatedCopilotPlan:

@@ -281,6 +281,7 @@ def _planner_eval_report() -> dict[str, object]:
             "intermediate_state_coverage_rate": 1.0,
             "tool_reason_coverage_rate": 1.0,
             "evidence_gap_accuracy": 1.0,
+            "global_planning_coverage_rate": 1.0,
         },
         "threshold_failures": [],
     }

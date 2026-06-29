@@ -1,6 +1,29 @@
 {
   "cases": [
     {
+      "name": "copilot_composite_order_strategy_graph",
+      "agent_name": "copilot",
+      "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+      "context": {
+        "order_id": "O10001",
+        "strategy_id": "STRAT-001",
+        "entity_id": "U10001"
+      },
+      "expected_intent": "composite",
+      "expected_plan_steps": [
+        "调查",
+        "策略",
+        "图谱"
+      ],
+      "expected_tool_trace_prefixes": [
+        "调查::",
+        "策略::",
+        "图谱::"
+      ],
+      "require_intermediate_state": false,
+      "require_global_planning": true
+    },
+    {
       "name": "investigation_metric_default",
       "agent_name": "investigation",
       "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？",

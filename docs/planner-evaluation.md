@@ -1,8 +1,9 @@
 # Planner Evaluation
 
-V2 planner evaluation is an offline golden-set gate for copilot,
-investigation, strategy, and graph routing quality. It runs fully locally
-against the demo runtime and does not call external LLM or tool services.
+V2/V3 planner evaluation is an offline golden-set gate for copilot,
+investigation, strategy, graph routing quality, and V3 global-planning
+artifacts. It runs fully locally against the demo runtime and does not call
+external LLM or tool services.
 
 Run the default golden set:
 
@@ -38,6 +39,13 @@ make validate-planner-eval \
   PLANNER_EVAL_ARGS="--min-intermediate-state-coverage-rate 1.0 --min-tool-reason-coverage-rate 1.0 --min-evidence-gap-accuracy 1.0"
 ```
 
+Gate V3 global-planning artifacts explicitly:
+
+```bash
+make validate-planner-eval \
+  PLANNER_EVAL_ARGS="--min-global-planning-coverage-rate 1.0"
+```
+
 Compare against a previous report and fail on any quality regression:
 
 ```bash
@@ -56,6 +64,7 @@ The default suite checks:
 
 - `copilot` composite routing for order + strategy + graph analysis.
 - `copilot` metric-anomaly routing for plain metric questions.
+- `copilot` V3 global-plan, evidence-graph, and working-memory artifacts.
 - `investigation` metric tool selection.
 - `investigation` order tool selection.
 - `strategy` tool selection for profile, simulation, graph, and rule evidence.
@@ -73,6 +82,8 @@ The report includes:
   auditable `tool_selection_reason`.
 - `evidence_gap_accuracy`: share of cases whose actual evidence-gap sources
   match the expected missing-evidence contract.
+- `global_planning_coverage_rate`: share of cases that require and produce V3
+  `global_plan`, `evidence_graph`, and `working_memory` artifacts.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
 - `by_agent`: the same quality summary grouped by agent.
@@ -88,6 +99,17 @@ Custom cases use this JSON shape:
 ```json
 {
   "cases": [
+    {
+      "name": "copilot_composite_order_strategy_graph",
+      "agent_name": "copilot",
+      "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+      "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+      "expected_intent": "composite",
+      "expected_plan_steps": ["调查", "策略", "图谱"],
+      "expected_tool_trace_prefixes": ["调查::", "策略::", "图谱::"],
+      "require_intermediate_state": false,
+      "require_global_planning": true
+    },
     {
       "name": "investigation_metric_default",
       "agent_name": "investigation",
@@ -115,6 +137,8 @@ Custom cases use this JSON shape:
 Set `"require_intermediate_state": false` for orchestration-only cases such as
 `copilot` when the case is testing high-level routing rather than V2
 tool-using agent internals.
+Set `"require_global_planning": true` for copilot cases that must produce the
+V3 global-planning artifact trio.
 
 Use this offline gate before changing planner prompts, rule planners, or tool
 contracts. Runtime quality remains covered by `/admin/metrics`, Prometheus

@@ -135,6 +135,36 @@ class AgentRuntime:
                 float(len(response.evidence_gap)),
             )
 
+        global_plan = response.artifacts.get("global_plan")
+        evidence_graph = response.artifacts.get("evidence_graph")
+        if isinstance(global_plan, dict):
+            steps = global_plan.get("steps") or []
+            step_count = len(steps) if isinstance(steps, list) else 0
+            increment_counter("agent.global_plans.total")
+            increment_counter(f"agent.global_plans.by_agent.{agent_name}")
+            increment_counter("agent.global_plans.steps.total", step_count)
+            set_gauge(
+                f"agent.global_plans.last_step_count.by_agent.{agent_name}",
+                float(step_count),
+            )
+        if isinstance(evidence_graph, dict):
+            summary = evidence_graph.get("summary") if isinstance(evidence_graph.get("summary"), dict) else {}
+            evidence_gap_count = int(summary.get("evidence_gap_count", 0) or 0)
+            evidence_count = int(summary.get("evidence_count", 0) or 0)
+            increment_counter("agent.evidence_graphs.total")
+            increment_counter(f"agent.evidence_graphs.by_agent.{agent_name}")
+            increment_counter("agent.evidence_graphs.evidence_nodes.total", evidence_count)
+            if evidence_gap_count:
+                increment_counter("agent.evidence_graphs.evidence_gap_nodes.total", evidence_gap_count)
+            set_gauge(
+                f"agent.evidence_graphs.last_evidence_count.by_agent.{agent_name}",
+                float(evidence_count),
+            )
+            set_gauge(
+                f"agent.evidence_graphs.last_evidence_gap_count.by_agent.{agent_name}",
+                float(evidence_gap_count),
+            )
+
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))
             increment_counter(

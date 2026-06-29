@@ -18,6 +18,7 @@ QUALITY_METRICS = (
     "intermediate_state_coverage_rate",
     "tool_reason_coverage_rate",
     "evidence_gap_accuracy",
+    "global_planning_coverage_rate",
     "no_fallback_rate",
     "no_validation_error_rate",
 )
@@ -35,6 +36,7 @@ class PlannerEvalCase:
     expected_tool_trace_prefixes: list[str] | None = None
     expected_evidence_gap_sources: list[str] | None = None
     require_intermediate_state: bool = True
+    require_global_planning: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,7 @@ class PlannerEvalThresholds:
     min_intermediate_state_coverage_rate: float = 1.0
     min_tool_reason_coverage_rate: float = 1.0
     min_evidence_gap_accuracy: float = 1.0
+    min_global_planning_coverage_rate: float = 1.0
     min_no_fallback_rate: float = 1.0
     min_no_validation_error_rate: float = 1.0
 
@@ -60,6 +63,7 @@ class PlannerEvalCaseResult:
     intermediate_state_matched: bool
     tool_reason_coverage_matched: bool
     evidence_gap_matched: bool
+    global_planning_matched: bool
     fallback_used: bool
     validation_error_count: int
     expected_intent: str | None
@@ -90,6 +94,7 @@ DEFAULT_EVAL_CASES = [
         expected_plan_steps=["调查", "策略", "图谱"],
         expected_tool_trace_prefixes=["调查::", "策略::", "图谱::"],
         require_intermediate_state=False,
+        require_global_planning=True,
     ),
     PlannerEvalCase(
         name="copilot_metric_anomaly",
@@ -100,6 +105,7 @@ DEFAULT_EVAL_CASES = [
         expected_plan_steps=["调查"],
         expected_tool_trace_prefixes=["调查::"],
         require_intermediate_state=False,
+        require_global_planning=True,
     ),
     PlannerEvalCase(
         name="investigation_metric_default",
@@ -268,6 +274,11 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
             or not actual_gap_sources
         )
     )
+    global_planning_matched = (
+        True
+        if not case.require_global_planning
+        else _has_global_planning_artifacts(response)
+    )
     status = (
         "passed"
         if (
@@ -277,6 +288,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
             and intermediate_state_matched
             and tool_reason_coverage_matched
             and evidence_gap_matched
+            and global_planning_matched
             and not fallback_used
             and validation_error_count == 0
         )
@@ -292,6 +304,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         intermediate_state_matched=intermediate_state_matched,
         tool_reason_coverage_matched=tool_reason_coverage_matched,
         evidence_gap_matched=evidence_gap_matched,
+        global_planning_matched=global_planning_matched,
         fallback_used=fallback_used,
         validation_error_count=validation_error_count,
         expected_intent=case.expected_intent,
@@ -306,6 +319,25 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         actual_evidence_gap_sources=actual_gap_sources,
         missing_evidence_gap_sources=missing_gap_sources,
         planner_backend=planner_backend,
+    )
+
+
+def _has_global_planning_artifacts(response: AgentResponse) -> bool:
+    global_plan = response.artifacts.get("global_plan")
+    evidence_graph = response.artifacts.get("evidence_graph")
+    working_memory = response.artifacts.get("working_memory")
+    if not all(isinstance(item, dict) for item in (global_plan, evidence_graph, working_memory)):
+        return False
+    steps = global_plan.get("steps", [])  # type: ignore[union-attr]
+    graph_summary = evidence_graph.get("summary", {})  # type: ignore[union-attr]
+    return (
+        global_plan.get("version") == "v3a"  # type: ignore[union-attr]
+        and evidence_graph.get("version") == "v3a"  # type: ignore[union-attr]
+        and working_memory.get("version") == "v3a"  # type: ignore[union-attr]
+        and isinstance(steps, list)
+        and len(steps) == len(response.plan_steps)
+        and isinstance(graph_summary, dict)
+        and int(graph_summary.get("node_count", 0) or 0) > 0
     )
 
 
@@ -357,6 +389,10 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
         ),
         "evidence_gap_accuracy": _ratio(
             sum(result.evidence_gap_matched for result in results),
+            total,
+        ),
+        "global_planning_coverage_rate": _ratio(
+            sum(result.global_planning_matched for result in results),
             total,
         ),
         "no_fallback_rate": _ratio(
@@ -526,6 +562,7 @@ def _case_from_payload(payload: Any, index: int) -> PlannerEvalCase:
             "expected_evidence_gap_sources",
         ),
         require_intermediate_state=bool(payload.get("require_intermediate_state", True)),
+        require_global_planning=bool(payload.get("require_global_planning", False)),
     )
 
 
@@ -540,6 +577,7 @@ def _threshold_failures(
         "intermediate_state_coverage_rate": thresholds.min_intermediate_state_coverage_rate,
         "tool_reason_coverage_rate": thresholds.min_tool_reason_coverage_rate,
         "evidence_gap_accuracy": thresholds.min_evidence_gap_accuracy,
+        "global_planning_coverage_rate": thresholds.min_global_planning_coverage_rate,
         "no_fallback_rate": thresholds.min_no_fallback_rate,
         "no_validation_error_rate": thresholds.min_no_validation_error_rate,
     }
@@ -578,6 +616,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-intermediate-state-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-tool-reason-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-evidence-gap-accuracy", type=float, default=1.0)
+    parser.add_argument("--min-global-planning-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
     parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
     parser.add_argument("--baseline-file", help="Optional previous planner eval report.")
@@ -598,6 +637,7 @@ def main(argv: list[str] | None = None) -> int:
         min_intermediate_state_coverage_rate=args.min_intermediate_state_coverage_rate,
         min_tool_reason_coverage_rate=args.min_tool_reason_coverage_rate,
         min_evidence_gap_accuracy=args.min_evidence_gap_accuracy,
+        min_global_planning_coverage_rate=args.min_global_planning_coverage_rate,
         min_no_fallback_rate=args.min_no_fallback_rate,
         min_no_validation_error_rate=args.min_no_validation_error_rate,
     )

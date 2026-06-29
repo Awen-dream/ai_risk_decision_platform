@@ -29,6 +29,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(report["summary"]["intermediate_state_coverage_rate"], 1.0)
         self.assertEqual(report["summary"]["tool_reason_coverage_rate"], 1.0)
         self.assertEqual(report["summary"]["evidence_gap_accuracy"], 1.0)
+        self.assertEqual(report["summary"]["global_planning_coverage_rate"], 1.0)
         self.assertEqual(report["summary"]["no_fallback_rate"], 1.0)
         self.assertEqual(report["summary"]["no_validation_error_rate"], 1.0)
         self.assertEqual(report["by_agent"]["copilot"]["total"], 2)
@@ -57,6 +58,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertEqual(report["summary"]["plan_step_accuracy"], 0.0)
         self.assertEqual(report["summary"]["intermediate_state_coverage_rate"], 1.0)
+        self.assertEqual(report["summary"]["global_planning_coverage_rate"], 1.0)
         self.assertEqual(report["by_agent"]["investigation"]["failed"], 1)
         self.assertEqual(report["by_backend"]["rule"]["failed"], 1)
         self.assertFalse(report["cases"][0]["plan_steps_matched"])
@@ -292,6 +294,7 @@ class PlannerEvalTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["total"], 1)
         self.assertEqual(payload["thresholds"]["min_plan_step_accuracy"], 1.0)
         self.assertEqual(payload["thresholds"]["min_intermediate_state_coverage_rate"], 1.0)
+        self.assertEqual(payload["thresholds"]["min_global_planning_coverage_rate"], 1.0)
         self.assertEqual(payload["baseline_comparison"]["max_allowed_regression"], 1.0)
 
     def test_makefile_exposes_planner_eval_target(self) -> None:

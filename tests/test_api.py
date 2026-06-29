@@ -530,6 +530,31 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["gauges"]["agent.tools.last_trace_count.by_agent.strategy"], 4.0)
 
+    def test_metrics_endpoint_reports_global_planning_counters(self) -> None:
+        self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+            },
+        )
+
+        response = self.client.get("/admin/metrics")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["counters"]["agent.global_plans.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.global_plans.by_agent.copilot"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.evidence_graphs.total"], 1)
+        self.assertEqual(
+            payload["gauges"]["agent.global_plans.last_step_count.by_agent.copilot"],
+            3.0,
+        )
+        self.assertGreater(
+            payload["gauges"]["agent.evidence_graphs.last_evidence_count.by_agent.copilot"],
+            0.0,
+        )
+
     def test_prometheus_metrics_endpoint_exposes_standard_format(self) -> None:
         self.client.post(
             "/agents/knowledge",
@@ -612,6 +637,9 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any(trace["name"].startswith("图谱::") for trace in payload["tool_traces"]))
         self.assertEqual(payload["artifacts"]["risk_decision"]["decision"], "escalate_review")
         self.assertEqual(payload["artifacts"]["risk_decision"]["risk_level"], "high")
+        self.assertEqual(payload["artifacts"]["global_plan"]["version"], "v3a")
+        self.assertEqual(payload["artifacts"]["evidence_graph"]["version"], "v3a")
+        self.assertEqual(payload["artifacts"]["working_memory"]["scope"], "short_term")
         self.assertEqual(
             payload["artifacts"]["risk_decision"]["action_plan"]["queue"],
             "manual_review_queue",
@@ -634,6 +662,8 @@ class AgentApiTests(unittest.TestCase):
             ["intent", "plan", "decision", "planner_trace", "findings", "actions"],
         )
         self.assertEqual(turn["artifacts"]["risk_decision"]["recommended_action"], "manual_review")
+        self.assertEqual(turn["artifacts"]["global_plan"]["version"], "v3a")
+        self.assertGreater(turn["artifacts"]["evidence_graph"]["summary"]["evidence_count"], 0)
         self.assertEqual(
             turn["artifacts"]["risk_decision"]["action_plan"]["priority"],
             "high",
