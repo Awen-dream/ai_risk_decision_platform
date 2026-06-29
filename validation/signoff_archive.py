@@ -27,10 +27,11 @@ def build_signoff_archive(
     *,
     output_path: Path | None = None,
     checksum_path: Path | None = None,
+    files: tuple[str, ...] = ARCHIVE_FILES,
 ) -> dict[str, Any]:
     output_path = output_path or report_dir / "signoff-archive.tar.gz"
     checksum_path = checksum_path or report_dir / "signoff-archive.sha256"
-    missing_files = [filename for filename in ARCHIVE_FILES if not (report_dir / filename).exists()]
+    missing_files = [filename for filename in files if not (report_dir / filename).exists()]
     if missing_files:
         return _archive_report(
             status="failed",
@@ -47,7 +48,7 @@ def build_signoff_archive(
     with output_path.open("wb") as raw_file:
         with gzip.GzipFile(fileobj=raw_file, mode="wb", mtime=0) as gzip_file:
             with tarfile.open(fileobj=gzip_file, mode="w") as archive:
-                for filename in ARCHIVE_FILES:
+                for filename in files:
                     _add_file(archive, report_dir / filename, filename)
 
     payload = output_path.read_bytes()
@@ -59,7 +60,7 @@ def build_signoff_archive(
         report_dir=report_dir,
         output_path=output_path,
         checksum_path=checksum_path,
-        files=list(ARCHIVE_FILES),
+        files=list(files),
         missing_files=[],
         archive_sha256=archive_sha256,
         archive_bytes=len(payload),
@@ -71,6 +72,7 @@ def verify_signoff_archive(
     *,
     archive_path: Path | None = None,
     checksum_path: Path | None = None,
+    files: tuple[str, ...] = ARCHIVE_FILES,
 ) -> dict[str, Any]:
     if report_dir is None and archive_path is None:
         raise ValueError("report_dir or archive_path is required")
@@ -111,7 +113,7 @@ def verify_signoff_archive(
         with tarfile.open(archive_path, mode="r:gz") as archive:
             members = archive.getmembers()
             names = [member.name for member in members]
-            if names != list(ARCHIVE_FILES):
+            if names != list(files):
                 failures.append(f"archive file list mismatch: {names}")
             for member in members:
                 if not member.isfile():
@@ -120,7 +122,7 @@ def verify_signoff_archive(
                 if member.name.startswith("/") or ".." in Path(member.name).parts:
                     failures.append(f"unsafe archive member path: {member.name}")
                     continue
-                if member.name not in ARCHIVE_FILES:
+                if member.name not in files:
                     failures.append(f"unexpected archive member: {member.name}")
                     continue
                 extracted = archive.extractfile(member)
@@ -230,7 +232,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--archive")
     parser.add_argument("--checksum")
+    parser.add_argument(
+        "--include-file",
+        action="append",
+        default=[],
+        help="Additional report file to include or verify in the archive.",
+    )
     args = parser.parse_args(argv)
+    files = tuple(dict.fromkeys((*ARCHIVE_FILES, *args.include_file)))
 
     if args.verify:
         if not args.report_dir and not args.archive:
@@ -239,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.report_dir) if args.report_dir else None,
             archive_path=Path(args.archive) if args.archive else None,
             checksum_path=Path(args.checksum) if args.checksum else None,
+            files=files,
         )
     else:
         if not args.report_dir:
@@ -247,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.report_dir),
             output_path=Path(args.output) if args.output else None,
             checksum_path=Path(args.checksum_output) if args.checksum_output else None,
+            files=files,
         )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["status"] == "passed" else 1

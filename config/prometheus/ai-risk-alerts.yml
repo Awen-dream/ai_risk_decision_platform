@@ -122,6 +122,37 @@ groups:
         annotations:
           summary: "AI Risk planner validation error rate is above 2%"
 
+      - alert: AIRiskIntermediateStateMissingRate
+        expr: |
+          (
+            sum(increase({__name__=~"ai_risk_agent_planner_plans_by_agent_(investigation|strategy|graph)_total"}[30m]))
+            -
+            sum(increase({__name__=~"ai_risk_agent_intermediate_states_by_agent_(investigation|strategy|graph)_total"}[30m]))
+          )
+          /
+          clamp_min(
+            sum(increase({__name__=~"ai_risk_agent_planner_plans_by_agent_(investigation|strategy|graph)_total"}[30m])),
+            1
+          )
+          > 0.01
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk tool-using agents are missing auditable intermediate states"
+
+      - alert: AIRiskEvidenceGapHighRate
+        expr: |
+          sum(increase(ai_risk_agent_intermediate_states_evidence_gaps_total[30m]))
+          /
+          clamp_min(sum(increase(ai_risk_agent_intermediate_states_total[30m])), 1)
+          > 0.10
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "AI Risk evidence gap rate is above 10%"
+
       - alert: AIRiskToolHighFailedTraceRate
         expr: |
           sum(increase(ai_risk_agent_tools_executions_by_status_failed_total[10m]))

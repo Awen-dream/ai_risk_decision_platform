@@ -29,6 +29,9 @@ class StagingSignoffScriptTests(unittest.TestCase):
             "verify-signoff-archive",
             "AI_RISK_SIGNOFF_RELEASE_ID",
             "--require-release-metadata",
+            "AI_RISK_SIGNOFF_REQUIRE_PLANNER_EVAL",
+            "--require-planner-eval",
+            "--include-file",
         ):
             self.assertIn(marker, payload)
 

@@ -80,10 +80,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create a staging signoff manifest.")
     parser.add_argument("--report-dir", required=True)
     parser.add_argument("--output")
+    parser.add_argument(
+        "--include-file",
+        action="append",
+        default=[],
+        help="Additional report file to checksum and require in the manifest.",
+    )
     args = parser.parse_args(argv)
 
     report_dir = Path(args.report_dir)
-    manifest = build_signoff_manifest(report_dir)
+    files = tuple(dict.fromkeys((*DEFAULT_MANIFEST_FILES, *args.include_file)))
+    manifest = build_signoff_manifest(report_dir, files=files)
     rendered = json.dumps(manifest, ensure_ascii=False, indent=2)
     output_path = Path(args.output) if args.output else report_dir / "signoff-manifest.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)

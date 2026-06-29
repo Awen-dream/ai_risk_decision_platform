@@ -48,6 +48,24 @@ class SignoffArchiveTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertIn("signoff-evidence.json", report["missing_files"])
 
+    def test_archive_can_include_planner_eval_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_archive_reports(report_dir)
+            (report_dir / "planner-eval.json").write_text(
+                json.dumps({"status": "passed", "file": "planner-eval.json"}) + "\n",
+                encoding="utf-8",
+            )
+            files = (*ARCHIVE_FILES, "planner-eval.json")
+
+            report = build_signoff_archive(report_dir, files=files)
+            verification = verify_signoff_archive(report_dir, files=files)
+
+        self.assertEqual(report["status"], "passed")
+        self.assertIn("planner-eval.json", report["files"])
+        self.assertEqual(verification["status"], "passed")
+        self.assertIn("planner-eval.json", verification["verified_files"])
+
     def test_archive_verification_detects_source_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)

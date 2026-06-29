@@ -19,6 +19,12 @@ REQUIRED_REPORTS = {
     "staging_validation": "staging-validation.json",
     "signoff_manifest": "signoff-manifest.json",
 }
+PLANNER_EVAL_REPORT = "planner-eval.json"
+PLANNER_EVAL_REQUIRED_METRICS = (
+    "intermediate_state_coverage_rate",
+    "tool_reason_coverage_rate",
+    "evidence_gap_accuracy",
+)
 MINIMUM_CHECK_TOTALS = {
     "signoff_preflight": 4,
     "postgres_smoke": 4,
@@ -95,6 +101,7 @@ def validate_signoff_evidence(
     allow_postgres_skipped: bool = False,
     require_central_audit: bool = False,
     require_release_metadata: bool = False,
+    require_planner_eval: bool = False,
     expected_risk_base_url: str = "",
     expected_agent_base_url: str = "",
 ) -> dict[str, Any]:
@@ -120,8 +127,20 @@ def validate_signoff_evidence(
         lambda: _validate_minimum_coverage(payloads),
     )
     runner.check(
+        "evidence.planner_eval",
+        lambda: _validate_planner_eval_requirement(
+            report_dir,
+            payloads,
+            require_planner_eval=require_planner_eval,
+        ),
+    )
+    runner.check(
         "evidence.manifest",
-        lambda: _validate_manifest(report_dir, payloads),
+        lambda: _validate_manifest(
+            report_dir,
+            payloads,
+            require_planner_eval=require_planner_eval,
+        ),
     )
     runner.check(
         "evidence.central_audit",
@@ -224,7 +243,47 @@ def _validate_minimum_coverage(payloads: dict[str, Any]) -> str:
     return "minimum signoff coverage is present"
 
 
-def _validate_manifest(report_dir: Path, payloads: dict[str, Any]) -> str:
+def _validate_planner_eval_requirement(
+    report_dir: Path,
+    payloads: dict[str, Any],
+    *,
+    require_planner_eval: bool,
+) -> str:
+    path = report_dir / PLANNER_EVAL_REPORT
+    if not path.exists():
+        if require_planner_eval:
+            raise AssertionError("planner eval evidence is required but missing")
+        return "planner eval evidence is not required"
+    try:
+        payloads["planner_eval"] = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"invalid JSON in {PLANNER_EVAL_REPORT}: {exc}") from exc
+    report = _payload(payloads, "planner_eval")
+    if report.get("status") != "passed":
+        raise AssertionError(f"planner eval status is not passed: {report.get('status')}")
+    threshold_failures = report.get("threshold_failures", [])
+    if threshold_failures:
+        raise AssertionError(f"planner eval has threshold failures: {threshold_failures}")
+    summary = report.get("summary", {})
+    failures = []
+    for metric_name in PLANNER_EVAL_REQUIRED_METRICS:
+        value = summary.get(metric_name)
+        if not isinstance(value, (int, float)) or float(value) < 1.0:
+            failures.append(f"{metric_name}={value}")
+    if failures:
+        raise AssertionError(f"planner eval V2 metrics are below gate: {failures}")
+    total = summary.get("total")
+    if not isinstance(total, int) or total < 7:
+        raise AssertionError(f"planner eval golden-set coverage is too small: total={total}")
+    return "planner eval evidence is passed with V2 intermediate-state gates"
+
+
+def _validate_manifest(
+    report_dir: Path,
+    payloads: dict[str, Any],
+    *,
+    require_planner_eval: bool,
+) -> str:
     manifest = _payload(payloads, "signoff_manifest")
     if manifest.get("version") != 1:
         raise AssertionError(f"unsupported signoff manifest version: {manifest.get('version')}")
@@ -242,6 +301,8 @@ def _validate_manifest(report_dir: Path, payloads: dict[str, Any]) -> str:
         "staging-validation.json",
         "signoff-summary.json",
     }
+    if require_planner_eval or "planner_eval" in payloads:
+        expected.add(PLANNER_EVAL_REPORT)
     missing_entries = sorted(expected - set(entries))
     if missing_entries:
         raise AssertionError(f"signoff manifest missing checksum entries: {missing_entries}")
@@ -385,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-postgres-skipped", action="store_true")
     parser.add_argument("--require-central-audit", action="store_true")
     parser.add_argument("--require-release-metadata", action="store_true")
+    parser.add_argument("--require-planner-eval", action="store_true")
     parser.add_argument("--expected-risk-base-url", default="")
     parser.add_argument("--expected-agent-base-url", default="")
     parser.add_argument("--output")
@@ -395,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_postgres_skipped=args.allow_postgres_skipped,
         require_central_audit=args.require_central_audit,
         require_release_metadata=args.require_release_metadata,
+        require_planner_eval=args.require_planner_eval,
         expected_risk_base_url=args.expected_risk_base_url,
         expected_agent_base_url=args.expected_agent_base_url,
     )

@@ -71,6 +71,13 @@ retain `ci-signoff-summary.json` for diagnosis.
 The planner evaluation report is written as `planner-eval.json` in the CI
 report directory. It is a local demo-runtime quality gate, so it complements
 but does not replace the real staging readiness and contract checks.
+For `make ci-signoff`, planner evaluation is required signoff evidence: the
+manifest and archive include `planner-eval.json`, and `signoff-evidence.json`
+requires the V2 intermediate-state metrics to pass:
+
+- `intermediate_state_coverage_rate == 1.0`
+- `tool_reason_coverage_rate == 1.0`
+- `evidence_gap_accuracy == 1.0`
 
 To compare planner quality against a previous CI report, set:
 
@@ -129,6 +136,15 @@ To re-check an archived or copied report directory before release signoff:
 ```bash
 make validate-signoff-evidence \
   REPORT_DIR=.data/reports/staging-signoff-<UTC timestamp>
+```
+
+To require planner evaluation evidence when validating a copied CI signoff
+directory:
+
+```bash
+make validate-signoff-evidence \
+  REPORT_DIR=.data/reports/ci-signoff-<UTC timestamp> \
+  SIGNOFF_EVIDENCE_ARGS="--require-planner-eval"
 ```
 
 To create or re-create the distributable archive for a copied report directory:

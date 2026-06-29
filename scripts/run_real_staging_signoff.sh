@@ -22,6 +22,7 @@ CENTRAL_AUDIT_TOKEN_FILE="${AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE:-}"
 REQUIRE_POSTGRES="${AI_RISK_SIGNOFF_REQUIRE_POSTGRES:-true}"
 REQUIRE_CENTRAL_AUDIT="${AI_RISK_SIGNOFF_REQUIRE_CENTRAL_AUDIT:-false}"
 REQUIRE_RELEASE_METADATA="${AI_RISK_SIGNOFF_REQUIRE_RELEASE_METADATA:-false}"
+REQUIRE_PLANNER_EVAL="${AI_RISK_SIGNOFF_REQUIRE_PLANNER_EVAL:-false}"
 RELEASE_ENVIRONMENT="${AI_RISK_SIGNOFF_ENVIRONMENT:-staging}"
 RELEASE_ID="${AI_RISK_SIGNOFF_RELEASE_ID:-}"
 CHANGE_ID="${AI_RISK_SIGNOFF_CHANGE_ID:-}"
@@ -111,7 +112,7 @@ run_step "staging-contract" \
   "$PYTHON_BIN" -m validation.staging "${STAGING_ARGS[@]}"
 
 run_step "signoff-summary" \
-  "$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" "$REQUIRE_RELEASE_METADATA" "$RELEASE_ENVIRONMENT" "$RELEASE_ID" "$CHANGE_ID" "$SIGNOFF_OWNER" "$SIGNOFF_APPROVER" <<'PY'
+  "$PYTHON_BIN" - "$REPORT_DIR" "$RISK_BASE_URL" "$AGENT_BASE_URL" "$REQUIRE_POSTGRES" "$REQUIRE_CENTRAL_AUDIT" "$SIGNOFF_FAILED" "$REQUIRE_RELEASE_METADATA" "$REQUIRE_PLANNER_EVAL" "$RELEASE_ENVIRONMENT" "$RELEASE_ID" "$CHANGE_ID" "$SIGNOFF_OWNER" "$SIGNOFF_APPROVER" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -124,11 +125,12 @@ require_postgres = sys.argv[4] == "true"
 require_central_audit = sys.argv[5] == "true"
 command_failed = sys.argv[6] != "0"
 release_metadata_required = sys.argv[7] == "true"
-release_environment = sys.argv[8]
-release_id = sys.argv[9]
-change_id = sys.argv[10]
-signoff_owner = sys.argv[11]
-signoff_approver = sys.argv[12]
+planner_eval_required = sys.argv[8] == "true"
+release_environment = sys.argv[9]
+release_id = sys.argv[10]
+change_id = sys.argv[11]
+signoff_owner = sys.argv[12]
+signoff_approver = sys.argv[13]
 
 reports = {}
 for name, filename in (
@@ -163,6 +165,7 @@ summary = {
         "postgres_required": require_postgres,
         "central_audit_query_required": require_central_audit,
         "release_metadata_required": release_metadata_required,
+        "planner_eval_required": planner_eval_required,
     },
     "release": {
         "environment": release_environment,
@@ -188,10 +191,23 @@ print(json.dumps(summary, ensure_ascii=False, indent=2))
 raise SystemExit(0 if status == "passed" else 1)
 PY
 
-run_step "signoff-manifest" \
-  "$PYTHON_BIN" -m validation.signoff_manifest \
-    --report-dir "$REPORT_DIR" \
-    --output "${REPORT_DIR}/signoff-manifest.json"
+INCLUDE_PLANNER_EVAL_REPORT=false
+if [[ "$REQUIRE_PLANNER_EVAL" == "true" || -f "${REPORT_DIR}/planner-eval.json" ]]; then
+  INCLUDE_PLANNER_EVAL_REPORT=true
+fi
+
+if [[ "$INCLUDE_PLANNER_EVAL_REPORT" == "true" ]]; then
+  run_step "signoff-manifest" \
+    "$PYTHON_BIN" -m validation.signoff_manifest \
+      --report-dir "$REPORT_DIR" \
+      --output "${REPORT_DIR}/signoff-manifest.json" \
+      --include-file "planner-eval.json"
+else
+  run_step "signoff-manifest" \
+    "$PYTHON_BIN" -m validation.signoff_manifest \
+      --report-dir "$REPORT_DIR" \
+      --output "${REPORT_DIR}/signoff-manifest.json"
+fi
 
 EVIDENCE_ARGS=(
   "--report-dir" "$REPORT_DIR"
@@ -208,21 +224,41 @@ fi
 if [[ "$REQUIRE_RELEASE_METADATA" == "true" ]]; then
   EVIDENCE_ARGS+=("--require-release-metadata")
 fi
+if [[ "$REQUIRE_PLANNER_EVAL" == "true" ]]; then
+  EVIDENCE_ARGS+=("--require-planner-eval")
+fi
 
 run_step "signoff-evidence" \
   "$PYTHON_BIN" -m validation.signoff_evidence "${EVIDENCE_ARGS[@]}"
 
-run_step "signoff-archive" \
-  "$PYTHON_BIN" -m validation.signoff_archive \
-    --report-dir "$REPORT_DIR" \
-    --output "${REPORT_DIR}/signoff-archive.tar.gz" \
-    --checksum-output "${REPORT_DIR}/signoff-archive.sha256"
+if [[ "$INCLUDE_PLANNER_EVAL_REPORT" == "true" ]]; then
+  run_step "signoff-archive" \
+    "$PYTHON_BIN" -m validation.signoff_archive \
+      --report-dir "$REPORT_DIR" \
+      --output "${REPORT_DIR}/signoff-archive.tar.gz" \
+      --checksum-output "${REPORT_DIR}/signoff-archive.sha256" \
+      --include-file "planner-eval.json"
 
-run_step "verify-signoff-archive" \
-  "$PYTHON_BIN" -m validation.signoff_archive \
-    --verify \
-    --report-dir "$REPORT_DIR" \
-    --archive "${REPORT_DIR}/signoff-archive.tar.gz" \
-    --checksum "${REPORT_DIR}/signoff-archive.sha256"
+  run_step "verify-signoff-archive" \
+    "$PYTHON_BIN" -m validation.signoff_archive \
+      --verify \
+      --report-dir "$REPORT_DIR" \
+      --archive "${REPORT_DIR}/signoff-archive.tar.gz" \
+      --checksum "${REPORT_DIR}/signoff-archive.sha256" \
+      --include-file "planner-eval.json"
+else
+  run_step "signoff-archive" \
+    "$PYTHON_BIN" -m validation.signoff_archive \
+      --report-dir "$REPORT_DIR" \
+      --output "${REPORT_DIR}/signoff-archive.tar.gz" \
+      --checksum-output "${REPORT_DIR}/signoff-archive.sha256"
+
+  run_step "verify-signoff-archive" \
+    "$PYTHON_BIN" -m validation.signoff_archive \
+      --verify \
+      --report-dir "$REPORT_DIR" \
+      --archive "${REPORT_DIR}/signoff-archive.tar.gz" \
+      --checksum "${REPORT_DIR}/signoff-archive.sha256"
+fi
 
 exit "$SIGNOFF_FAILED"

@@ -23,6 +23,7 @@ class CiSignoffScriptTests(unittest.TestCase):
             "planner-eval.json",
             "AI_RISK_PLANNER_EVAL_BASELINE_FILE",
             "AI_RISK_PLANNER_EVAL_MAX_ALLOWED_REGRESSION",
+            "AI_RISK_SIGNOFF_REQUIRE_PLANNER_EVAL=true",
             "baseline_comparison",
             "signoff-local",
             "ci-signoff-summary.json",

@@ -142,6 +142,31 @@ Any circuit remaining open:
 max({__name__=~"ai_risk_upstream_circuit_.*_open"}) > 0
 ```
 
+Tool-using agents missing auditable intermediate state:
+
+```promql
+(
+  sum(increase({__name__=~"ai_risk_agent_planner_plans_by_agent_(investigation|strategy|graph)_total"}[30m]))
+  -
+  sum(increase({__name__=~"ai_risk_agent_intermediate_states_by_agent_(investigation|strategy|graph)_total"}[30m]))
+)
+/
+clamp_min(
+  sum(increase({__name__=~"ai_risk_agent_planner_plans_by_agent_(investigation|strategy|graph)_total"}[30m])),
+  1
+)
+> 0.01
+```
+
+Evidence gap rate:
+
+```promql
+sum(increase(ai_risk_agent_intermediate_states_evidence_gaps_total[30m]))
+/
+clamp_min(sum(increase(ai_risk_agent_intermediate_states_total[30m])), 1)
+> 0.10
+```
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.

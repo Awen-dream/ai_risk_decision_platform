@@ -28,6 +28,8 @@ class ReadinessValidationTests(unittest.TestCase):
 
         self.assertIn(str(len(REQUIRED_ALERTS)), detail)
         self.assertIn("AIRiskPlannerHighFallbackRate", REQUIRED_ALERTS)
+        self.assertIn("AIRiskIntermediateStateMissingRate", REQUIRED_ALERTS)
+        self.assertIn("AIRiskEvidenceGapHighRate", REQUIRED_ALERTS)
         self.assertIn("AIRiskToolHighFailedTraceRate", REQUIRED_ALERTS)
 
     def test_runtime_security_requires_admin_token_file(self) -> None:
