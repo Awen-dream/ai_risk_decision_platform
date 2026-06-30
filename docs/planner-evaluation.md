@@ -1,9 +1,9 @@
 # Planner Evaluation
 
-V2/V3 planner evaluation is an offline golden-set gate for copilot,
-investigation, strategy, graph routing quality, and V3 global-planning
-artifacts. It runs fully locally against the demo runtime and does not call
-external LLM or tool services.
+V2/V3/V4 planner evaluation is an offline golden-set gate for copilot,
+investigation, strategy, graph, root-cause routing quality, V3 global-planning
+artifacts, and V4 root-cause hypothesis quality. It runs fully locally against
+the demo runtime and does not call external LLM or tool services.
 
 Run the default golden set:
 
@@ -68,6 +68,8 @@ The default suite checks:
 - `investigation` metric tool selection.
 - `investigation` order tool selection.
 - `strategy` tool selection for profile, simulation, graph, and rule evidence.
+- `root_cause` V4a hypothesis ranking across metric, dashboard, SQL, and rule
+  evidence.
 - `graph` tool selection for graph relation evidence.
 - `graph` missing-data behavior that must surface an `evidence_gap`.
 

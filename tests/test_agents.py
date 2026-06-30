@@ -106,6 +106,36 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("2026-05-18 08:00", response.summary)
         self.assertTrue(any("时间窗口：recent_7d" == finding for finding in response.findings))
 
+    def test_root_cause_agent_ranks_hypotheses(self) -> None:
+        _, response = self.runtime.execute(
+            "root_cause",
+            AgentRequest(
+                query="请分析巴西信用卡支付失败率升高的根因并给出排序",
+                context={"country": "BR", "channel": "credit_card"},
+            ),
+        )
+
+        self.assertEqual(response.intent, "root_cause_analysis")
+        self.assertEqual(
+            response.plan_steps,
+            ["metric_snapshot", "dashboard_snapshot", "sql_query", "rule_explain"],
+        )
+        self.assertTrue(response.thought_summary)
+        self.assertEqual(response.artifacts["root_cause_plan"]["step_budget"], 4)
+        analysis = response.artifacts["root_cause_analysis"]
+        self.assertEqual(analysis["version"], "v4a")
+        self.assertEqual(
+            analysis["top_root_cause"]["id"],
+            "strategy_threshold_change",
+        )
+        self.assertGreaterEqual(analysis["top_root_cause"]["confidence"], 0.8)
+        self.assertEqual(len(analysis["hypotheses"]), 3)
+        self.assertTrue(analysis["hypotheses"][0]["supporting_evidence"])
+        self.assertTrue(analysis["hypotheses"][1]["counter_evidence"])
+        self.assertTrue(analysis["next_verification_steps"])
+        self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
+        self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
+
     def test_metric_investigation_handles_failed_metric_tool(self) -> None:
         registry = ToolRegistry()
         registry.register(

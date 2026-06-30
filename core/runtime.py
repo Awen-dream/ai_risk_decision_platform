@@ -257,6 +257,26 @@ class AgentRuntime:
                 f"agent.execution_readiness.last_required_control_count.by_agent.{agent_name}",
                 float(diagnostics.get("policy_control_count", 0) or 0),
             )
+        root_cause_analysis = response.artifacts.get("root_cause_analysis")
+        if isinstance(root_cause_analysis, dict):
+            hypotheses = root_cause_analysis.get("hypotheses") or []
+            hypothesis_count = len(hypotheses) if isinstance(hypotheses, list) else 0
+            top_root_cause = (
+                root_cause_analysis.get("top_root_cause")
+                if isinstance(root_cause_analysis.get("top_root_cause"), dict)
+                else {}
+            )
+            increment_counter("agent.root_cause.analyses.total")
+            increment_counter(f"agent.root_cause.analyses.by_agent.{agent_name}")
+            increment_counter("agent.root_cause.hypotheses.total", hypothesis_count)
+            set_gauge(
+                f"agent.root_cause.last_hypothesis_count.by_agent.{agent_name}",
+                float(hypothesis_count),
+            )
+            set_gauge(
+                f"agent.root_cause.last_top_confidence.by_agent.{agent_name}",
+                float(top_root_cause.get("confidence", 0.0) or 0.0),
+            )
 
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))
@@ -283,6 +303,7 @@ class AgentRuntime:
             "investigation_plan",
             "strategy_plan",
             "graph_plan",
+            "root_cause_plan",
         ):
             artifact = response.artifacts.get(artifact_name)
             if isinstance(artifact, dict):

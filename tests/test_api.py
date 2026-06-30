@@ -31,7 +31,10 @@ class AgentApiTests(unittest.TestCase):
         response = self.client.get("/agents")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"agents": ["knowledge", "investigation", "strategy", "graph", "copilot"]})
+        self.assertEqual(
+            response.json(),
+            {"agents": ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"]},
+        )
 
     def test_create_and_get_session(self) -> None:
         created = self.client.post("/sessions")
@@ -276,7 +279,10 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["tool_http_rule_explain_path"], "/rule-explanations")
         self.assertEqual(payload["tool_http_country_param"], "country")
         self.assertEqual(payload["tool_http_channel_param"], "channel")
-        self.assertEqual(payload["registered_agents"], ["knowledge", "investigation", "strategy", "graph", "copilot"])
+        self.assertEqual(
+            payload["registered_agents"],
+            ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"],
+        )
         self.assertEqual(
             payload["registered_tools"],
             [
@@ -293,11 +299,11 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertEqual(
             payload["supported_capabilities"],
-            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+            ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"],
         )
         self.assertEqual(
             [item["name"] for item in payload["capability_contract"]],
-            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+            ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"],
         )
         self.assertEqual(
             [item["tool_name"] for item in payload["http_endpoint_contract"]],
@@ -530,6 +536,31 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["gauges"]["agent.tools.last_trace_count.by_agent.strategy"], 4.0)
 
+    def test_metrics_endpoint_reports_root_cause_counters(self) -> None:
+        self.client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+            },
+        )
+
+        response = self.client.get("/admin/metrics")
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(payload["counters"]["agent.root_cause.analyses.total"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.root_cause.analyses.by_agent.root_cause"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.root_cause.hypotheses.total"], 3)
+        self.assertEqual(
+            payload["gauges"]["agent.root_cause.last_hypothesis_count.by_agent.root_cause"],
+            3.0,
+        )
+        self.assertGreaterEqual(
+            payload["gauges"]["agent.root_cause.last_top_confidence.by_agent.root_cause"],
+            0.8,
+        )
+
     def test_metrics_endpoint_reports_global_planning_counters(self) -> None:
         created = self.client.post("/sessions")
         session_id = created.json()["session_id"]
@@ -642,6 +673,26 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload["agent_name"], "graph")
         self.assertTrue(any(trace["name"] == "graph_relation" for trace in payload["tool_traces"]))
+
+    def test_invoke_root_cause_agent(self) -> None:
+        response = self.client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["agent_name"], "root_cause")
+        self.assertEqual(payload["intent"], "root_cause_analysis")
+        self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
+        self.assertEqual(
+            payload["artifacts"]["root_cause_analysis"]["top_root_cause"]["id"],
+            "strategy_threshold_change",
+        )
+        self.assertTrue(any(trace["name"] == "rule_explain" for trace in payload["tool_traces"]))
 
     def test_invoke_copilot_agent(self) -> None:
         created = self.client.post("/sessions")

@@ -31,6 +31,7 @@ SUPPORTED_AGENT_CAPABILITIES = (
     "investigation",
     "strategy",
     "graph",
+    "root_cause",
     "copilot",
 )
 
@@ -40,6 +41,7 @@ CAPABILITY_DESCRIPTIONS = {
     "investigation": "基于指标、案例和订单画像的风险调查能力。",
     "strategy": "基于策略画像、仿真和图谱线索的策略分析能力。",
     "graph": "基于关系网络数据的团伙与关联分析能力。",
+    "root_cause": "基于指标、看板、SQL 和规则解释的显式根因候选验证与排序能力。",
     "copilot": "编排 investigation、strategy、graph 的联合分析能力。",
 }
 
@@ -61,6 +63,12 @@ CAPABILITY_REQUIRED_TOOLS = {
         "rule_explain",
     ),
     "graph": ("graph_relation",),
+    "root_cause": (
+        "metric_snapshot",
+        "dashboard_snapshot",
+        "sql_query",
+        "rule_explain",
+    ),
     "copilot": (
         "metric_snapshot",
         "case_lookup",
@@ -80,6 +88,7 @@ CAPABILITY_COMPOSED_AGENTS = {
     "investigation": (),
     "strategy": (),
     "graph": (),
+    "root_cause": (),
     "copilot": ("investigation", "strategy", "graph"),
 }
 

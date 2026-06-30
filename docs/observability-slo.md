@@ -203,6 +203,16 @@ V3 execution-readiness outcomes can be monitored with:
 sum(increase(ai_risk_agent_execution_readiness_evaluations_total[30m])) by (__name__)
 ```
 
+V4 root-cause analysis volume and top-confidence can be monitored with:
+
+```promql
+sum(increase(ai_risk_agent_root_cause_analyses_total[30m]))
+```
+
+```promql
+ai_risk_agent_root_cause_last_top_confidence_by_agent_root_cause
+```
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.

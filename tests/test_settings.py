@@ -315,12 +315,12 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(
             config.supported_agent_capabilities(),
-            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+            ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"],
         )
         capability_contract = config.capability_contract()
         self.assertEqual(
             [item["name"] for item in capability_contract],
-            ["knowledge", "investigation", "strategy", "graph", "copilot"],
+            ["knowledge", "investigation", "strategy", "graph", "root_cause", "copilot"],
         )
         self.assertEqual(
             capability_contract[1]["required_tools"],
@@ -333,7 +333,11 @@ class SettingsTests(unittest.TestCase):
                 "rule_explain",
             ],
         )
-        self.assertEqual(capability_contract[4]["composed_agents"], ["investigation", "strategy", "graph"])
+        self.assertEqual(
+            capability_contract[4]["required_tools"],
+            ["metric_snapshot", "dashboard_snapshot", "sql_query", "rule_explain"],
+        )
+        self.assertEqual(capability_contract[5]["composed_agents"], ["investigation", "strategy", "graph"])
 
     def test_http_endpoint_contract_covers_phase1_tools(self) -> None:
         config = AppConfig.local_http_stack()

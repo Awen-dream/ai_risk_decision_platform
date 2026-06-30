@@ -34,6 +34,7 @@ from agents.investigation_planner import (
     RuleBasedInvestigationPlanner,
 )
 from agents.knowledge import KnowledgeAgent
+from agents.root_cause import RootCauseAgent
 from agents.strategy import StrategyAgent
 from agents.strategy_planner import (
     OpenAIStrategyPlanner,
@@ -430,6 +431,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         retrieval,
         planner=build_graph_planner(config),
     )
+    root_cause_agent = RootCauseAgent(tools, retrieval)
     risk_decision_policy = (
         RiskDecisionPolicy.from_file(config.risk_decision_policy_path)
         if config.risk_decision_policy_path is not None
@@ -447,6 +449,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     runtime.register_agent(investigation_agent)
     runtime.register_agent(strategy_agent)
     runtime.register_agent(graph_agent)
+    runtime.register_agent(root_cause_agent)
     runtime.register_agent(copilot_agent)
     return AppContainer(
         config=config,

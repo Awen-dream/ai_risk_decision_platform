@@ -104,7 +104,7 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(rejected["status"], "failed")
         self.assertIn("planner eval", _failed_details(rejected))
         self.assertEqual(accepted["status"], "passed")
-        self.assertIn("V3 global-planning gates", _passed_details(accepted))
+        self.assertIn("V4 root-cause gates", _passed_details(accepted))
 
     def test_planner_eval_evidence_rejects_v2_metric_regression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -276,8 +276,8 @@ def _planner_eval_report() -> dict[str, object]:
         "status": "passed",
         "generated_at": "2026-06-18T00:00:00Z",
         "summary": {
-            "total": 7,
-            "passed": 7,
+            "total": 8,
+            "passed": 8,
             "failed": 0,
             "intermediate_state_coverage_rate": 1.0,
             "tool_reason_coverage_rate": 1.0,

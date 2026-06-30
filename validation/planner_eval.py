@@ -145,6 +145,25 @@ DEFAULT_EVAL_CASES = [
         ],
     ),
     PlannerEvalCase(
+        name="root_cause_metric_default",
+        agent_name="root_cause",
+        query="请分析巴西信用卡支付失败率升高的根因并给出排序",
+        context={"country": "BR", "channel": "credit_card"},
+        expected_intent="root_cause_analysis",
+        expected_plan_steps=[
+            "metric_snapshot",
+            "dashboard_snapshot",
+            "sql_query",
+            "rule_explain",
+        ],
+        expected_tool_traces=[
+            "metric_snapshot",
+            "dashboard_snapshot",
+            "sql_query",
+            "rule_explain",
+        ],
+    ),
+    PlannerEvalCase(
         name="graph_default",
         agent_name="graph",
         query="请分析用户 U10001 是否属于团伙网络",
