@@ -89,6 +89,9 @@ The report includes:
   `global_plan`, `evidence_graph`, `working_memory`, and
   `global_plan_quality` artifacts, plus the V3f `execution_readiness`
   execution-governance gate.
+- `root_cause_quality_rate`: share of cases that either do not require
+  root-cause quality or produce V4c `root_cause_quality` with
+  `overall_score >= 0.75`.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
 - `by_agent`: the same quality summary grouped by agent.

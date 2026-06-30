@@ -90,6 +90,7 @@ class RootCauseAgent(Agent):
             traces=traces,
         )
         response.artifacts["root_cause_analysis"] = analysis
+        response.artifacts["root_cause_quality"] = evaluate_root_cause_quality(analysis)
         self._attach_evidence(response, traces)
         self._attach_findings_and_actions(response, analysis)
         response.confidence = float(analysis["top_root_cause"]["confidence"])
@@ -444,3 +445,81 @@ def _evidence_matrix(hypotheses: list[dict[str, Any]]) -> list[dict[str, Any]]:
             rows.setdefault(source, {"source": source, "supports": [], "counters": []})
             rows[source]["counters"].append(hypothesis_id)
     return list(rows.values())
+
+
+def evaluate_root_cause_quality(analysis: dict[str, Any]) -> dict[str, Any]:
+    hypotheses = analysis.get("hypotheses", [])
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+    hypothesis_count = len(hypotheses)
+    with_support = sum(
+        bool(item.get("supporting_evidence"))
+        for item in hypotheses
+        if isinstance(item, dict)
+    )
+    with_counter = sum(
+        bool(item.get("counter_evidence"))
+        for item in hypotheses
+        if isinstance(item, dict)
+    )
+    with_verification = sum(
+        bool(item.get("verification_steps"))
+        for item in hypotheses
+        if isinstance(item, dict)
+    )
+    top_root_cause = analysis.get("top_root_cause")
+    top_confidence = (
+        float(top_root_cause.get("confidence", 0.0) or 0.0)
+        if isinstance(top_root_cause, dict)
+        else 0.0
+    )
+    hypothesis_depth = min(1.0, hypothesis_count / 3)
+    support_coverage = _ratio(with_support, max(1, hypothesis_count))
+    counter_coverage = _ratio(with_counter, max(1, hypothesis_count))
+    verification_coverage = _ratio(with_verification, max(1, hypothesis_count))
+    confidence_score = min(1.0, top_confidence / 0.8)
+    overall_score = round(
+        hypothesis_depth * 0.20
+        + support_coverage * 0.25
+        + counter_coverage * 0.20
+        + verification_coverage * 0.20
+        + confidence_score * 0.15,
+        3,
+    )
+    gaps: list[str] = []
+    if hypothesis_count < 3:
+        gaps.append("hypothesis_depth")
+    if support_coverage < 1.0:
+        gaps.append("supporting_evidence_coverage")
+    if counter_coverage < 0.5:
+        gaps.append("counter_evidence_coverage")
+    if verification_coverage < 1.0:
+        gaps.append("verification_step_coverage")
+    if top_confidence < 0.6:
+        gaps.append("top_confidence")
+    return {
+        "version": "v4c",
+        "overall_score": overall_score,
+        "status": "passed" if overall_score >= 0.75 and not gaps else "needs_attention",
+        "scores": {
+            "hypothesis_depth": round(hypothesis_depth, 3),
+            "supporting_evidence_coverage": round(support_coverage, 3),
+            "counter_evidence_coverage": round(counter_coverage, 3),
+            "verification_step_coverage": round(verification_coverage, 3),
+            "top_confidence_strength": round(confidence_score, 3),
+        },
+        "diagnostics": {
+            "hypothesis_count": hypothesis_count,
+            "supporting_evidence_hypothesis_count": with_support,
+            "counter_evidence_hypothesis_count": with_counter,
+            "verification_step_hypothesis_count": with_verification,
+            "top_confidence": round(top_confidence, 3),
+        },
+        "quality_gaps": gaps,
+    }
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 1.0
+    return numerator / denominator

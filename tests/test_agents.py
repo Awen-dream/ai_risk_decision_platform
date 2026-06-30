@@ -133,6 +133,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(analysis["hypotheses"][0]["supporting_evidence"])
         self.assertTrue(analysis["hypotheses"][1]["counter_evidence"])
         self.assertTrue(analysis["next_verification_steps"])
+        quality = response.artifacts["root_cause_quality"]
+        self.assertEqual(quality["version"], "v4c")
+        self.assertEqual(quality["status"], "passed")
+        self.assertGreaterEqual(quality["overall_score"], 0.75)
+        self.assertEqual(quality["diagnostics"]["hypothesis_count"], 3)
         self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
         self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
 

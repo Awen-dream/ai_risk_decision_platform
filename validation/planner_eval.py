@@ -19,6 +19,7 @@ QUALITY_METRICS = (
     "tool_reason_coverage_rate",
     "evidence_gap_accuracy",
     "global_planning_coverage_rate",
+    "root_cause_quality_rate",
     "no_fallback_rate",
     "no_validation_error_rate",
 )
@@ -48,6 +49,7 @@ class PlannerEvalThresholds:
     min_tool_reason_coverage_rate: float = 1.0
     min_evidence_gap_accuracy: float = 1.0
     min_global_planning_coverage_rate: float = 1.0
+    min_root_cause_quality_rate: float = 1.0
     min_no_fallback_rate: float = 1.0
     min_no_validation_error_rate: float = 1.0
 
@@ -64,6 +66,7 @@ class PlannerEvalCaseResult:
     tool_reason_coverage_matched: bool
     evidence_gap_matched: bool
     global_planning_matched: bool
+    root_cause_quality_matched: bool
     fallback_used: bool
     validation_error_count: int
     expected_intent: str | None
@@ -309,6 +312,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         if not case.require_global_planning
         else _has_global_planning_artifacts(response)
     )
+    root_cause_quality_matched = _has_root_cause_quality_artifact(response)
     status = (
         "passed"
         if (
@@ -319,6 +323,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
             and tool_reason_coverage_matched
             and evidence_gap_matched
             and global_planning_matched
+            and root_cause_quality_matched
             and not fallback_used
             and validation_error_count == 0
         )
@@ -335,6 +340,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         tool_reason_coverage_matched=tool_reason_coverage_matched,
         evidence_gap_matched=evidence_gap_matched,
         global_planning_matched=global_planning_matched,
+        root_cause_quality_matched=root_cause_quality_matched,
         fallback_used=fallback_used,
         validation_error_count=validation_error_count,
         expected_intent=case.expected_intent,
@@ -386,6 +392,20 @@ def _has_global_planning_artifacts(response: AgentResponse) -> bool:
     )
 
 
+def _has_root_cause_quality_artifact(response: AgentResponse) -> bool:
+    root_cause_analysis = response.artifacts.get("root_cause_analysis")
+    if not isinstance(root_cause_analysis, dict):
+        return True
+    root_cause_quality = response.artifacts.get("root_cause_quality")
+    if not isinstance(root_cause_quality, dict):
+        return False
+    return (
+        root_cause_quality.get("version") == "v4c"
+        and float(root_cause_quality.get("overall_score", 0.0) or 0.0) >= 0.75
+        and root_cause_quality.get("status") in {"passed", "needs_attention"}
+    )
+
+
 def _planner_artifact(response: AgentResponse) -> dict[str, Any] | None:
     for artifact_name in (
         "planner",
@@ -393,6 +413,7 @@ def _planner_artifact(response: AgentResponse) -> dict[str, Any] | None:
         "investigation_plan",
         "strategy_plan",
         "graph_plan",
+        "root_cause_plan",
     ):
         artifact = response.artifacts.get(artifact_name)
         if isinstance(artifact, dict):
@@ -438,6 +459,10 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
         ),
         "global_planning_coverage_rate": _ratio(
             sum(result.global_planning_matched for result in results),
+            total,
+        ),
+        "root_cause_quality_rate": _ratio(
+            sum(result.root_cause_quality_matched for result in results),
             total,
         ),
         "no_fallback_rate": _ratio(
@@ -623,6 +648,7 @@ def _threshold_failures(
         "tool_reason_coverage_rate": thresholds.min_tool_reason_coverage_rate,
         "evidence_gap_accuracy": thresholds.min_evidence_gap_accuracy,
         "global_planning_coverage_rate": thresholds.min_global_planning_coverage_rate,
+        "root_cause_quality_rate": thresholds.min_root_cause_quality_rate,
         "no_fallback_rate": thresholds.min_no_fallback_rate,
         "no_validation_error_rate": thresholds.min_no_validation_error_rate,
     }
@@ -662,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-tool-reason-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-evidence-gap-accuracy", type=float, default=1.0)
     parser.add_argument("--min-global-planning-coverage-rate", type=float, default=1.0)
+    parser.add_argument("--min-root-cause-quality-rate", type=float, default=1.0)
     parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
     parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
     parser.add_argument("--baseline-file", help="Optional previous planner eval report.")
@@ -683,6 +710,7 @@ def main(argv: list[str] | None = None) -> int:
         min_tool_reason_coverage_rate=args.min_tool_reason_coverage_rate,
         min_evidence_gap_accuracy=args.min_evidence_gap_accuracy,
         min_global_planning_coverage_rate=args.min_global_planning_coverage_rate,
+        min_root_cause_quality_rate=args.min_root_cause_quality_rate,
         min_no_fallback_rate=args.min_no_fallback_rate,
         min_no_validation_error_rate=args.min_no_validation_error_rate,
     )

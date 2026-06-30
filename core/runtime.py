@@ -277,6 +277,20 @@ class AgentRuntime:
                 f"agent.root_cause.last_top_confidence.by_agent.{agent_name}",
                 float(top_root_cause.get("confidence", 0.0) or 0.0),
             )
+        root_cause_quality = response.artifacts.get("root_cause_quality")
+        if isinstance(root_cause_quality, dict):
+            overall_score = float(root_cause_quality.get("overall_score", 0.0) or 0.0)
+            increment_counter("agent.root_cause_quality.evaluations.total")
+            increment_counter(f"agent.root_cause_quality.evaluations.by_agent.{agent_name}")
+            if root_cause_quality.get("status") == "needs_attention":
+                increment_counter("agent.root_cause_quality.needs_attention.total")
+                increment_counter(
+                    f"agent.root_cause_quality.needs_attention.by_agent.{agent_name}"
+                )
+            set_gauge(
+                f"agent.root_cause_quality.last_overall_score.by_agent.{agent_name}",
+                overall_score,
+            )
 
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))

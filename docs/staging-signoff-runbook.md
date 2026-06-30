@@ -80,13 +80,15 @@ quality metrics to pass:
 - `tool_reason_coverage_rate == 1.0`
 - `evidence_gap_accuracy == 1.0`
 - `global_planning_coverage_rate == 1.0`
+- `root_cause_quality_rate == 1.0`
 
 For V3 copilot cases, `global_planning_coverage_rate` requires
 `global_plan_quality.version == "v3d"` and `overall_score >= 0.75`, so the
 signoff evidence covers the global plan, evidence graph, working memory, quality
 score, and `execution_readiness.version == "v3f"` execution gate together.
-The default planner golden set also includes a V4a `root_cause` case that must
-rank root-cause hypotheses from metric, dashboard, SQL, and rule evidence.
+The default planner golden set also includes V4 root-cause cases that must rank
+root-cause hypotheses from metric, dashboard, SQL, and rule evidence and produce
+`root_cause_quality.version == "v4c"` with `overall_score >= 0.75`.
 
 To compare planner quality against a previous CI report, set:
 

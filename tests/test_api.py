@@ -551,6 +551,11 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertGreaterEqual(payload["counters"]["agent.root_cause.analyses.total"], 1)
         self.assertGreaterEqual(payload["counters"]["agent.root_cause.analyses.by_agent.root_cause"], 1)
+        self.assertGreaterEqual(payload["counters"]["agent.root_cause_quality.evaluations.total"], 1)
+        self.assertGreaterEqual(
+            payload["counters"]["agent.root_cause_quality.evaluations.by_agent.root_cause"],
+            1,
+        )
         self.assertGreaterEqual(payload["counters"]["agent.root_cause.hypotheses.total"], 3)
         self.assertEqual(
             payload["gauges"]["agent.root_cause.last_hypothesis_count.by_agent.root_cause"],
@@ -559,6 +564,10 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(
             payload["gauges"]["agent.root_cause.last_top_confidence.by_agent.root_cause"],
             0.8,
+        )
+        self.assertGreaterEqual(
+            payload["gauges"]["agent.root_cause_quality.last_overall_score.by_agent.root_cause"],
+            0.75,
         )
 
     def test_metrics_endpoint_reports_global_planning_counters(self) -> None:
@@ -688,6 +697,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["agent_name"], "root_cause")
         self.assertEqual(payload["intent"], "root_cause_analysis")
         self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
+        self.assertEqual(payload["artifacts"]["root_cause_quality"]["version"], "v4c")
+        self.assertGreaterEqual(payload["artifacts"]["root_cause_quality"]["overall_score"], 0.75)
         self.assertEqual(
             payload["artifacts"]["root_cause_analysis"]["top_root_cause"]["id"],
             "strategy_threshold_change",
@@ -710,6 +721,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["plan_steps"], ["调查", "根因"])
         self.assertTrue(any(trace["name"].startswith("根因::") for trace in payload["tool_traces"]))
         self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
+        self.assertEqual(payload["artifacts"]["root_cause_quality"]["version"], "v4c")
         self.assertEqual(
             payload["artifacts"]["global_plan"]["steps"][1]["agent_name"],
             "root_cause",

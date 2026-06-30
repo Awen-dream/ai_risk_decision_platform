@@ -25,6 +25,7 @@ PLANNER_EVAL_REQUIRED_METRICS = (
     "tool_reason_coverage_rate",
     "evidence_gap_accuracy",
     "global_planning_coverage_rate",
+    "root_cause_quality_rate",
 )
 MINIMUM_CHECK_TOTALS = {
     "signoff_preflight": 4,

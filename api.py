@@ -642,6 +642,8 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
                     "agent.global_plan_quality.needs_attention.total",
                     "agent.execution_readiness.evaluations.total",
                     "agent.root_cause.analyses.total",
+                    "agent.root_cause_quality.evaluations.total",
+                    "agent.root_cause_quality.needs_attention.total",
                 ],
                 "slo_baseline": "docs/observability-slo.md",
             },

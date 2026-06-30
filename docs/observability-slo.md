@@ -213,6 +213,12 @@ sum(increase(ai_risk_agent_root_cause_analyses_total[30m]))
 ai_risk_agent_root_cause_last_top_confidence_by_agent_root_cause
 ```
 
+V4 root-cause quality score can be monitored with:
+
+```promql
+ai_risk_agent_root_cause_quality_last_overall_score_by_agent_root_cause
+```
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.
