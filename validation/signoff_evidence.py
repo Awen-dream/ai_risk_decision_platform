@@ -274,7 +274,7 @@ def _validate_planner_eval_requirement(
     if failures:
         raise AssertionError(f"planner eval V2/V3/V4 metrics are below gate: {failures}")
     total = summary.get("total")
-    if not isinstance(total, int) or total < 8:
+    if not isinstance(total, int) or total < 9:
         raise AssertionError(f"planner eval golden-set coverage is too small: total={total}")
     return "planner eval evidence is passed with V2 intermediate-state, V3 global-planning, and V4 root-cause gates"
 

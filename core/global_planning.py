@@ -9,11 +9,13 @@ from core.models import AgentRequest, AgentResponse
 
 STEP_AGENT_BY_LABEL = {
     "调查": "investigation",
+    "根因": "root_cause",
     "策略": "strategy",
     "图谱": "graph",
 }
 EXPECTED_OUTPUTS_BY_LABEL = {
     "调查": ["risk_scope", "primary_evidence", "investigation_findings"],
+    "根因": ["ranked_root_causes", "supporting_evidence", "counter_evidence"],
     "策略": ["strategy_profile", "simulation_guidance", "rule_or_graph_context"],
     "图谱": ["relation_network", "community_risk", "key_path"],
 }

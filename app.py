@@ -441,6 +441,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         investigation_agent=investigation_agent,
         strategy_agent=strategy_agent,
         graph_agent=graph_agent,
+        root_cause_agent=root_cause_agent,
         risk_decision_policy=risk_decision_policy,
         planner=build_copilot_planner(config),
         long_term_memory=CaseMemoryProvider(case_service),

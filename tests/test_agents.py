@@ -293,7 +293,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(session.turns[0].plan_steps, ["调查", "策略", "图谱"])
         self.assertEqual(
             [(trace.step, trace.selected) for trace in session.turns[0].planner_trace],
-            [("调查", True), ("策略", True), ("图谱", True)],
+            [("调查", True), ("根因", False), ("策略", True), ("图谱", True)],
         )
 
     def test_strategy_agent_returns_simulation_guidance(self) -> None:
@@ -454,10 +454,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertIn("调查 -> 策略 -> 图谱", response.summary)
         self.assertEqual(response.intent, "composite")
         self.assertEqual(response.plan_steps, ["调查", "策略", "图谱"])
-        self.assertEqual(len(response.planner_trace), 3)
+        self.assertEqual(len(response.planner_trace), 4)
         self.assertEqual(
             [(trace.step, trace.selected) for trace in response.planner_trace],
-            [("调查", True), ("策略", True), ("图谱", True)],
+            [("调查", True), ("根因", False), ("策略", True), ("图谱", True)],
         )
         self.assertTrue(any(finding == "[意图] composite" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
@@ -505,28 +505,34 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(decision["action_plan"]["priority"], "high")
         self.assertEqual(decision["action_plan"]["sla_hours"], 4)
 
-    def test_copilot_agent_only_runs_investigation_for_plain_metric_question(self) -> None:
+    def test_copilot_agent_runs_root_cause_for_why_metric_question(self) -> None:
         _, response = self.runtime.execute(
             "copilot",
             AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？"),
         )
 
-        self.assertIn("识别意图为 metric_anomaly", response.summary)
-        self.assertIn("执行计划为 调查", response.summary)
-        self.assertEqual(response.intent, "metric_anomaly")
-        self.assertEqual(response.plan_steps, ["调查"])
+        self.assertIn("识别意图为 root_cause_analysis", response.summary)
+        self.assertIn("执行计划为 调查 -> 根因", response.summary)
+        self.assertEqual(response.intent, "root_cause_analysis")
+        self.assertEqual(response.plan_steps, ["调查", "根因"])
         self.assertEqual(
             [(trace.step, trace.selected) for trace in response.planner_trace],
-            [("调查", True), ("策略", False), ("图谱", False)],
+            [("调查", True), ("根因", True), ("策略", False), ("图谱", False)],
         )
-        self.assertTrue(any(finding == "[意图] metric_anomaly" for finding in response.findings))
+        self.assertTrue(any(finding == "[意图] root_cause_analysis" for finding in response.findings))
         self.assertTrue(any(finding.startswith("[规划] 调查") for finding in response.findings))
+        self.assertTrue(any(finding.startswith("[规划] 根因") for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 图谱") for finding in response.findings))
-        self.assertTrue(all(trace.name.startswith("调查::") for trace in response.tool_traces))
+        self.assertTrue(any(trace.name.startswith("调查::") for trace in response.tool_traces))
+        self.assertTrue(any(trace.name.startswith("根因::") for trace in response.tool_traces))
+        self.assertEqual(
+            response.artifacts["root_cause_analysis"]["version"],
+            "v4a",
+        )
         self.assertEqual(
             [step["agent_name"] for step in response.artifacts["global_plan"]["steps"]],
-            ["investigation"],
+            ["investigation", "root_cause"],
         )
 
     def test_copilot_evidence_graph_tracks_child_evidence_gaps(self) -> None:
@@ -588,7 +594,7 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(response.plan_steps, ["调查", "图谱"])
         self.assertEqual(
             [(trace.step, trace.selected) for trace in response.planner_trace],
-            [("调查", True), ("策略", False), ("图谱", True)],
+            [("调查", True), ("根因", False), ("策略", False), ("图谱", True)],
         )
         self.assertTrue(any(finding == "[意图] fraud_ring" for finding in response.findings))
         self.assertFalse(any(finding.startswith("[规划] 策略") for finding in response.findings))
@@ -624,6 +630,7 @@ class AgentPlatformTests(unittest.TestCase):
             investigation_agent=self.runtime._agents["investigation"],
             strategy_agent=self.runtime._agents["strategy"],
             graph_agent=self.runtime._agents["graph"],
+            root_cause_agent=self.runtime._agents["root_cause"],
             planner=planner,
         )
 
@@ -653,6 +660,7 @@ class AgentPlatformTests(unittest.TestCase):
             investigation_agent=self.runtime._agents["investigation"],
             strategy_agent=self.runtime._agents["strategy"],
             graph_agent=self.runtime._agents["graph"],
+            root_cause_agent=self.runtime._agents["root_cause"],
             planner=planner,
         )
 
@@ -662,8 +670,8 @@ class AgentPlatformTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(response.intent, "metric_anomaly")
-        self.assertEqual(response.plan_steps, ["调查"])
+        self.assertEqual(response.intent, "root_cause_analysis")
+        self.assertEqual(response.plan_steps, ["调查", "根因"])
         self.assertTrue(response.artifacts["planner"]["fallback_used"])
         self.assertEqual(response.artifacts["planner"]["backend"], "rule")
         self.assertIn("unknown intent: unknown_intent", response.artifacts["planner"]["validation_errors"])

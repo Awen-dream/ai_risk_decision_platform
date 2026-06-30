@@ -25,11 +25,13 @@ from services.memory import LongTermMemoryProvider
 
 DEFAULT_SELECTED_REASONS = {
     "调查": "所有风险问题都先从基础调查开始，统一定位对象、证据和影响范围。",
+    "根因": "当前问题要求解释原因或根因排序，需要补充根因候选验证。",
     "策略": "当前问题包含策略、阈值或仿真信号，需要补充策略效果分析。",
     "图谱": "当前问题包含实体关系、订单关联或团伙信号，需要补充关系网络分析。",
 }
 DEFAULT_UNSELECTED_REASONS = {
     "调查": "调查步骤为必选基础环节。",
+    "根因": "当前问题未明确要求根因分析或原因排序。",
     "策略": "当前问题缺少策略评估信号，暂不进入策略分析。",
     "图谱": "当前问题缺少团伙或关系网络信号，暂不进入图谱分析。",
 }
@@ -70,6 +72,7 @@ class CopilotAgent(Agent):
         investigation_agent: Agent,
         strategy_agent: Agent,
         graph_agent: Agent,
+        root_cause_agent: Agent | None = None,
         risk_decision_policy: RiskDecisionPolicy | None = None,
         planner: CopilotPlanner | None = None,
         long_term_memory: LongTermMemoryProvider | None = None,
@@ -77,6 +80,7 @@ class CopilotAgent(Agent):
         self._investigation_agent = investigation_agent
         self._strategy_agent = strategy_agent
         self._graph_agent = graph_agent
+        self._root_cause_agent = root_cause_agent
         self._risk_decision_policy = risk_decision_policy or RiskDecisionPolicy.default()
         self._planner = planner or RuleBasedCopilotPlanner()
         self._fallback_planner = RuleBasedCopilotPlanner()
@@ -102,6 +106,8 @@ class CopilotAgent(Agent):
         for step in validated_plan.plan_steps:
             if step.label == "调查":
                 child_responses.append((step.label, self._investigation_agent.run(request)))
+            elif step.label == "根因" and self._root_cause_agent is not None:
+                child_responses.append((step.label, self._root_cause_agent.run(request)))
             elif step.label == "策略":
                 child_responses.append((step.label, self._strategy_agent.run(request)))
             elif step.label == "图谱":
@@ -267,6 +273,9 @@ class CopilotAgent(Agent):
         if "调查" not in selected_steps:
             errors.append("candidate omitted required step: 调查")
             selected_steps.insert(0, "调查")
+        if "根因" in selected_steps and self._root_cause_agent is None:
+            errors.append("candidate selected unavailable step: 根因")
+            selected_steps = [step for step in selected_steps if step != "根因"]
         if not selected_steps:
             errors.append("candidate produced no executable steps")
             return self._fallback_validated_plan(request, candidate, errors)
@@ -298,6 +307,8 @@ class CopilotAgent(Agent):
     ) -> ValidatedCopilotPlan:
         fallback_candidate = self._fallback_planner.plan(request)
         selected_steps = self._normalize_selected_steps(fallback_candidate.selected_steps)
+        if "根因" in selected_steps and self._root_cause_agent is None:
+            selected_steps = [step for step in selected_steps if step != "根因"]
         plan_steps = [
             CopilotPlanStep(
                 label=label,

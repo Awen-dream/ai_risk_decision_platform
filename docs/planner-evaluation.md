@@ -65,6 +65,7 @@ The default suite checks:
 - `copilot` composite routing for order + strategy + graph analysis.
 - `copilot` metric-anomaly routing for plain metric questions.
 - `copilot` V3 global-plan, evidence-graph, and working-memory artifacts.
+- `copilot` V4b root-cause routing for why/root-cause questions.
 - `investigation` metric tool selection.
 - `investigation` order tool selection.
 - `strategy` tool selection for profile, simulation, graph, and rule evidence.
@@ -111,6 +112,17 @@ Custom cases use this JSON shape:
       "expected_intent": "composite",
       "expected_plan_steps": ["调查", "策略", "图谱"],
       "expected_tool_trace_prefixes": ["调查::", "策略::", "图谱::"],
+      "require_intermediate_state": false,
+      "require_global_planning": true
+    },
+    {
+      "name": "copilot_root_cause_metric",
+      "agent_name": "copilot",
+      "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？请给出根因排序",
+      "context": {"country": "BR", "channel": "credit_card"},
+      "expected_intent": "root_cause_analysis",
+      "expected_plan_steps": ["调查", "根因"],
+      "expected_tool_trace_prefixes": ["调查::", "根因::"],
       "require_intermediate_state": false,
       "require_global_planning": true
     },

@@ -14,11 +14,12 @@ from core.models import AgentRequest
 
 STRATEGY_ID_PATTERN = re.compile(r"(STRAT-\d+)", re.IGNORECASE)
 ENTITY_ID_PATTERN = re.compile(r"((?:U|O)\d{5})", re.IGNORECASE)
-CANONICAL_PLAN_STEPS = ("调查", "策略", "图谱")
+CANONICAL_PLAN_STEPS = ("调查", "根因", "策略", "图谱")
 
 
 class CopilotIntent(str, Enum):
     METRIC_ANOMALY = "metric_anomaly"
+    ROOT_CAUSE_ANALYSIS = "root_cause_analysis"
     ORDER_CASE = "order_case"
     STRATEGY_REVIEW = "strategy_review"
     FRAUD_RING = "fraud_ring"
@@ -62,6 +63,7 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
             intent_reason=self._intent_reason(request, intent),
             step_reasons={
                 "调查": "先做基础风险调查，定位异常对象、核心证据和影响范围。",
+                "根因": "问题要求解释原因或根因排序，需要验证并排序候选根因。",
                 "策略": "问题包含策略或阈值信号，需要补充策略效果和仿真建议。",
                 "图谱": "问题包含实体关系或团伙信号，需要补充关系网络和关键路径。",
             },
@@ -76,6 +78,13 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
                 reason="先做基础风险调查，定位异常对象、核心证据和影响范围。",
             )
         ]
+        if intent == CopilotIntent.ROOT_CAUSE_ANALYSIS:
+            steps.append(
+                CopilotPlanStep(
+                    label="根因",
+                    reason="问题要求解释原因或根因排序，需要验证并排序候选根因。",
+                )
+            )
         if intent in (CopilotIntent.STRATEGY_REVIEW, CopilotIntent.COMPOSITE):
             steps.append(
                 CopilotPlanStep(
@@ -96,6 +105,8 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
     def _intent_reason(request: AgentRequest, intent: CopilotIntent) -> str:
         if intent == CopilotIntent.COMPOSITE:
             return "同时命中策略与图谱信号，需要联合分析。"
+        if intent == CopilotIntent.ROOT_CAUSE_ANALYSIS:
+            return "问题要求解释原因、根因或原因排序，需要补充根因候选验证。"
         if intent == CopilotIntent.STRATEGY_REVIEW:
             return "问题包含策略、阈值或 shadow evaluation 信号。"
         if intent == CopilotIntent.ORDER_CASE:
@@ -122,9 +133,16 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
             return True
         return ENTITY_ID_PATTERN.search(request.query) is not None
 
+    @staticmethod
+    def _should_include_root_cause(request: AgentRequest) -> bool:
+        lowered = request.query.lower()
+        root_cause_terms = ("根因", "原因", "为什么", "why", "排序", "归因")
+        return any(term in request.query or term in lowered for term in root_cause_terms)
+
     def _classify_intent(self, request: AgentRequest) -> CopilotIntent:
         has_strategy = self._should_include_strategy(request)
         has_graph = self._should_include_graph(request)
+        has_root_cause = self._should_include_root_cause(request)
         has_order = "order_id" in request.context or (
             ENTITY_ID_PATTERN.search(request.query) is not None and "订单" in request.query
         )
@@ -136,6 +154,8 @@ class RuleBasedCopilotPlanner(CopilotPlanner):
             if has_order:
                 return CopilotIntent.ORDER_CASE
             return CopilotIntent.FRAUD_RING
+        if has_root_cause:
+            return CopilotIntent.ROOT_CAUSE_ANALYSIS
         return CopilotIntent.METRIC_ANOMALY
 
 
@@ -231,7 +251,7 @@ class OpenAICopilotPlanner(CopilotPlanner):
         return (
             "You are a planning component for a risk copilot. "
             "Classify the request into one of the supported intents and select execution steps "
-            "from the fixed set: 调查, 策略, 图谱. "
+            "from the fixed set: 调查, 根因, 策略, 图谱. "
             "调查 is always required. "
             "Return only JSON that matches the provided schema."
         )
@@ -244,10 +264,10 @@ class OpenAICopilotPlanner(CopilotPlanner):
             f"query: {request.query}\n"
             f"context: {context_json}\n"
             "要求：\n"
-            "1. intent 只能是 metric_anomaly, order_case, strategy_review, fraud_ring, composite。\n"
-            "2. selected_steps 只能从 调查, 策略, 图谱 中选择，且必须包含 调查。\n"
+            "1. intent 只能是 metric_anomaly, root_cause_analysis, order_case, strategy_review, fraud_ring, composite。\n"
+            "2. selected_steps 只能从 调查, 根因, 策略, 图谱 中选择，且必须包含 调查。\n"
             "3. step_reasons 只给 selected_steps 里的步骤填写理由。\n"
-            "4. 如果同时出现策略和图谱信号，优先用 composite。"
+            "4. 如果同时出现策略和图谱信号，优先用 composite；如果要求解释原因或根因排序，加入 根因。"
         )
 
     @staticmethod

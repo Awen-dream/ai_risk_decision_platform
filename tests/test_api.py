@@ -694,6 +694,27 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertTrue(any(trace["name"] == "rule_explain" for trace in payload["tool_traces"]))
 
+    def test_invoke_copilot_routes_root_cause_question(self) -> None:
+        response = self.client.post(
+            "/agents/copilot",
+            json={
+                "query": "为什么巴西信用卡支付失败率从昨晚开始突然升高？请给出根因排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+            },
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["agent_name"], "copilot")
+        self.assertEqual(payload["intent"], "root_cause_analysis")
+        self.assertEqual(payload["plan_steps"], ["调查", "根因"])
+        self.assertTrue(any(trace["name"].startswith("根因::") for trace in payload["tool_traces"]))
+        self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
+        self.assertEqual(
+            payload["artifacts"]["global_plan"]["steps"][1]["agent_name"],
+            "root_cause",
+        )
+
     def test_invoke_copilot_agent(self) -> None:
         created = self.client.post("/sessions")
         session_id = created.json()["session_id"]
@@ -714,7 +735,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["plan_steps"], ["调查", "策略", "图谱"])
         self.assertEqual(
             [(trace["step"], trace["selected"]) for trace in payload["planner_trace"]],
-            [("调查", True), ("策略", True), ("图谱", True)],
+            [("调查", True), ("根因", False), ("策略", True), ("图谱", True)],
         )
         self.assertIn("识别意图为 composite", payload["summary"])
         self.assertIn("调查 -> 策略 -> 图谱", payload["summary"])
@@ -766,7 +787,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(turn["plan_steps"], ["调查", "策略", "图谱"])
         self.assertEqual(
             [(trace["step"], trace["selected"]) for trace in turn["planner_trace"]],
-            [("调查", True), ("策略", True), ("图谱", True)],
+            [("调查", True), ("根因", False), ("策略", True), ("图谱", True)],
         )
         timeline_item = fetched.json()["timeline"][0]
         self.assertEqual(timeline_item["turn_index"], 1)

@@ -276,8 +276,8 @@ def _planner_eval_report() -> dict[str, object]:
         "status": "passed",
         "generated_at": "2026-06-18T00:00:00Z",
         "summary": {
-            "total": 8,
-            "passed": 8,
+            "total": 9,
+            "passed": 9,
             "failed": 0,
             "intermediate_state_coverage_rate": 1.0,
             "tool_reason_coverage_rate": 1.0,

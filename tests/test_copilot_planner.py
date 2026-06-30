@@ -88,8 +88,8 @@ class OpenAICopilotPlannerTests(unittest.TestCase):
                 AgentRequest(query="为什么巴西信用卡支付失败率从昨晚开始突然升高？")
             )
 
-        self.assertEqual(candidate.intent, "metric_anomaly")
-        self.assertEqual(candidate.selected_steps, ["调查"])
+        self.assertEqual(candidate.intent, "root_cause_analysis")
+        self.assertEqual(candidate.selected_steps, ["调查", "根因"])
         self.assertEqual(candidate.planner_backend, "openai_fallback_rule")
         self.assertIn("HTTPError", candidate.planner_error)
 
