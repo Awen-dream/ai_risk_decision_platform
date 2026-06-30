@@ -47,6 +47,7 @@ class StagingValidationTests(unittest.TestCase):
                 "investigation",
                 "strategy",
                 "graph",
+                "root_cause",
                 "copilot",
             ],
             "registered_tools": [

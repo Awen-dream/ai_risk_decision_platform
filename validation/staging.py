@@ -12,7 +12,14 @@ from urllib.parse import unquote, urlencode
 from urllib.request import Request, urlopen
 
 
-EXPECTED_CAPABILITIES = ["knowledge", "investigation", "strategy", "graph", "copilot"]
+EXPECTED_CAPABILITIES = [
+    "knowledge",
+    "investigation",
+    "strategy",
+    "graph",
+    "root_cause",
+    "copilot",
+]
 EXPECTED_TOOLS = [
     "metric_snapshot",
     "case_lookup",
