@@ -291,6 +291,22 @@ class AgentRuntime:
                 f"agent.root_cause_quality.last_overall_score.by_agent.{agent_name}",
                 overall_score,
             )
+        root_cause_readiness = response.artifacts.get("root_cause_readiness")
+        if isinstance(root_cause_readiness, dict):
+            status = str(root_cause_readiness.get("status") or "unknown")
+            actionability_score = float(
+                root_cause_readiness.get("actionability_score", 0.0) or 0.0
+            )
+            increment_counter("agent.root_cause_readiness.evaluations.total")
+            increment_counter(f"agent.root_cause_readiness.evaluations.by_agent.{agent_name}")
+            increment_counter(f"agent.root_cause_readiness.evaluations.by_status.{status}")
+            increment_counter(
+                f"agent.root_cause_readiness.evaluations.by_agent.{agent_name}.by_status.{status}"
+            )
+            set_gauge(
+                f"agent.root_cause_readiness.last_actionability_score.by_agent.{agent_name}",
+                actionability_score,
+            )
 
         if response.tool_traces:
             increment_counter("agent.tools.executions.total", len(response.tool_traces))

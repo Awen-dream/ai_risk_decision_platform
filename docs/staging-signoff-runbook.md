@@ -88,7 +88,12 @@ signoff evidence covers the global plan, evidence graph, working memory, quality
 score, and `execution_readiness.version == "v3f"` execution gate together.
 The default planner golden set also includes V4 root-cause cases that must rank
 root-cause hypotheses from metric, dashboard, SQL, and rule evidence and produce
-`root_cause_quality.version == "v4c"` with `overall_score >= 0.75`.
+`root_cause_quality.version == "v4c"` with `overall_score >= 0.75`, plus
+`root_cause_readiness.version == "v4d"` for handoff gating.
+When a root-cause session is promoted to a workflow case, V4e maps that
+readiness result into `risk_decision`: ready cases enter `strategy_shadow_queue`,
+review cases enter `root_cause_review_queue`, and blocked cases enter
+`risk_investigation_queue`.
 
 To compare planner quality against a previous CI report, set:
 

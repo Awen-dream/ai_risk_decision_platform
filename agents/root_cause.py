@@ -90,7 +90,13 @@ class RootCauseAgent(Agent):
             traces=traces,
         )
         response.artifacts["root_cause_analysis"] = analysis
-        response.artifacts["root_cause_quality"] = evaluate_root_cause_quality(analysis)
+        root_cause_quality = evaluate_root_cause_quality(analysis)
+        response.artifacts["root_cause_quality"] = root_cause_quality
+        response.artifacts["root_cause_readiness"] = build_root_cause_readiness(
+            analysis=analysis,
+            quality=root_cause_quality,
+            evidence_gap_count=len(response.evidence_gap),
+        )
         self._attach_evidence(response, traces)
         self._attach_findings_and_actions(response, analysis)
         response.confidence = float(analysis["top_root_cause"]["confidence"])
@@ -516,6 +522,72 @@ def evaluate_root_cause_quality(analysis: dict[str, Any]) -> dict[str, Any]:
             "top_confidence": round(top_confidence, 3),
         },
         "quality_gaps": gaps,
+    }
+
+
+def build_root_cause_readiness(
+    *,
+    analysis: dict[str, Any],
+    quality: dict[str, Any],
+    evidence_gap_count: int,
+) -> dict[str, Any]:
+    top_root_cause = (
+        analysis.get("top_root_cause")
+        if isinstance(analysis.get("top_root_cause"), dict)
+        else {}
+    )
+    quality_score = float(quality.get("overall_score", 0.0) or 0.0)
+    top_confidence = float(top_root_cause.get("confidence", 0.0) or 0.0)
+    quality_gaps = [
+        str(item)
+        for item in quality.get("quality_gaps", [])
+        if item is not None
+    ]
+    blockers: list[str] = []
+    required_controls: list[str] = []
+    allowed_actions = ["queue_root_cause_review", "collect_verification_samples"]
+    reasons: list[str] = []
+
+    if evidence_gap_count:
+        blockers.append("missing_root_cause_evidence")
+        required_controls.append("evidence_gap_review")
+        reasons.append("根因分析存在工具证据缺口，需要先补齐缺失证据。")
+    if quality_score < 0.75:
+        required_controls.append("root_cause_quality_review")
+        reasons.append("根因质量分低于交接阈值，需要人工复核候选根因。")
+    if top_confidence < 0.6:
+        required_controls.append("low_confidence_review")
+        reasons.append("Top1 根因置信度不足，需要补充验证样本。")
+
+    if blockers:
+        status = "blocked"
+        actionability_score = min(quality_score, 0.4)
+        allowed_actions = ["collect_missing_evidence", "queue_root_cause_review"]
+    elif required_controls or quality_gaps:
+        status = "requires_review"
+        actionability_score = min(quality_score, 0.74)
+    else:
+        status = "ready_for_handoff"
+        actionability_score = quality_score
+        reasons.append("根因候选、证据覆盖和验证动作满足交接要求。")
+        allowed_actions.extend(["start_shadow_evaluation", "create_followup_case"])
+
+    return {
+        "version": "v4d",
+        "status": status,
+        "actionability_score": round(actionability_score, 3),
+        "quality_score": round(quality_score, 3),
+        "top_root_cause_id": top_root_cause.get("id"),
+        "top_confidence": round(top_confidence, 3),
+        "required_controls": list(dict.fromkeys(required_controls)),
+        "allowed_actions": list(dict.fromkeys(allowed_actions)),
+        "blockers": blockers,
+        "reasons": reasons,
+        "diagnostics": {
+            "evidence_gap_count": evidence_gap_count,
+            "quality_gap_count": len(quality_gaps),
+            "quality_gaps": quality_gaps,
+        },
     }
 
 

@@ -556,6 +556,17 @@ class AgentApiTests(unittest.TestCase):
             payload["counters"]["agent.root_cause_quality.evaluations.by_agent.root_cause"],
             1,
         )
+        self.assertGreaterEqual(payload["counters"]["agent.root_cause_readiness.evaluations.total"], 1)
+        self.assertGreaterEqual(
+            payload["counters"]["agent.root_cause_readiness.evaluations.by_agent.root_cause"],
+            1,
+        )
+        self.assertGreaterEqual(
+            payload["counters"][
+                "agent.root_cause_readiness.evaluations.by_agent.root_cause.by_status.ready_for_handoff"
+            ],
+            1,
+        )
         self.assertGreaterEqual(payload["counters"]["agent.root_cause.hypotheses.total"], 3)
         self.assertEqual(
             payload["gauges"]["agent.root_cause.last_hypothesis_count.by_agent.root_cause"],
@@ -567,6 +578,10 @@ class AgentApiTests(unittest.TestCase):
         )
         self.assertGreaterEqual(
             payload["gauges"]["agent.root_cause_quality.last_overall_score.by_agent.root_cause"],
+            0.75,
+        )
+        self.assertGreaterEqual(
+            payload["gauges"]["agent.root_cause_readiness.last_actionability_score.by_agent.root_cause"],
             0.75,
         )
 
@@ -698,6 +713,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["intent"], "root_cause_analysis")
         self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
         self.assertEqual(payload["artifacts"]["root_cause_quality"]["version"], "v4c")
+        self.assertEqual(payload["artifacts"]["root_cause_readiness"]["version"], "v4d")
         self.assertGreaterEqual(payload["artifacts"]["root_cause_quality"]["overall_score"], 0.75)
         self.assertEqual(
             payload["artifacts"]["root_cause_analysis"]["top_root_cause"]["id"],
@@ -722,6 +738,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any(trace["name"].startswith("根因::") for trace in payload["tool_traces"]))
         self.assertEqual(payload["artifacts"]["root_cause_analysis"]["version"], "v4a")
         self.assertEqual(payload["artifacts"]["root_cause_quality"]["version"], "v4c")
+        self.assertEqual(payload["artifacts"]["root_cause_readiness"]["version"], "v4d")
         self.assertEqual(
             payload["artifacts"]["global_plan"]["steps"][1]["agent_name"],
             "root_cause",
@@ -944,6 +961,45 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(len(updated_payload["history"]), 2)
         self.assertEqual(updated_payload["history"][1]["summary"], "人工复核完成")
         self.assertNotEqual(updated_payload["updated_at"], updated_payload["created_at"])
+
+    def test_create_case_from_root_cause_session_builds_handoff_queue(self) -> None:
+        client = TestClient(create_app())
+        created = client.post("/sessions")
+        session_id = created.json()["session_id"]
+        self.assertEqual(created.status_code, 200)
+        client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+                "session_id": session_id,
+            },
+        )
+
+        created_case = client.post(f"/cases/from-session/{session_id}")
+
+        payload = created_case.json()
+        self.assertEqual(created_case.status_code, 200)
+        self.assertEqual(payload["source_agent"], "root_cause")
+        self.assertEqual(payload["intent"], "root_cause_analysis")
+        self.assertEqual(payload["status"], "strategy_pending")
+        self.assertEqual(payload["risk_decision"]["decision"], "root_cause_handoff")
+        self.assertEqual(
+            payload["risk_decision"]["recommended_action"],
+            "start_shadow_evaluation",
+        )
+        self.assertIn("shadow_evaluation", payload["risk_decision"]["policy_controls"])
+        self.assertEqual(
+            payload["risk_decision"]["action_plan"]["queue"],
+            "strategy_shadow_queue",
+        )
+        self.assertEqual(payload["risk_decision"]["action_plan"]["sla_hours"], 24)
+        self.assertEqual(payload["risk_decision"]["action_plan"]["status"], "queued")
+        created_at_dt = datetime.fromisoformat(payload["created_at"].replace("Z", "+00:00"))
+        due_at_dt = datetime.fromisoformat(
+            payload["risk_decision"]["action_plan"]["due_at"].replace("Z", "+00:00")
+        )
+        self.assertEqual(due_at_dt, created_at_dt + timedelta(hours=24))
 
     def test_list_cases_supports_filters(self) -> None:
         client = TestClient(create_app())

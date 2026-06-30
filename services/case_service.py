@@ -4,6 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from core.models import (
@@ -875,8 +876,15 @@ def _build_case_from_session(
         raise IndexError("Turn index out of range")
     turn = session.turns[resolved_turn_index - 1]
     recommendation = _extract_strategy_recommendation(turn.artifacts)
-    risk_decision = _extract_risk_decision(turn.artifacts)
-    status = _initial_status(turn.agent_name, turn.intent, recommendation)
+    risk_decision = _extract_risk_decision(
+        turn.artifacts
+    ) or _build_root_cause_risk_decision(turn.artifacts)
+    status = _initial_status(
+        turn.agent_name,
+        turn.intent,
+        recommendation,
+        risk_decision,
+    )
     timestamp = _current_timestamp()
     _schedule_risk_action_plan(
         risk_decision,
@@ -1088,6 +1096,120 @@ def _extract_risk_decision(
     )
 
 
+def _build_root_cause_risk_decision(
+    artifacts: dict[str, object],
+) -> RiskDecisionRecord | None:
+    readiness = artifacts.get("root_cause_readiness")
+    if not isinstance(readiness, dict) or readiness.get("version") != "v4d":
+        return None
+    status = str(readiness.get("status") or "")
+    if status not in {"ready_for_handoff", "requires_review", "blocked"}:
+        return None
+    analysis = artifacts.get("root_cause_analysis")
+    top_root_cause: dict[str, Any] = {}
+    if isinstance(analysis, dict) and isinstance(analysis.get("top_root_cause"), dict):
+        top_root_cause = dict(analysis["top_root_cause"])
+    actionability_score = float(readiness.get("actionability_score", 0.0) or 0.0)
+    top_confidence = float(readiness.get("top_confidence", 0.0) or 0.0)
+    confidence = round(max(actionability_score, top_confidence), 3)
+    allowed_actions = [
+        str(item)
+        for item in readiness.get("allowed_actions", [])
+        if item is not None
+    ]
+    required_controls = [
+        str(item)
+        for item in readiness.get("required_controls", [])
+        if item is not None
+    ]
+    reasons = [
+        str(item)
+        for item in readiness.get("reasons", [])
+        if item is not None
+    ]
+    blockers = [
+        str(item)
+        for item in readiness.get("blockers", [])
+        if item is not None
+    ]
+    top_label = str(top_root_cause.get("label") or top_root_cause.get("id") or "unknown")
+    top_id = str(top_root_cause.get("id") or "unknown")
+    evidence = [f"Top1 根因为 {top_label}({top_id})，置信度 {top_confidence:.2f}。"]
+    evidence.extend(reasons)
+    if blockers:
+        evidence.append(f"阻塞项：{', '.join(blockers)}。")
+
+    if status == "ready_for_handoff":
+        decision = "root_cause_handoff"
+        risk_level = "medium"
+        recommended_action = "start_shadow_evaluation"
+        evidence_strength = "strong"
+        escalation_reason = None
+        action_plan = RiskActionPlanRecord(
+            queue="strategy_shadow_queue",
+            priority="medium",
+            sla_hours=24,
+            owner_role="strategy_owner",
+            next_actions=[
+                "基于 Top1 根因创建 shadow evaluation 实验",
+                "绑定根因证据矩阵并监控异常指标回落",
+            ],
+        )
+    elif status == "requires_review":
+        decision = "root_cause_review"
+        risk_level = "medium"
+        recommended_action = "queue_root_cause_review"
+        evidence_strength = "medium"
+        escalation_reason = "根因质量或控制项未完全满足交接阈值，需要人工复核。"
+        action_plan = RiskActionPlanRecord(
+            queue="root_cause_review_queue",
+            priority="medium",
+            sla_hours=12,
+            owner_role="risk_analyst",
+            next_actions=[
+                "复核根因候选排序和反证覆盖",
+                "补充验证样本后确认是否进入 shadow evaluation",
+            ],
+        )
+    else:
+        decision = "root_cause_blocked"
+        risk_level = "medium"
+        recommended_action = "collect_missing_evidence"
+        evidence_strength = "weak"
+        escalation_reason = "根因分析存在阻塞证据缺口，暂不能交接执行。"
+        action_plan = RiskActionPlanRecord(
+            queue="risk_investigation_queue",
+            priority="high",
+            sla_hours=8,
+            owner_role="risk_ops",
+            next_actions=[
+                "补齐根因分析缺失的工具证据",
+                "证据恢复后重新运行根因 readiness gate",
+            ],
+        )
+
+    policy_controls = list(dict.fromkeys(required_controls))
+    if "start_shadow_evaluation" in allowed_actions and "shadow_evaluation" not in policy_controls:
+        policy_controls.append("shadow_evaluation")
+    if recommended_action == "queue_root_cause_review" and "root_cause_review" not in policy_controls:
+        policy_controls.append("root_cause_review")
+    if recommended_action == "collect_missing_evidence" and "evidence_gap_review" not in policy_controls:
+        policy_controls.append("evidence_gap_review")
+
+    return RiskDecisionRecord(
+        decision=decision,
+        risk_level=risk_level,
+        recommended_action=recommended_action,
+        evidence_strength=evidence_strength,
+        confidence=confidence,
+        rationale="；".join(evidence),
+        escalation_reason=escalation_reason,
+        evidence=evidence,
+        policy_controls=policy_controls,
+        action_plan=action_plan,
+    )
+
+
 def _extract_risk_action_plan(payload: object) -> RiskActionPlanRecord | None:
     if not isinstance(payload, dict):
         return None
@@ -1117,9 +1239,15 @@ def _initial_status(
     agent_name: str,
     intent: str | None,
     recommendation: StrategyRecommendationRecord | None,
+    risk_decision: RiskDecisionRecord | None = None,
 ) -> str:
     if recommendation is not None:
         return "strategy_pending"
+    if risk_decision is not None:
+        if risk_decision.recommended_action in {"start_shadow_evaluation", "shadow_evaluation"}:
+            return "strategy_pending"
+        if risk_decision.recommended_action in {"manual_review", "queue_root_cause_review"}:
+            return "in_review"
     if agent_name == "copilot" or intent in {"fraud_ring", "order_case", "composite"}:
         return "in_review"
     return "open"

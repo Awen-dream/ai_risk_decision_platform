@@ -138,6 +138,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(quality["status"], "passed")
         self.assertGreaterEqual(quality["overall_score"], 0.75)
         self.assertEqual(quality["diagnostics"]["hypothesis_count"], 3)
+        readiness = response.artifacts["root_cause_readiness"]
+        self.assertEqual(readiness["version"], "v4d")
+        self.assertEqual(readiness["status"], "ready_for_handoff")
+        self.assertIn("start_shadow_evaluation", readiness["allowed_actions"])
         self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
         self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
 

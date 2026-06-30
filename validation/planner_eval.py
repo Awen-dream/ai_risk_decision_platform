@@ -397,12 +397,21 @@ def _has_root_cause_quality_artifact(response: AgentResponse) -> bool:
     if not isinstance(root_cause_analysis, dict):
         return True
     root_cause_quality = response.artifacts.get("root_cause_quality")
+    root_cause_readiness = response.artifacts.get("root_cause_readiness")
     if not isinstance(root_cause_quality, dict):
+        return False
+    if not isinstance(root_cause_readiness, dict):
         return False
     return (
         root_cause_quality.get("version") == "v4c"
         and float(root_cause_quality.get("overall_score", 0.0) or 0.0) >= 0.75
         and root_cause_quality.get("status") in {"passed", "needs_attention"}
+        and root_cause_readiness.get("version") == "v4d"
+        and root_cause_readiness.get("status") in {
+            "ready_for_handoff",
+            "requires_review",
+            "blocked",
+        }
     )
 
 

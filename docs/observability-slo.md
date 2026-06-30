@@ -219,6 +219,16 @@ V4 root-cause quality score can be monitored with:
 ai_risk_agent_root_cause_quality_last_overall_score_by_agent_root_cause
 ```
 
+V4 root-cause readiness outcomes can be monitored with:
+
+```promql
+sum(increase(ai_risk_agent_root_cause_readiness_evaluations_total[30m]))
+```
+
+V4e root-cause handoffs also surface through case action-plan gauges such as
+`ai_risk_cases_action_plan_queue_strategy_shadow_queue` and
+`ai_risk_cases_action_plan_queue_root_cause_review_queue`.
+
 External HTTP audit writes are append-only JSONL records. Audit records retain
 request/trace/session correlation, outcome, latency, status, and header names,
 but omit payloads and credential values and redact query values and entity IDs.

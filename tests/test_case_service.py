@@ -149,6 +149,42 @@ class CaseServiceTests(unittest.TestCase):
         self.assertEqual(case.risk_decision.action_plan.status, "in_progress")
         self.assertIsNotNone(case.risk_decision.action_plan.due_at)
 
+    def test_root_cause_case_creation_builds_shadow_handoff_action_plan(self) -> None:
+        container = build_app_container(AppConfig())
+        session_id, _ = container.runtime.execute(
+            "root_cause",
+            AgentRequest(
+                query="请分析巴西信用卡支付失败率升高的根因并给出排序",
+                context={"country": "BR", "channel": "credit_card"},
+            ),
+        )
+        session = container.runtime.get_session(session_id)
+        assert session is not None
+
+        case = container.case_service.create_case_from_session(session)
+
+        self.assertEqual(case.status, "strategy_pending")
+        self.assertEqual(case.intent, "root_cause_analysis")
+        self.assertIsNotNone(case.risk_decision)
+        assert case.risk_decision is not None
+        self.assertEqual(case.risk_decision.decision, "root_cause_handoff")
+        self.assertEqual(
+            case.risk_decision.recommended_action,
+            "start_shadow_evaluation",
+        )
+        self.assertIn("shadow_evaluation", case.risk_decision.policy_controls)
+        self.assertIsNotNone(case.risk_decision.action_plan)
+        assert case.risk_decision.action_plan is not None
+        self.assertEqual(case.risk_decision.action_plan.queue, "strategy_shadow_queue")
+        self.assertEqual(case.risk_decision.action_plan.status, "queued")
+        self.assertEqual(case.risk_decision.action_plan.sla_hours, 24)
+        assert case.risk_decision.action_plan.due_at is not None
+        created_at_dt = datetime.fromisoformat(case.created_at.replace("Z", "+00:00"))
+        due_at_dt = datetime.fromisoformat(
+            case.risk_decision.action_plan.due_at.replace("Z", "+00:00")
+        )
+        self.assertEqual(due_at_dt, created_at_dt + timedelta(hours=24))
+
     def test_file_case_store_survives_api_recreation_and_supports_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(
