@@ -50,6 +50,19 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(report["status"], "failed")
         self.assertIn("central audit", _failed_details(report))
 
+    def test_root_cause_handoff_staging_check_must_be_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            report_dir = Path(tmp_dir)
+            _write_signoff_reports(
+                report_dir,
+                include_root_cause_handoff_check=False,
+            )
+
+            report = validate_signoff_evidence(report_dir)
+
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("agent.root_cause_handoff", _failed_details(report))
+
     def test_release_metadata_can_be_required(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             report_dir = Path(tmp_dir)
@@ -165,11 +178,16 @@ def _write_signoff_reports(
     release_metadata: dict[str, object] | None = None,
     include_planner_eval: bool = False,
     planner_eval_report: dict[str, object] | None = None,
+    include_root_cause_handoff_check: bool = True,
 ) -> None:
     postgres_summary = _summary(total=0 if postgres_status == "skipped" else 4, status=postgres_status)
     preflight = _report(total=4)
     readiness = _report(total=7)
-    staging_checks = [_check(f"staging.check.{index}") for index in range(18)]
+    staging_checks = [_check(f"staging.check.{index}") for index in range(17)]
+    if include_root_cause_handoff_check:
+        staging_checks.append(_check("agent.root_cause_handoff"))
+    else:
+        staging_checks.append(_check("staging.check.without.root_cause_handoff"))
     if include_central_audit_check:
         staging_checks.append(_check("central_audit.mirrored_events"))
     staging = _report(total=len(staging_checks), checks=staging_checks)

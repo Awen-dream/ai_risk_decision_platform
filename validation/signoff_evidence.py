@@ -34,6 +34,9 @@ MINIMUM_CHECK_TOTALS = {
     "readiness": 7,
     "staging_validation": 18,
 }
+REQUIRED_CHECK_NAMES = {
+    "staging_validation": ("agent.root_cause_handoff",),
+}
 CENTRAL_AUDIT_CHECK = "central_audit.mirrored_events"
 RELEASE_METADATA_FIELDS = ("environment", "release_id", "change_id", "owner", "approver")
 RELEASE_BUSINESS_FIELDS = ("release_id", "change_id", "owner", "approver")
@@ -241,6 +244,18 @@ def _validate_minimum_coverage(payloads: dict[str, Any]) -> str:
         total = report.get("summary", {}).get("total")
         if not isinstance(total, int) or total < minimum_total:
             failures.append(f"{name}.total={total} < {minimum_total}")
+        check_names = {
+            check.get("name")
+            for check in report.get("checks", [])
+            if isinstance(check, dict)
+        }
+        missing_checks = [
+            check_name
+            for check_name in REQUIRED_CHECK_NAMES.get(name, ())
+            if check_name not in check_names
+        ]
+        if missing_checks:
+            failures.append(f"{name}.missing_checks={missing_checks}")
     if failures:
         raise AssertionError(f"minimum coverage checks failed: {failures}")
     return "minimum signoff coverage is present"

@@ -96,6 +96,9 @@ readiness result into `risk_decision`: ready cases enter `strategy_shadow_queue`
 review cases enter `root_cause_review_queue`, and blocked cases enter
 `risk_investigation_queue`. V4f makes that promotion auditable in planner eval
 and signoff evidence through `root_cause_handoff_rate`.
+V4h also requires the staging report to include the explicit
+`agent.root_cause_handoff` check, so total check count alone cannot satisfy the
+handoff gate.
 
 To compare planner quality against a previous CI report, set:
 
