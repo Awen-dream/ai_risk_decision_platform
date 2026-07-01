@@ -399,6 +399,7 @@ class WorkflowCase:
     intent: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
     suggested_actions: list[str] = field(default_factory=list)
+    evidence_panel: dict[str, Any] = field(default_factory=dict)
     strategy_recommendation: StrategyRecommendationRecord | None = None
     risk_decision: RiskDecisionRecord | None = None
     history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)

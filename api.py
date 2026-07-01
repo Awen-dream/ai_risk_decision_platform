@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from secrets import compare_digest
 from uuid import uuid4
 from typing import Any, Dict, List, Optional
@@ -404,6 +405,7 @@ class WorkflowCasePayload(BaseModel):
     intent: Optional[str] = None
     context: Dict[str, Any] = Field(default_factory=dict)
     suggested_actions: List[str] = Field(default_factory=list)
+    evidence_panel: Dict[str, Any] = Field(default_factory=dict)
     strategy_recommendation: Optional[StrategyRecommendationPayload] = None
     risk_decision: Optional[RiskDecisionPayload] = None
     history: List[CaseHistoryPayload] = Field(default_factory=list)
@@ -422,6 +424,27 @@ class ActionQueueSummaryPayload(BaseModel):
     oldest_due_at: Optional[str] = None
     next_due_at: Optional[str] = None
     highest_priority: Optional[str] = None
+
+
+class WorkbenchBacklogSummaryPayload(BaseModel):
+    total_cases: int
+    open_cases: int
+    overdue_cases: int
+    unassigned_cases: int
+    high_severity_cases: int
+    evidence_covered_cases: int
+    status_counts: Dict[str, int] = Field(default_factory=dict)
+    severity_counts: Dict[str, int] = Field(default_factory=dict)
+    source_agent_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class AnalystWorkbenchPayload(BaseModel):
+    generated_at: str
+    backlog: WorkbenchBacklogSummaryPayload
+    action_queues: List[ActionQueueSummaryPayload] = Field(default_factory=list)
+    attention_cases: List[WorkflowCasePayload] = Field(default_factory=list)
+    recent_cases: List[WorkflowCasePayload] = Field(default_factory=list)
+    focus_areas: List[str] = Field(default_factory=list)
 
 
 class ActionQueueAssignRequest(BaseModel):
@@ -799,6 +822,28 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _build_action_queue_summaries(cases)
+
+    @fastapi_app.get("/analyst-workbench", response_model=AnalystWorkbenchPayload)
+    def get_analyst_workbench(
+        attention_limit: int = Query(default=5, ge=1, le=20),
+        recent_limit: int = Query(default=5, ge=1, le=20),
+    ) -> AnalystWorkbenchPayload:
+        cases = container.case_service.list_cases(sort_by="updated_at", sort_order="desc")
+        action_queue_summaries = _build_action_queue_summaries(cases)
+        attention_cases = _select_action_queue_cases(
+            cases,
+            include_completed=False,
+            limit=attention_limit,
+        )
+        recent_cases = cases[:recent_limit]
+        return AnalystWorkbenchPayload(
+            generated_at=_utc_now_iso(),
+            backlog=_build_workbench_backlog_summary(cases),
+            action_queues=action_queue_summaries,
+            attention_cases=[_to_case_payload(case) for case in attention_cases],
+            recent_cases=[_to_case_payload(case) for case in recent_cases],
+            focus_areas=_build_workbench_focus_areas(cases, action_queue_summaries),
+        )
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1280,6 +1325,7 @@ def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
         intent=case.intent,
         context=case.context,
         suggested_actions=case.suggested_actions,
+        evidence_panel=case.evidence_panel,
         strategy_recommendation=_to_strategy_recommendation_payload(
             case.strategy_recommendation
         ),
@@ -1421,6 +1467,86 @@ def _build_action_queue_summaries(
     ]
 
 
+def _build_workbench_backlog_summary(
+    cases: list[WorkflowCase],
+) -> WorkbenchBacklogSummaryPayload:
+    status_counts: dict[str, int] = {}
+    severity_counts: dict[str, int] = {}
+    source_agent_counts: dict[str, int] = {}
+    open_cases = 0
+    overdue_cases = 0
+    unassigned_cases = 0
+    high_severity_cases = 0
+    evidence_covered_cases = 0
+    for case in cases:
+        status_counts[case.status] = status_counts.get(case.status, 0) + 1
+        severity_counts[case.severity] = severity_counts.get(case.severity, 0) + 1
+        source_agent_counts[case.source_agent] = source_agent_counts.get(case.source_agent, 0) + 1
+        if case.status != "closed":
+            open_cases += 1
+        if case.severity == "high":
+            high_severity_cases += 1
+        if case.evidence_panel.get("summary", {}).get("evidence_count", 0) > 0:
+            evidence_covered_cases += 1
+        action_plan = _case_action_plan(case)
+        if action_plan is not None:
+            if is_risk_action_plan_overdue(action_plan):
+                overdue_cases += 1
+            if not action_plan.assigned_to and action_plan.status != "completed":
+                unassigned_cases += 1
+    return WorkbenchBacklogSummaryPayload(
+        total_cases=len(cases),
+        open_cases=open_cases,
+        overdue_cases=overdue_cases,
+        unassigned_cases=unassigned_cases,
+        high_severity_cases=high_severity_cases,
+        evidence_covered_cases=evidence_covered_cases,
+        status_counts=dict(sorted(status_counts.items())),
+        severity_counts=dict(sorted(severity_counts.items())),
+        source_agent_counts=dict(sorted(source_agent_counts.items())),
+    )
+
+
+def _build_workbench_focus_areas(
+    cases: list[WorkflowCase],
+    queue_summaries: list[ActionQueueSummaryPayload],
+) -> list[str]:
+    if not cases:
+        return ["当前没有待处理案件，工作台处于空闲状态。"]
+    focus_areas: list[str] = []
+    overdue_cases = sum(summary.overdue_cases for summary in queue_summaries)
+    if overdue_cases:
+        focus_areas.append(
+            f"当前有 {overdue_cases} 个案件已超 SLA，建议优先处理逾期队列。"
+        )
+    unassigned_cases = sum(
+        1
+        for case in cases
+        if (action_plan := _case_action_plan(case)) is not None
+        and action_plan.status != "completed"
+        and not action_plan.assigned_to
+    )
+    if unassigned_cases:
+        focus_areas.append(
+            f"当前有 {unassigned_cases} 个案件尚未分派，建议尽快完成责任人分配。"
+        )
+    high_severity_cases = sum(1 for case in cases if case.severity == "high")
+    if high_severity_cases:
+        focus_areas.append(
+            f"高优先级风险案件共有 {high_severity_cases} 个，建议先看高危案件。"
+        )
+    evidence_gap_cases = sum(
+        1
+        for case in cases
+        if case.evidence_panel.get("summary", {}).get("evidence_gap_count", 0) > 0
+    )
+    if evidence_gap_cases:
+        focus_areas.append(
+            f"有 {evidence_gap_cases} 个案件存在证据缺口，建议补齐调查链路后再推进处置。"
+        )
+    return focus_areas or ["案件证据和处置状态正常，可按最近更新时间推进处理。"]
+
+
 def _select_action_queue_cases(
     cases: list[WorkflowCase],
     *,
@@ -1457,6 +1583,10 @@ def _case_action_plan(case: WorkflowCase) -> RiskActionPlanRecord | None:
 
 def _priority_rank(priority: str | None) -> int:
     return {"low": 1, "medium": 2, "high": 3}.get(priority or "", 0)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _build_case_gauges(container) -> Dict[str, int]:

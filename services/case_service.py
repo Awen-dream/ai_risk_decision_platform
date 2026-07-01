@@ -17,6 +17,7 @@ from core.models import (
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
+from services.evidence import build_session_turn_evidence_panel
 from services.presentation import build_severity, build_turn_title
 
 
@@ -906,6 +907,7 @@ def _build_case_from_session(
         intent=turn.intent,
         context=dict(turn.context),
         suggested_actions=list(turn.suggested_actions),
+        evidence_panel=_extract_evidence_panel(turn),
         strategy_recommendation=recommendation,
         risk_decision=risk_decision,
         history=[
@@ -1269,6 +1271,7 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
         "intent": case.intent,
         "context": case.context,
         "suggested_actions": case.suggested_actions,
+        "evidence_panel": case.evidence_panel,
         "created_at": case.created_at,
         "updated_at": case.updated_at,
         "strategy_recommendation": (
@@ -1369,12 +1372,20 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         intent=str(item["intent"]) if item.get("intent") is not None else None,
         context=dict(item.get("context", {})),
         suggested_actions=list(item.get("suggested_actions", [])),
+        evidence_panel=dict(item.get("evidence_panel", {})),
         strategy_recommendation=recommendation,
         risk_decision=risk_decision,
         history=history,
         created_at=str(item.get("created_at", "")),
         updated_at=str(item.get("updated_at", "")),
     )
+
+
+def _extract_evidence_panel(turn) -> dict[str, object]:
+    panel = turn.artifacts.get("evidence_panel")
+    if isinstance(panel, dict):
+        return dict(panel)
+    return build_session_turn_evidence_panel(turn, scope="case")
 
 
 def _serialize_risk_action_plan(

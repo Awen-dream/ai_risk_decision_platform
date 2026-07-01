@@ -78,6 +78,8 @@ class CaseServiceTests(unittest.TestCase):
             assert loaded_case is not None
             self.assertEqual(loaded_case.session_id, session_id)
             self.assertEqual(loaded_case.strategy_recommendation.strategy_id, "STRAT-001")
+            self.assertEqual(loaded_case.evidence_panel["version"], "v1")
+            self.assertGreater(loaded_case.evidence_panel["summary"]["evidence_count"], 0)
             self.assertIsNotNone(loaded_case.risk_decision)
             assert loaded_case.risk_decision is not None
             self.assertEqual(loaded_case.risk_decision.decision, "escalate_review")
@@ -142,6 +144,7 @@ class CaseServiceTests(unittest.TestCase):
         case = container.case_service.create_case_from_session(session)
 
         self.assertEqual(case.status, "in_review")
+        self.assertEqual(case.evidence_panel["scope"], "copilot")
         self.assertIsNotNone(case.risk_decision)
         assert case.risk_decision is not None
         self.assertIsNotNone(case.risk_decision.action_plan)
@@ -165,6 +168,7 @@ class CaseServiceTests(unittest.TestCase):
 
         self.assertEqual(case.status, "strategy_pending")
         self.assertEqual(case.intent, "root_cause_analysis")
+        self.assertEqual(case.evidence_panel["scope"], "agent")
         self.assertIsNotNone(case.risk_decision)
         assert case.risk_decision is not None
         self.assertEqual(case.risk_decision.decision, "root_cause_handoff")

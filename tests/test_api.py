@@ -914,6 +914,9 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["source_agent"], "copilot")
         self.assertEqual(payload["status"], "strategy_pending")
         self.assertEqual(payload["severity"], "high")
+        self.assertEqual(payload["evidence_panel"]["version"], "v1")
+        self.assertEqual(payload["evidence_panel"]["scope"], "copilot")
+        self.assertGreater(payload["evidence_panel"]["summary"]["evidence_count"], 0)
         self.assertEqual(payload["risk_decision"]["decision"], "escalate_review")
         self.assertEqual(payload["risk_decision"]["risk_level"], "high")
         self.assertEqual(
@@ -995,6 +998,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["source_agent"], "root_cause")
         self.assertEqual(payload["intent"], "root_cause_analysis")
         self.assertEqual(payload["status"], "strategy_pending")
+        self.assertEqual(payload["evidence_panel"]["version"], "v1")
+        self.assertEqual(payload["evidence_panel"]["scope"], "agent")
         self.assertEqual(payload["risk_decision"]["decision"], "root_cause_handoff")
         self.assertEqual(
             payload["risk_decision"]["recommended_action"],
@@ -1175,6 +1180,87 @@ class AgentApiTests(unittest.TestCase):
             payload[0]["next_due_at"],
             created_case["risk_decision"]["action_plan"]["due_at"],
         )
+
+    def test_analyst_workbench_returns_backlog_attention_and_recent_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            policy_path = Path(tmp_dir) / "risk-decision-policy.json"
+            policy_path.write_text(
+                json.dumps(
+                    {
+                        "action_plans": {
+                            "escalate_review": {
+                                "queue": "urgent_manual_review",
+                                "priority": "high",
+                                "sla_hours": 0,
+                                "owner_role": "risk_reviewer",
+                                "next_actions": ["立即复核"],
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = TestClient(create_app(AppConfig(risk_decision_policy_path=policy_path)))
+
+            copilot_session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/copilot",
+                json={
+                    "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    "context": {
+                        "order_id": "O10001",
+                        "strategy_id": "STRAT-001",
+                        "entity_id": "U10001",
+                    },
+                    "session_id": copilot_session_id,
+                },
+            )
+            copilot_case = client.post(f"/cases/from-session/{copilot_session_id}").json()
+
+            graph_session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/graph",
+                json={
+                    "query": "请分析用户 U10001 是否属于团伙网络",
+                    "context": {"user_id": "U10001"},
+                    "session_id": graph_session_id,
+                },
+            )
+            graph_case = client.post(f"/cases/from-session/{graph_session_id}").json()
+            client.patch(
+                f"/cases/{graph_case['case_id']}",
+                json={
+                    "status": "closed",
+                    "note": "图谱结论已归档",
+                },
+            )
+
+            response = client.get(
+                "/analyst-workbench",
+                params={"attention_limit": 1, "recent_limit": 2},
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["generated_at"].endswith("Z"))
+        self.assertEqual(payload["backlog"]["total_cases"], 2)
+        self.assertEqual(payload["backlog"]["open_cases"], 1)
+        self.assertEqual(payload["backlog"]["overdue_cases"], 1)
+        self.assertEqual(payload["backlog"]["unassigned_cases"], 1)
+        self.assertEqual(payload["backlog"]["evidence_covered_cases"], 2)
+        self.assertEqual(payload["backlog"]["status_counts"]["closed"], 1)
+        self.assertEqual(payload["backlog"]["status_counts"]["strategy_pending"], 1)
+        self.assertEqual(payload["backlog"]["source_agent_counts"]["copilot"], 1)
+        self.assertEqual(payload["backlog"]["source_agent_counts"]["graph"], 1)
+        self.assertEqual(len(payload["action_queues"]), 1)
+        self.assertEqual(payload["action_queues"][0]["queue"], "urgent_manual_review")
+        self.assertEqual(len(payload["attention_cases"]), 1)
+        self.assertEqual(payload["attention_cases"][0]["case_id"], copilot_case["case_id"])
+        self.assertEqual(payload["attention_cases"][0]["evidence_panel"]["scope"], "copilot")
+        self.assertEqual(len(payload["recent_cases"]), 2)
+        self.assertEqual(payload["recent_cases"][0]["case_id"], graph_case["case_id"])
+        self.assertTrue(any("超 SLA" in item for item in payload["focus_areas"]))
+        self.assertTrue(any("尚未分派" in item for item in payload["focus_areas"]))
 
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
