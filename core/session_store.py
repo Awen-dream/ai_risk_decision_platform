@@ -394,11 +394,18 @@ def build_session_turn(request: AgentRequest, response: AgentResponse) -> Sessio
         suggested_actions=list(response.suggested_actions),
         evidence=[
             EvidenceRecord(
+                evidence_id=evidence.evidence_id,
+                evidence_type=evidence.evidence_type,
                 source=evidence.source,
                 source_type=evidence.source_type,
+                source_label=evidence.source_label,
+                source_agent=evidence.source_agent,
+                source_tool=evidence.source_tool,
                 summary=evidence.summary,
                 payload=evidence.payload,
                 confidence=evidence.confidence,
+                status=evidence.status,
+                tags=list(evidence.tags),
                 observed_at=evidence.observed_at,
             )
             for evidence in response.evidence
@@ -423,11 +430,18 @@ def _serialize_session_record(session: SessionRecord) -> dict[str, object]:
                 "suggested_actions": turn.suggested_actions,
                 "evidence": [
                     {
+                        "evidence_id": evidence.evidence_id,
+                        "evidence_type": evidence.evidence_type,
                         "source": evidence.source,
                         "source_type": evidence.source_type,
+                        "source_label": evidence.source_label,
+                        "source_agent": evidence.source_agent,
+                        "source_tool": evidence.source_tool,
                         "summary": evidence.summary,
                         "payload": evidence.payload,
                         "confidence": evidence.confidence,
+                        "status": evidence.status,
+                        "tags": list(evidence.tags),
                         "observed_at": evidence.observed_at,
                     }
                     for evidence in turn.evidence
@@ -482,11 +496,26 @@ def _deserialize_session_record(payload: dict[str, object]) -> SessionRecord:
                 suggested_actions=list(item.get("suggested_actions", [])),
                 evidence=[
                     EvidenceRecord(
+                        evidence_id=str(evidence.get("evidence_id", uuid.uuid4())),
+                        evidence_type=str(evidence.get("evidence_type", "tool_result")),
                         source=str(evidence["source"]),
                         source_type=str(evidence["source_type"]),
+                        source_label=str(evidence.get("source_label", evidence["source"])),
+                        source_agent=(
+                            str(evidence["source_agent"])
+                            if evidence.get("source_agent") is not None
+                            else None
+                        ),
+                        source_tool=(
+                            str(evidence["source_tool"])
+                            if evidence.get("source_tool") is not None
+                            else None
+                        ),
                         summary=str(evidence["summary"]),
                         payload=evidence.get("payload"),
                         confidence=float(evidence.get("confidence", 0.0)),
+                        status=str(evidence.get("status", "active")),
+                        tags=[str(tag) for tag in evidence.get("tags", [])],
                         observed_at=(
                             str(evidence["observed_at"])
                             if evidence.get("observed_at") is not None

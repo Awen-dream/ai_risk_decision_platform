@@ -239,11 +239,18 @@ class CopilotAgent(Agent):
                 seen.add(key)
                 evidence_records.append(
                     EvidenceRecord(
+                        evidence_id=evidence.evidence_id,
+                        evidence_type=evidence.evidence_type,
                         source=f"{label.lower()}::{evidence.source}",
                         source_type=evidence.source_type,
+                        source_label=evidence.source_label,
+                        source_agent=child.agent_name,
+                        source_tool=evidence.source_tool,
                         summary=evidence.summary,
                         payload=evidence.payload,
                         confidence=evidence.confidence,
+                        status=evidence.status,
+                        tags=list(evidence.tags),
                         observed_at=evidence.observed_at,
                     )
                 )

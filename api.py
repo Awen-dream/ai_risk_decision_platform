@@ -69,11 +69,18 @@ class ToolTracePayload(BaseModel):
 
 
 class EvidencePayload(BaseModel):
+    evidence_id: str
+    evidence_type: str
     source: str
     source_type: str
+    source_label: str
+    source_agent: Optional[str] = None
+    source_tool: Optional[str] = None
     summary: str
     payload: Any
     confidence: float
+    status: str = "active"
+    tags: List[str] = Field(default_factory=list)
     observed_at: Optional[str] = None
 
 
@@ -1134,11 +1141,18 @@ def _to_session_response(session) -> SessionResponse:
 
 def _to_evidence_payload(evidence: EvidenceRecord) -> EvidencePayload:
     return EvidencePayload(
+        evidence_id=evidence.evidence_id,
+        evidence_type=evidence.evidence_type,
         source=evidence.source,
         source_type=evidence.source_type,
+        source_label=evidence.source_label,
+        source_agent=evidence.source_agent,
+        source_tool=evidence.source_tool,
         summary=evidence.summary,
         payload=evidence.payload,
         confidence=evidence.confidence,
+        status=evidence.status,
+        tags=list(evidence.tags),
         observed_at=evidence.observed_at,
     )
 

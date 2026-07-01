@@ -128,6 +128,9 @@ class SessionStoreTests(unittest.TestCase):
             self.assertEqual(session.turns[0].artifacts["strategy_recommendation"]["strategy_id"], "STRAT-001")
             self.assertIn("shadow evaluation", session.turns[0].suggested_actions[0])
             self.assertTrue(any(evidence.source == "rule_explain" for evidence in session.turns[0].evidence))
+            self.assertTrue(all(evidence.evidence_id for evidence in session.turns[0].evidence))
+            self.assertTrue(any(evidence.evidence_type == "tool_result" for evidence in session.turns[0].evidence))
+            self.assertTrue(any(evidence.source_agent == "strategy" for evidence in session.turns[0].evidence))
 
     def test_sqlite_session_store_persists_across_runtime_rebuilds(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

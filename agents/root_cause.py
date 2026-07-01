@@ -228,12 +228,13 @@ class RootCauseAgent(Agent):
         for name, trace in traces.items():
             if trace.status != "success":
                 continue
-            response.record_evidence(
-                source=name,
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name=name,
                 summary=trace.summary,
                 payload=trace.payload,
                 confidence=confidence_by_tool.get(name, 0.7),
+                source_label=name,
+                tags=["root_cause", name],
             )
 
     @staticmethod

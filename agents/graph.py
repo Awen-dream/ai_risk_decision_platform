@@ -83,12 +83,13 @@ class GraphAgent(Agent):
         )
 
         if relation:
-            response.record_evidence(
-                source="graph_relation",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="graph_relation",
                 summary=f"实体 {entity_id} 的关系网络风险等级为 {relation['risk_level']}。",
                 payload=relation,
                 confidence=0.8,
+                source_label="关系图谱",
+                tags=["graph", entity_id, relation["risk_level"]],
             )
             response.summary = (
                 f"实体 {entity_id} 当前处于 {relation['community_size']} 个节点的关系网络中，"

@@ -272,36 +272,40 @@ class StrategyAgent(Agent):
             Citation.from_document(doc, snippet_length=180) for doc in docs
         )
         if profile:
-            response.record_evidence(
-                source="strategy_profile",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="strategy_profile",
                 summary=f"策略 {strategy_id} 当前阈值 {profile['current_threshold']:.2f}。",
                 payload=profile,
                 confidence=0.77,
+                source_label="策略画像",
+                tags=["strategy", strategy_id, "profile"],
             )
         if simulation:
-            response.record_evidence(
-                source="strategy_simulation",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="strategy_simulation",
                 summary=f"仿真建议阈值调整到 {simulation['recommended_threshold']:.2f}。",
                 payload=simulation,
                 confidence=0.79,
+                source_label="策略仿真",
+                tags=["strategy", strategy_id, "simulation"],
             )
         if rule_explanation:
-            response.record_evidence(
-                source="rule_explain",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="rule_explain",
                 summary=rule_explanation["explanation"],
                 payload=rule_explanation,
                 confidence=0.75,
+                source_label="规则解释",
+                tags=["strategy", strategy_id, "rule"],
             )
         if graph_relation:
-            response.record_evidence(
-                source="graph_relation",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="graph_relation",
                 summary=f"重点实体图谱风险等级为 {graph_relation['risk_level']}。",
                 payload=graph_relation,
                 confidence=0.73,
+                source_label="关系图谱",
+                tags=["strategy", strategy_id, "graph"],
             )
 
         if profile and simulation:

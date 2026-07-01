@@ -350,28 +350,31 @@ class InvestigationAgent(Agent):
         self._attach_retrieval_citations(response, " ".join(search_terms), snippet_length=160, top_k=2)
 
         if order:
-            response.record_evidence(
-                source="order_profile",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="order_profile",
                 summary=f"订单 {order_id} 命中 {len(order['triggered_rules'])} 条规则。",
                 payload=order,
                 confidence=0.78,
+                source_label="订单画像",
+                tags=["order", order_id, "profile"],
             )
         if graph_relation:
-            response.record_evidence(
-                source="graph_relation",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="graph_relation",
                 summary=f"订单 {order_id} 关联网络风险等级为 {graph_relation['risk_level']}。",
                 payload=graph_relation,
                 confidence=0.74,
+                source_label="关系图谱",
+                tags=["order", order_id, "graph"],
             )
         if rule_explanation:
-            response.record_evidence(
-                source="rule_explain",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="rule_explain",
                 summary=rule_explanation["explanation"],
                 payload=rule_explanation,
                 confidence=0.8,
+                source_label="规则解释",
+                tags=["order", order_id, "rule"],
             )
 
         if order is None:
@@ -473,28 +476,31 @@ class InvestigationAgent(Agent):
 
         self._attach_retrieval_citations(response, request.query, snippet_length=180, top_k=2)
         if metric:
-            response.record_evidence(
-                source="metric_snapshot",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="metric_snapshot",
                 summary=f"{metric['metric_name']} 当前值 {metric['current_value']}，基线 {metric['baseline_value']}。",
                 payload=metric,
                 confidence=0.76,
+                source_label="指标快照",
+                tags=["metric", country, channel, metric["metric_name"]],
             )
         if dashboard:
-            response.record_evidence(
-                source="dashboard_snapshot",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="dashboard_snapshot",
                 summary=f"Dashboard 显示最大波动分层为 {dashboard['largest_segment']}。",
                 payload=dashboard,
                 confidence=0.72,
+                source_label="Dashboard 快照",
+                tags=["dashboard", country, channel],
             )
         if sql_result:
-            response.record_evidence(
-                source="sql_query",
-                source_type="tool",
+            response.record_tool_evidence(
+                tool_name="sql_query",
                 summary=f"SQL 分层返回 {sql_result['row_count']} 行，支持进一步下钻。",
                 payload=sql_result,
                 confidence=0.74,
+                source_label="SQL 下钻",
+                tags=["sql", country, channel, str(sql_result.get('query_name', 'metric_breakdown'))],
             )
 
         response.findings = [f"时间窗口：{time_range}"]

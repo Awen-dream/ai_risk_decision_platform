@@ -142,11 +142,18 @@ def build_session_turn_view(turn: SessionTurn) -> SessionTurnView:
         confidence=turn.confidence,
         evidence=[
             EvidenceRecord(
+                evidence_id=evidence.evidence_id,
+                evidence_type=evidence.evidence_type,
                 source=evidence.source,
                 source_type=evidence.source_type,
+                source_label=evidence.source_label,
+                source_agent=evidence.source_agent,
+                source_tool=evidence.source_tool,
                 summary=evidence.summary,
                 payload=evidence.payload,
                 confidence=evidence.confidence,
+                status=evidence.status,
+                tags=list(evidence.tags),
                 observed_at=evidence.observed_at,
             )
             for evidence in turn.evidence

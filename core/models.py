@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass
@@ -116,11 +118,18 @@ class ToolTrace:
 
 @dataclass
 class EvidenceRecord:
+    evidence_id: str
+    evidence_type: str
     source: str
     source_type: str
+    source_label: str
     summary: str
     payload: Any
+    source_agent: str | None = None
+    source_tool: str | None = None
     confidence: float = 0.0
+    status: str = "active"
+    tags: list[str] = field(default_factory=list)
     observed_at: str | None = None
 
 
@@ -228,23 +237,85 @@ class AgentResponse:
     def record_evidence(
         self,
         *,
+        evidence_type: str,
         source: str,
         source_type: str,
+        source_label: str | None = None,
+        source_agent: str | None = None,
+        source_tool: str | None = None,
         summary: str,
         payload: Any,
         confidence: float = 0.0,
+        status: str = "active",
+        tags: list[str] | None = None,
         observed_at: str | None = None,
     ) -> EvidenceRecord:
         evidence = EvidenceRecord(
+            evidence_id=str(uuid4()),
+            evidence_type=evidence_type,
             source=source,
             source_type=source_type,
+            source_label=source_label or source,
+            source_agent=source_agent or self.agent_name,
+            source_tool=source_tool,
             summary=summary,
             payload=payload,
             confidence=confidence,
-            observed_at=observed_at,
+            status=status,
+            tags=list(tags or []),
+            observed_at=observed_at or datetime.now(timezone.utc).isoformat(),
         )
         self.evidence.append(evidence)
         return evidence
+
+    def record_tool_evidence(
+        self,
+        *,
+        tool_name: str,
+        summary: str,
+        payload: Any,
+        confidence: float = 0.0,
+        evidence_type: str = "tool_result",
+        source_label: str | None = None,
+        tags: list[str] | None = None,
+        observed_at: str | None = None,
+    ) -> EvidenceRecord:
+        return self.record_evidence(
+            evidence_type=evidence_type,
+            source=tool_name,
+            source_type="tool",
+            source_label=source_label or tool_name,
+            source_tool=tool_name,
+            summary=summary,
+            payload=payload,
+            confidence=confidence,
+            tags=tags,
+            observed_at=observed_at,
+        )
+
+    def record_knowledge_evidence(
+        self,
+        *,
+        source: str,
+        source_type: str,
+        source_label: str,
+        summary: str,
+        payload: Any,
+        confidence: float = 0.0,
+        tags: list[str] | None = None,
+        observed_at: str | None = None,
+    ) -> EvidenceRecord:
+        return self.record_evidence(
+            evidence_type="knowledge",
+            source=source,
+            source_type=source_type,
+            source_label=source_label,
+            summary=summary,
+            payload=payload,
+            confidence=confidence,
+            tags=tags,
+            observed_at=observed_at,
+        )
 
 
 @dataclass
