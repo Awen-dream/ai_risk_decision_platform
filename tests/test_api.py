@@ -1321,6 +1321,115 @@ class AgentApiTests(unittest.TestCase):
             any(item["action_key"] == "start_review" for item in noted_payload["available_actions"])
         )
 
+    def test_case_workbench_actions_endpoint_transitions_case_lifecycle(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {
+                    "order_id": "O10001",
+                    "strategy_id": "STRAT-001",
+                    "entity_id": "U10001",
+                },
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        started = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/actions",
+            json={
+                "action_key": "start_review",
+                "assigned_to": "risk-reviewer-11",
+            },
+        )
+        closed = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/actions",
+            json={
+                "action_key": "close_case",
+                "note": "策略风险确认，案件关闭",
+                "assigned_to": "risk-reviewer-11",
+                "action_outcome": "rejected_after_review",
+            },
+        )
+        reopened = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/actions",
+            json={
+                "action_key": "reopen_case",
+                "note": "收到申诉重新复核",
+            },
+        )
+
+        started_payload = started.json()
+        closed_payload = closed.json()
+        reopened_payload = reopened.json()
+        self.assertEqual(started.status_code, 200)
+        self.assertEqual(started_payload["case"]["status"], "in_review")
+        self.assertEqual(
+            started_payload["case"]["risk_decision"]["action_plan"]["status"],
+            "in_progress",
+        )
+        self.assertEqual(
+            started_payload["case"]["risk_decision"]["action_plan"]["assigned_to"],
+            "risk-reviewer-11",
+        )
+        self.assertEqual(closed.status_code, 200)
+        self.assertEqual(closed_payload["case"]["status"], "closed")
+        self.assertEqual(
+            closed_payload["case"]["risk_decision"]["action_plan"]["status"],
+            "completed",
+        )
+        self.assertEqual(
+            closed_payload["case"]["risk_decision"]["action_plan"]["outcome"],
+            "rejected_after_review",
+        )
+        self.assertEqual(closed_payload["recent_history"][-1]["summary"], "策略风险确认，案件关闭")
+        self.assertEqual(reopened.status_code, 200)
+        self.assertEqual(reopened_payload["case"]["status"], "in_review")
+        self.assertEqual(
+            reopened_payload["case"]["risk_decision"]["action_plan"]["status"],
+            "in_progress",
+        )
+        self.assertTrue(
+            any(item["action_key"] == "close_case" for item in reopened_payload["available_actions"])
+        )
+
+    def test_case_workbench_actions_endpoint_supports_request_more_evidence(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 MISSING 是否属于团伙网络",
+                "context": {"user_id": "MISSING"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        detail = client.get(f"/analyst-workbench/cases/{created_case['case_id']}")
+        action = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/actions",
+            json={
+                "action_key": "request_more_evidence",
+                "note": "已通知补充设备与账号关联证据",
+            },
+        )
+
+        detail_payload = detail.json()
+        action_payload = action.json()
+        self.assertEqual(detail.status_code, 200)
+        self.assertGreater(detail_payload["evidence_summary"]["evidence_gap_count"], 0)
+        self.assertTrue(
+            any(item["action_key"] == "request_more_evidence" for item in detail_payload["available_actions"])
+        )
+        self.assertEqual(action.status_code, 200)
+        self.assertEqual(action_payload["case"]["status"], created_case["status"])
+        self.assertEqual(action_payload["recent_history"][-1]["event_type"], "note_added")
+        self.assertEqual(action_payload["recent_history"][-1]["summary"], "已通知补充设备与账号关联证据")
+
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             policy_path = Path(tmp_dir) / "risk-decision-policy.json"

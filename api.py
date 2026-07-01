@@ -501,6 +501,13 @@ class WorkbenchCaseAssignRequest(BaseModel):
     note: Optional[str] = None
 
 
+class WorkbenchCaseActionRequest(BaseModel):
+    action_key: str = Field(..., min_length=1)
+    note: Optional[str] = None
+    assigned_to: Optional[str] = None
+    action_outcome: Optional[str] = None
+
+
 def create_app(config: Optional[AppConfig] = None) -> FastAPI:
     container = build_app_container(config)
     runtime = container.runtime
@@ -923,6 +930,41 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             case_status=case.status,
         )
         return _build_case_workbench_payload(case)
+
+    @fastapi_app.post(
+        "/analyst-workbench/cases/{case_id}/actions",
+        response_model=CaseWorkbenchPayload,
+    )
+    def execute_case_workbench_action(
+        case_id: str,
+        payload: WorkbenchCaseActionRequest,
+    ) -> CaseWorkbenchPayload:
+        case = container.case_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        supported_actions = {
+            action.action_key: action
+            for action in _build_case_workbench_actions(case)
+        }
+        if payload.action_key not in supported_actions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported workbench action: {payload.action_key}",
+            )
+        updated_case = _execute_case_workbench_action(
+            container.case_service,
+            case,
+            payload,
+        )
+        if updated_case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        emit_event(
+            "case_workbench_action_executed",
+            case_id=updated_case.case_id,
+            action_key=payload.action_key,
+            case_status=updated_case.status,
+        )
+        return _build_case_workbench_payload(updated_case)
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1717,13 +1759,24 @@ def _build_case_workbench_actions(case: WorkflowCase) -> list[WorkbenchActionPay
         )
     ]
     action_plan = _case_action_plan(case)
-    if action_plan is not None and not action_plan.assigned_to:
+    if action_plan is not None:
         actions.append(
             WorkbenchActionPayload(
                 action_key="assign_owner",
-                label="分派负责人",
+                label="分派负责人" if not action_plan.assigned_to else "重新分派",
                 description=f"将案件分派给 {action_plan.owner_role} 角色处理。",
                 action_type="assign",
+                recommended=not action_plan.assigned_to,
+            )
+        )
+    evidence_gap_count = case.evidence_panel.get("summary", {}).get("evidence_gap_count", 0)
+    if evidence_gap_count and case.status != "closed":
+        actions.append(
+            WorkbenchActionPayload(
+                action_key="request_more_evidence",
+                label="补充证据",
+                description="发起补证跟进，推动补齐缺失调查信息。",
+                action_type="follow_up",
                 recommended=True,
             )
         )
@@ -1759,6 +1812,56 @@ def _build_case_workbench_actions(case: WorkflowCase) -> list[WorkbenchActionPay
             )
         )
     return actions
+
+
+def _execute_case_workbench_action(
+    case_service,
+    case: WorkflowCase,
+    payload: WorkbenchCaseActionRequest,
+) -> WorkflowCase | None:
+    if payload.action_key == "add_note":
+        note = payload.note or "已添加运营备注。"
+        return case_service.append_case_note(
+            case.case_id,
+            note,
+            assigned_to=payload.assigned_to,
+        )
+    if payload.action_key == "assign_owner":
+        if not payload.assigned_to:
+            raise HTTPException(status_code=400, detail="assigned_to is required")
+        return case_service.append_case_note(
+            case.case_id,
+            payload.note or f"案件已分派给 {payload.assigned_to}。",
+            assigned_to=payload.assigned_to,
+        )
+    if payload.action_key == "request_more_evidence":
+        return case_service.append_case_note(
+            case.case_id,
+            payload.note or "已发起补证请求，等待补充调查信息。",
+            assigned_to=payload.assigned_to,
+        )
+    target_status = {
+        "start_review": "in_review",
+        "close_case": "closed",
+        "reopen_case": "in_review",
+    }.get(payload.action_key)
+    if target_status is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported workbench action: {payload.action_key}",
+        )
+    default_note = {
+        "start_review": "案件已进入人工复核。",
+        "close_case": "案件已关闭。",
+        "reopen_case": "案件已重新打开并进入人工复核。",
+    }[payload.action_key]
+    return case_service.update_case_status(
+        case.case_id,
+        target_status,
+        note=payload.note or default_note,
+        assigned_to=payload.assigned_to,
+        action_outcome=payload.action_outcome,
+    )
 
 
 def _select_action_queue_cases(
