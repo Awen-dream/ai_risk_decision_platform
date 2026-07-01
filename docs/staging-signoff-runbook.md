@@ -81,6 +81,7 @@ quality metrics to pass:
 - `evidence_gap_accuracy == 1.0`
 - `global_planning_coverage_rate == 1.0`
 - `root_cause_quality_rate == 1.0`
+- `root_cause_handoff_rate == 1.0`
 
 For V3 copilot cases, `global_planning_coverage_rate` requires
 `global_plan_quality.version == "v3d"` and `overall_score >= 0.75`, so the
@@ -93,7 +94,8 @@ root-cause hypotheses from metric, dashboard, SQL, and rule evidence and produce
 When a root-cause session is promoted to a workflow case, V4e maps that
 readiness result into `risk_decision`: ready cases enter `strategy_shadow_queue`,
 review cases enter `root_cause_review_queue`, and blocked cases enter
-`risk_investigation_queue`.
+`risk_investigation_queue`. V4f makes that promotion auditable in planner eval
+and signoff evidence through `root_cause_handoff_rate`.
 
 To compare planner quality against a previous CI report, set:
 

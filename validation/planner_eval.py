@@ -9,6 +9,7 @@ from typing import Any
 
 from app import build_demo_runtime
 from core.models import AgentRequest, AgentResponse
+from services.case_service import InMemoryCaseService
 
 
 QUALITY_METRICS = (
@@ -20,6 +21,7 @@ QUALITY_METRICS = (
     "evidence_gap_accuracy",
     "global_planning_coverage_rate",
     "root_cause_quality_rate",
+    "root_cause_handoff_rate",
     "no_fallback_rate",
     "no_validation_error_rate",
 )
@@ -50,6 +52,7 @@ class PlannerEvalThresholds:
     min_evidence_gap_accuracy: float = 1.0
     min_global_planning_coverage_rate: float = 1.0
     min_root_cause_quality_rate: float = 1.0
+    min_root_cause_handoff_rate: float = 1.0
     min_no_fallback_rate: float = 1.0
     min_no_validation_error_rate: float = 1.0
 
@@ -67,6 +70,7 @@ class PlannerEvalCaseResult:
     evidence_gap_matched: bool
     global_planning_matched: bool
     root_cause_quality_matched: bool
+    root_cause_handoff_matched: bool
     fallback_used: bool
     validation_error_count: int
     expected_intent: str | None
@@ -257,7 +261,7 @@ def load_eval_cases(path: Path) -> list[PlannerEvalCase]:
 
 
 def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
-    _, response = runtime.execute(
+    session_id, response = runtime.execute(
         case.agent_name,
         AgentRequest(query=case.query, context=dict(case.context)),
     )
@@ -313,6 +317,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         else _has_global_planning_artifacts(response)
     )
     root_cause_quality_matched = _has_root_cause_quality_artifact(response)
+    root_cause_handoff_matched = _has_root_cause_handoff(runtime, session_id, response)
     status = (
         "passed"
         if (
@@ -324,6 +329,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
             and evidence_gap_matched
             and global_planning_matched
             and root_cause_quality_matched
+            and root_cause_handoff_matched
             and not fallback_used
             and validation_error_count == 0
         )
@@ -341,6 +347,7 @@ def _run_case(runtime, case: PlannerEvalCase) -> PlannerEvalCaseResult:
         evidence_gap_matched=evidence_gap_matched,
         global_planning_matched=global_planning_matched,
         root_cause_quality_matched=root_cause_quality_matched,
+        root_cause_handoff_matched=root_cause_handoff_matched,
         fallback_used=fallback_used,
         validation_error_count=validation_error_count,
         expected_intent=case.expected_intent,
@@ -415,6 +422,36 @@ def _has_root_cause_quality_artifact(response: AgentResponse) -> bool:
     )
 
 
+def _has_root_cause_handoff(runtime, session_id: str, response: AgentResponse) -> bool:
+    root_cause_analysis = response.artifacts.get("root_cause_analysis")
+    if not isinstance(root_cause_analysis, dict):
+        return True
+    readiness = response.artifacts.get("root_cause_readiness")
+    if not isinstance(readiness, dict) or readiness.get("version") != "v4d":
+        return False
+    session = runtime.get_session(session_id)
+    if session is None:
+        return False
+    case = InMemoryCaseService().create_case_from_session(session)
+    if case.risk_decision is None or case.risk_decision.action_plan is None:
+        return False
+    allowed_by_status = {
+        "ready_for_handoff": ("root_cause_handoff", "strategy_shadow_queue"),
+        "requires_review": ("root_cause_review", "root_cause_review_queue"),
+        "blocked": ("root_cause_blocked", "risk_investigation_queue"),
+    }
+    expected = allowed_by_status.get(str(readiness.get("status") or ""))
+    if expected is None:
+        return False
+    expected_decision, expected_queue = expected
+    return (
+        case.risk_decision.decision == expected_decision
+        and case.risk_decision.action_plan.queue == expected_queue
+        and case.risk_decision.action_plan.status in {"queued", "in_progress"}
+        and case.risk_decision.action_plan.due_at is not None
+    )
+
+
 def _planner_artifact(response: AgentResponse) -> dict[str, Any] | None:
     for artifact_name in (
         "planner",
@@ -472,6 +509,10 @@ def _summarize_results(results: list[PlannerEvalCaseResult]) -> dict[str, Any]:
         ),
         "root_cause_quality_rate": _ratio(
             sum(result.root_cause_quality_matched for result in results),
+            total,
+        ),
+        "root_cause_handoff_rate": _ratio(
+            sum(result.root_cause_handoff_matched for result in results),
             total,
         ),
         "no_fallback_rate": _ratio(
@@ -658,6 +699,7 @@ def _threshold_failures(
         "evidence_gap_accuracy": thresholds.min_evidence_gap_accuracy,
         "global_planning_coverage_rate": thresholds.min_global_planning_coverage_rate,
         "root_cause_quality_rate": thresholds.min_root_cause_quality_rate,
+        "root_cause_handoff_rate": thresholds.min_root_cause_handoff_rate,
         "no_fallback_rate": thresholds.min_no_fallback_rate,
         "no_validation_error_rate": thresholds.min_no_validation_error_rate,
     }
@@ -698,6 +740,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-evidence-gap-accuracy", type=float, default=1.0)
     parser.add_argument("--min-global-planning-coverage-rate", type=float, default=1.0)
     parser.add_argument("--min-root-cause-quality-rate", type=float, default=1.0)
+    parser.add_argument("--min-root-cause-handoff-rate", type=float, default=1.0)
     parser.add_argument("--min-no-fallback-rate", type=float, default=1.0)
     parser.add_argument("--min-no-validation-error-rate", type=float, default=1.0)
     parser.add_argument("--baseline-file", help="Optional previous planner eval report.")
@@ -720,6 +763,7 @@ def main(argv: list[str] | None = None) -> int:
         min_evidence_gap_accuracy=args.min_evidence_gap_accuracy,
         min_global_planning_coverage_rate=args.min_global_planning_coverage_rate,
         min_root_cause_quality_rate=args.min_root_cause_quality_rate,
+        min_root_cause_handoff_rate=args.min_root_cause_handoff_rate,
         min_no_fallback_rate=args.min_no_fallback_rate,
         min_no_validation_error_rate=args.min_no_validation_error_rate,
     )

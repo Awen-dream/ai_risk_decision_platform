@@ -104,7 +104,7 @@ class SignoffEvidenceTests(unittest.TestCase):
         self.assertEqual(rejected["status"], "failed")
         self.assertIn("planner eval", _failed_details(rejected))
         self.assertEqual(accepted["status"], "passed")
-        self.assertIn("V4 root-cause gates", _passed_details(accepted))
+        self.assertIn("V4 root-cause quality/handoff gates", _passed_details(accepted))
 
     def test_planner_eval_evidence_rejects_v2_metric_regression(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -284,6 +284,7 @@ def _planner_eval_report() -> dict[str, object]:
             "evidence_gap_accuracy": 1.0,
             "global_planning_coverage_rate": 1.0,
             "root_cause_quality_rate": 1.0,
+            "root_cause_handoff_rate": 1.0,
         },
         "threshold_failures": [],
     }

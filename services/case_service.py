@@ -876,9 +876,12 @@ def _build_case_from_session(
         raise IndexError("Turn index out of range")
     turn = session.turns[resolved_turn_index - 1]
     recommendation = _extract_strategy_recommendation(turn.artifacts)
-    risk_decision = _extract_risk_decision(
-        turn.artifacts
-    ) or _build_root_cause_risk_decision(turn.artifacts)
+    risk_decision = _extract_risk_decision(turn.artifacts)
+    root_cause_decision = _build_root_cause_risk_decision(turn.artifacts)
+    if root_cause_decision is not None and (
+        risk_decision is None or risk_decision.recommended_action == "monitor"
+    ):
+        risk_decision = root_cause_decision
     status = _initial_status(
         turn.agent_name,
         turn.intent,

@@ -26,6 +26,7 @@ PLANNER_EVAL_REQUIRED_METRICS = (
     "evidence_gap_accuracy",
     "global_planning_coverage_rate",
     "root_cause_quality_rate",
+    "root_cause_handoff_rate",
 )
 MINIMUM_CHECK_TOTALS = {
     "signoff_preflight": 4,
@@ -277,7 +278,7 @@ def _validate_planner_eval_requirement(
     total = summary.get("total")
     if not isinstance(total, int) or total < 9:
         raise AssertionError(f"planner eval golden-set coverage is too small: total={total}")
-    return "planner eval evidence is passed with V2 intermediate-state, V3 global-planning, and V4 root-cause gates"
+    return "planner eval evidence is passed with V2 intermediate-state, V3 global-planning, and V4 root-cause quality/handoff gates"
 
 
 def _validate_manifest(

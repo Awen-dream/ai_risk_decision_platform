@@ -94,6 +94,9 @@ The report includes:
   `overall_score >= 0.75` and V4d `root_cause_readiness`.
   V4e reuses that readiness artifact when creating workflow cases, mapping
   ready/review/blocked outcomes into auditable action queues.
+- `root_cause_handoff_rate`: share of cases that either do not require
+  root-cause handoff or can promote V4 root-cause readiness into a workflow
+  case `risk_decision` and action-plan queue.
 - `no_fallback_rate`: share of cases that did not use rule fallback.
 - `no_validation_error_rate`: share of cases with no candidate-plan repair.
 - `by_agent`: the same quality summary grouped by agent.
