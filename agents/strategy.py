@@ -24,6 +24,7 @@ from core.models import (
 )
 from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
+from services.evidence import build_evidence_panel
 from tools.registry import ToolRegistry
 
 
@@ -410,6 +411,7 @@ class StrategyAgent(Agent):
             response.confidence = 0.52
         else:
             response.confidence = 0.2
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response
 
     @staticmethod

@@ -74,6 +74,11 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertTrue(response.summary)
         self.assertGreaterEqual(len(response.citations), 1)
         self.assertIn("营销套利", response.summary)
+        self.assertEqual(response.artifacts["evidence_panel"]["version"], "v1")
+        self.assertEqual(
+            response.artifacts["evidence_panel"]["summary"]["evidence_by_type"]["knowledge"],
+            len(response.evidence),
+        )
 
     def test_metric_investigation_returns_expected_findings(self) -> None:
         _, response = self.runtime.execute(
@@ -142,6 +147,10 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(readiness["version"], "v4d")
         self.assertEqual(readiness["status"], "ready_for_handoff")
         self.assertIn("start_shadow_evaluation", readiness["allowed_actions"])
+        self.assertEqual(
+            response.artifacts["evidence_panel"]["summary"]["evidence_count"],
+            len(response.evidence),
+        )
         self.assertTrue(any(trace.name == "sql_query" for trace in response.tool_traces))
         self.assertTrue(any(evidence.source == "rule_explain" for evidence in response.evidence))
 
@@ -490,6 +499,12 @@ class AgentPlatformTests(unittest.TestCase):
         self.assertEqual(evidence_graph["version"], "v3a")
         self.assertGreater(evidence_graph["summary"]["evidence_count"], 0)
         self.assertTrue(any(node["id"] == "risk_decision" for node in evidence_graph["nodes"]))
+        self.assertEqual(response.artifacts["evidence_panel"]["scope"], "copilot")
+        self.assertIn("调查", response.artifacts["child_evidence_panels"])
+        self.assertGreater(
+            response.artifacts["child_evidence_panels"]["调查"]["summary"]["evidence_count"],
+            0,
+        )
         working_memory = response.artifacts["working_memory"]
         self.assertEqual(working_memory["scope"], "short_term")
         self.assertEqual(working_memory["entities"]["order_id"], "O10001")

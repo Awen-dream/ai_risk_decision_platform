@@ -16,6 +16,7 @@ from agents.investigation_planner import (
 from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
+from services.evidence import build_evidence_panel
 from tools.registry import ToolRegistry
 
 
@@ -404,6 +405,7 @@ class InvestigationAgent(Agent):
             if rule_trace is not None and rule_explanation is None:
                 response.suggested_actions.append(self._tool_status_action("规则解释", rule_trace, order_id))
             response.confidence = 0.36 if graph_relation else 0.22
+            response.artifacts["evidence_panel"] = build_evidence_panel(response)
             return response
 
         if graph_relation:
@@ -453,6 +455,7 @@ class InvestigationAgent(Agent):
         if rule_trace is not None and rule_explanation is None:
             response.suggested_actions.append(self._tool_status_action("规则解释", rule_trace, order_id))
         response.confidence = 0.83 if graph_relation else 0.7
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response
 
     def _build_metric_response(
@@ -579,6 +582,7 @@ class InvestigationAgent(Agent):
         elif cases:
             confidence = 0.3
         response.confidence = min(confidence, 0.83)
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response
 
     def _attach_retrieval_citations(

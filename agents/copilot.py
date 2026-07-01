@@ -19,6 +19,7 @@ from core.global_planning import (
     evaluate_global_plan_quality,
 )
 from core.models import AgentRequest, AgentResponse, Citation, EvidenceRecord, PlannerTraceStep, ToolTrace
+from services.evidence import build_child_evidence_panels, build_evidence_panel
 from services.risk_decision import RiskDecisionPolicy
 from services.memory import LongTermMemoryProvider
 
@@ -163,6 +164,8 @@ class CopilotAgent(Agent):
             working_memory=working_memory,
         )
         response.artifacts["execution_readiness"] = execution_readiness
+        response.artifacts["child_evidence_panels"] = build_child_evidence_panels(child_responses)
+        response.artifacts["evidence_panel"] = build_evidence_panel(response, scope="copilot")
         if execution_readiness["status"] != "ready":
             response.suggested_actions.append(execution_readiness["reasons"][0])
         return response

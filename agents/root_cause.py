@@ -7,6 +7,7 @@ from agents.base import Agent
 from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
+from services.evidence import build_evidence_panel
 from tools.registry import ToolRegistry
 
 
@@ -104,6 +105,7 @@ class RootCauseAgent(Agent):
             f"根因分析完成，Top1 根因为 {analysis['top_root_cause']['label']}，"
             f"置信度 {response.confidence:.2f}。"
         )
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response
 
     @staticmethod

@@ -3,6 +3,7 @@ from __future__ import annotations
 from agents.base import Agent
 from core.models import AgentRequest, AgentResponse, Citation
 from retrieval.knowledge_base import RetrievalService
+from services.evidence import build_evidence_panel
 
 
 class KnowledgeAgent(Agent):
@@ -44,4 +45,5 @@ class KnowledgeAgent(Agent):
             "如果需要案件化分析，可切换到 Investigation Agent 继续追问",
         ]
         response.confidence = min(0.95, 0.55 + len(docs) * 0.1)
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response

@@ -17,6 +17,7 @@ from agents.graph_planner import (
 from core.models import AgentRequest, AgentResponse, Citation, PlannerTraceStep, ToolTrace
 from core.planning import build_tool_using_state, evidence_gaps_from_traces
 from retrieval.knowledge_base import RetrievalService
+from services.evidence import build_evidence_panel
 from tools.registry import ToolRegistry
 
 
@@ -108,6 +109,7 @@ class GraphAgent(Agent):
                 "如果网络继续扩大，建议补充图谱规则或升级人工审核",
             ]
             response.confidence = 0.8
+            response.artifacts["evidence_panel"] = build_evidence_panel(response)
             return response
 
         response.summary = (
@@ -120,6 +122,7 @@ class GraphAgent(Agent):
             "如需继续分析，可先结合历史案件或订单画像补充上下文",
         ]
         response.confidence = 0.18
+        response.artifacts["evidence_panel"] = build_evidence_panel(response)
         return response
 
     def _validated_plan(self, request: AgentRequest) -> ValidatedGraphPlan:
