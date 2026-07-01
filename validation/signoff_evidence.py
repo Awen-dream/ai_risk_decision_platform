@@ -32,7 +32,7 @@ MINIMUM_CHECK_TOTALS = {
     "signoff_preflight": 4,
     "postgres_smoke": 4,
     "readiness": 7,
-    "staging_validation": 17,
+    "staging_validation": 18,
 }
 CENTRAL_AUDIT_CHECK = "central_audit.mirrored_events"
 RELEASE_METADATA_FIELDS = ("environment", "release_id", "change_id", "owner", "approver")

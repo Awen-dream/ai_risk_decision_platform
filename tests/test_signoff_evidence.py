@@ -169,7 +169,7 @@ def _write_signoff_reports(
     postgres_summary = _summary(total=0 if postgres_status == "skipped" else 4, status=postgres_status)
     preflight = _report(total=4)
     readiness = _report(total=7)
-    staging_checks = [_check(f"staging.check.{index}") for index in range(17)]
+    staging_checks = [_check(f"staging.check.{index}") for index in range(18)]
     if include_central_audit_check:
         staging_checks.append(_check("central_audit.mirrored_events"))
     staging = _report(total=len(staging_checks), checks=staging_checks)

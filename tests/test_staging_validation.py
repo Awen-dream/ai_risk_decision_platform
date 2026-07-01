@@ -12,6 +12,7 @@ from validation.staging import (
     _central_recovery_audit_evidence_check,
     _validate_central_audit_events,
     _validate_fields,
+    _validate_root_cause_handoff,
     _validate_runtime,
     _validate_upstream_audit,
     _validate_upstream_audit_integrity,
@@ -27,6 +28,19 @@ class StubAgentClient:
 
     def get(self, path: str) -> Any:
         return self.response
+
+
+class SequencedAgentClient:
+    def __init__(self, responses: dict[str, Any]) -> None:
+        self.responses = responses
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post(self, path: str, payload: dict[str, object]) -> Any:
+        self.requests.append((path, payload))
+        return self.responses[path]
+
+    def get(self, path: str) -> Any:
+        return self.responses[path]
 
 
 class StagingValidationTests(unittest.TestCase):
@@ -111,6 +125,78 @@ class StagingValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(AssertionError, "missing orchestrated tool traces"):
             _validate_copilot(client, {"order_id": "O10001"})
+
+    def test_root_cause_handoff_contract_validates_case_queue(self) -> None:
+        client = SequencedAgentClient(
+            {
+                "/sessions": {"session_id": "session-1"},
+                "/agents/root_cause": {
+                    "agent_name": "root_cause",
+                    "intent": "root_cause_analysis",
+                    "artifacts": {
+                        "root_cause_analysis": {"version": "v4a"},
+                        "root_cause_quality": {"version": "v4c"},
+                        "root_cause_readiness": {
+                            "version": "v4d",
+                            "status": "ready_for_handoff",
+                        },
+                    },
+                },
+                "/cases/from-session/session-1": {
+                    "risk_decision": {
+                        "decision": "root_cause_handoff",
+                        "recommended_action": "start_shadow_evaluation",
+                        "action_plan": {
+                            "queue": "strategy_shadow_queue",
+                            "status": "queued",
+                            "due_at": "2026-07-01T00:00:00Z",
+                        },
+                    },
+                },
+            }
+        )
+
+        detail = _validate_root_cause_handoff(client)
+
+        self.assertIn("strategy_shadow_queue", detail)
+        self.assertEqual(client.requests[0], ("/sessions", {}))
+        self.assertEqual(
+            client.requests[1][1]["session_id"],
+            "session-1",
+        )
+
+    def test_root_cause_handoff_contract_rejects_wrong_queue(self) -> None:
+        client = SequencedAgentClient(
+            {
+                "/sessions": {"session_id": "session-1"},
+                "/agents/root_cause": {
+                    "agent_name": "root_cause",
+                    "intent": "root_cause_analysis",
+                    "artifacts": {
+                        "root_cause_analysis": {"version": "v4a"},
+                        "root_cause_quality": {"version": "v4c"},
+                        "root_cause_readiness": {
+                            "version": "v4d",
+                            "status": "ready_for_handoff",
+                        },
+                    },
+                },
+                "/cases/from-session/session-1": {
+                    "risk_decision": {
+                        "decision": "root_cause_handoff",
+                        "recommended_action": "start_shadow_evaluation",
+                        "action_plan": {
+                            "queue": "manual_review_queue",
+                            "status": "queued",
+                            "due_at": "2026-07-01T00:00:00Z",
+                        },
+                    },
+                },
+            }
+        )
+
+        with self.assertRaisesRegex(AssertionError, "unexpected root-cause queue"):
+            _validate_root_cause_handoff(client)
 
     def test_upstream_audit_contract_requires_redacted_records(self) -> None:
         client = StubAgentClient(

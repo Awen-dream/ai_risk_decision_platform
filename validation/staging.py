@@ -36,6 +36,7 @@ AGENT_QUERIES = {
     "investigation": "为什么巴西信用卡支付失败率突然升高？",
     "strategy": "请评估策略 STRAT-001 是否应该调整阈值",
     "graph": "请分析用户 U10001 是否属于团伙网络",
+    "root_cause": "请分析巴西信用卡支付失败率升高的根因并给出排序",
     "copilot": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
 }
 
@@ -329,6 +330,10 @@ def run_contract_validation(
         ),
     )
     runner.check(
+        "agent.root_cause_handoff",
+        lambda: _validate_root_cause_handoff(agent),
+    )
+    runner.check(
         "agent.copilot",
         lambda: _validate_copilot(
             agent,
@@ -515,6 +520,57 @@ def _validate_agent(
     if failed:
         raise AssertionError(f"expected successful tool traces, got {failed}")
     return f"{name} responded with expected tool traces"
+
+
+def _validate_root_cause_handoff(agent: JsonHttpClient) -> str:
+    session = agent.post("/sessions", {})
+    session_id = session.get("session_id")
+    if not session_id:
+        raise AssertionError(f"session creation did not return session_id: {session}")
+    response = agent.post(
+        "/agents/root_cause",
+        {
+            "query": AGENT_QUERIES["root_cause"],
+            "context": {"country": "BR", "channel": "credit_card"},
+            "session_id": session_id,
+        },
+    )
+    if response["agent_name"] != "root_cause":
+        raise AssertionError(f"expected agent root_cause, got {response['agent_name']}")
+    if response["intent"] != "root_cause_analysis":
+        raise AssertionError(f"expected root_cause_analysis intent, got {response['intent']}")
+    artifacts = response.get("artifacts", {})
+    analysis = artifacts.get("root_cause_analysis")
+    quality = artifacts.get("root_cause_quality")
+    readiness = artifacts.get("root_cause_readiness")
+    if not isinstance(analysis, dict) or analysis.get("version") != "v4a":
+        raise AssertionError("root-cause analysis artifact is missing or unsupported")
+    if not isinstance(quality, dict) or quality.get("version") != "v4c":
+        raise AssertionError("root-cause quality artifact is missing or unsupported")
+    if not isinstance(readiness, dict) or readiness.get("version") != "v4d":
+        raise AssertionError("root-cause readiness artifact is missing or unsupported")
+    if readiness.get("status") != "ready_for_handoff":
+        raise AssertionError(f"expected ready_for_handoff, got {readiness.get('status')}")
+    case = agent.post(f"/cases/from-session/{session_id}", {})
+    risk_decision = case.get("risk_decision")
+    if not isinstance(risk_decision, dict):
+        raise AssertionError("root-cause case did not include risk_decision")
+    action_plan = risk_decision.get("action_plan")
+    if not isinstance(action_plan, dict):
+        raise AssertionError("root-cause case did not include action_plan")
+    if risk_decision.get("decision") != "root_cause_handoff":
+        raise AssertionError(f"unexpected root-cause decision: {risk_decision.get('decision')}")
+    if risk_decision.get("recommended_action") != "start_shadow_evaluation":
+        raise AssertionError(
+            f"unexpected root-cause action: {risk_decision.get('recommended_action')}"
+        )
+    if action_plan.get("queue") != "strategy_shadow_queue":
+        raise AssertionError(f"unexpected root-cause queue: {action_plan.get('queue')}")
+    if action_plan.get("status") != "queued":
+        raise AssertionError(f"unexpected root-cause action status: {action_plan.get('status')}")
+    if not action_plan.get("due_at"):
+        raise AssertionError("root-cause action plan missing due_at")
+    return "root-cause readiness promoted to workflow case strategy_shadow_queue"
 
 
 def _validate_copilot(agent: JsonHttpClient, context: dict[str, Any]) -> str:

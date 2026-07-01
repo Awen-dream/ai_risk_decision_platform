@@ -27,9 +27,11 @@ python3 -m validation.staging \
 
 The suite validates:
 
-- Health and the six required risk-service endpoint schemas.
+- Health and the required risk-service endpoint schemas.
 - Exact Phase 1 capabilities, registered tools, and runtime readiness.
 - One functional request for every Phase 1 agent.
+- V4 root-cause readiness promotion through session, case creation,
+  `risk_decision`, and `strategy_shadow_queue` action-plan handoff.
 - Prometheus scrape availability.
 
 If staging uses PostgreSQL persistence, run the persistence smoke gate before
