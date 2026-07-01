@@ -1262,6 +1262,65 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(any("超 SLA" in item for item in payload["focus_areas"]))
         self.assertTrue(any("尚未分派" in item for item in payload["focus_areas"]))
 
+    def test_case_workbench_supports_assignment_and_notes_without_status_change(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/copilot",
+            json={
+                "query": "请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                "context": {
+                    "order_id": "O10001",
+                    "strategy_id": "STRAT-001",
+                    "entity_id": "U10001",
+                },
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        detail = client.get(f"/analyst-workbench/cases/{created_case['case_id']}")
+        assigned = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/assign",
+            json={
+                "assigned_to": "risk-reviewer-09",
+                "note": "升级给值班分析师",
+            },
+        )
+        noted = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/notes",
+            json={"note": "已同步业务方等待反馈"},
+        )
+
+        detail_payload = detail.json()
+        assigned_payload = assigned.json()
+        noted_payload = noted.json()
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail_payload["case"]["case_id"], created_case["case_id"])
+        self.assertGreater(detail_payload["case"]["evidence_panel"]["summary"]["evidence_count"], 0)
+        self.assertTrue(detail_payload["recommended_actions"])
+        self.assertTrue(
+            any(item["action_key"] == "assign_owner" for item in detail_payload["available_actions"])
+        )
+        self.assertEqual(assigned.status_code, 200)
+        self.assertEqual(
+            assigned_payload["case"]["risk_decision"]["action_plan"]["assigned_to"],
+            "risk-reviewer-09",
+        )
+        self.assertEqual(assigned_payload["case"]["status"], created_case["status"])
+        self.assertEqual(assigned_payload["recent_history"][-1]["event_type"], "note_added")
+        self.assertIn("risk-reviewer-09", assigned_payload["recent_history"][-1]["summary"])
+        self.assertEqual(noted.status_code, 200)
+        self.assertEqual(noted_payload["case"]["status"], created_case["status"])
+        self.assertEqual(
+            noted_payload["case"]["risk_decision"]["action_plan"]["assigned_to"],
+            "risk-reviewer-09",
+        )
+        self.assertEqual(noted_payload["recent_history"][-1]["summary"], "已同步业务方等待反馈")
+        self.assertTrue(
+            any(item["action_key"] == "start_review" for item in noted_payload["available_actions"])
+        )
+
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             policy_path = Path(tmp_dir) / "risk-decision-policy.json"

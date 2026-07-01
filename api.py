@@ -447,6 +447,27 @@ class AnalystWorkbenchPayload(BaseModel):
     focus_areas: List[str] = Field(default_factory=list)
 
 
+class WorkbenchActionPayload(BaseModel):
+    action_key: str
+    label: str
+    description: str
+    action_type: str
+    target_status: Optional[str] = None
+    recommended: bool = False
+
+
+class CaseWorkbenchPayload(BaseModel):
+    generated_at: str
+    case: WorkflowCasePayload
+    evidence_summary: Dict[str, Any] = Field(default_factory=dict)
+    evidence_gaps: List[EvidenceGapPayload] = Field(default_factory=list)
+    citations: List[CitationPayload] = Field(default_factory=list)
+    tool_traces: List[ToolTracePayload] = Field(default_factory=list)
+    recommended_actions: List[str] = Field(default_factory=list)
+    available_actions: List[WorkbenchActionPayload] = Field(default_factory=list)
+    recent_history: List[CaseHistoryPayload] = Field(default_factory=list)
+
+
 class ActionQueueAssignRequest(BaseModel):
     assigned_to: str = Field(..., min_length=1)
     case_ids: List[str] = Field(default_factory=list)
@@ -468,6 +489,16 @@ class CaseStatusUpdateRequest(BaseModel):
     note: Optional[str] = None
     assigned_to: Optional[str] = None
     action_outcome: Optional[str] = None
+
+
+class WorkbenchCaseNoteRequest(BaseModel):
+    note: str = Field(..., min_length=1)
+    assigned_to: Optional[str] = None
+
+
+class WorkbenchCaseAssignRequest(BaseModel):
+    assigned_to: str = Field(..., min_length=1)
+    note: Optional[str] = None
 
 
 def create_app(config: Optional[AppConfig] = None) -> FastAPI:
@@ -844,6 +875,54 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             recent_cases=[_to_case_payload(case) for case in recent_cases],
             focus_areas=_build_workbench_focus_areas(cases, action_queue_summaries),
         )
+
+    @fastapi_app.get("/analyst-workbench/cases/{case_id}", response_model=CaseWorkbenchPayload)
+    def get_case_workbench(case_id: str) -> CaseWorkbenchPayload:
+        case = container.case_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return _build_case_workbench_payload(case)
+
+    @fastapi_app.post(
+        "/analyst-workbench/cases/{case_id}/notes",
+        response_model=CaseWorkbenchPayload,
+    )
+    def append_case_workbench_note(
+        case_id: str,
+        payload: WorkbenchCaseNoteRequest,
+    ) -> CaseWorkbenchPayload:
+        case = container.case_service.append_case_note(
+            case_id,
+            payload.note,
+            assigned_to=payload.assigned_to,
+        )
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        emit_event("case_note_added", case_id=case.case_id, case_status=case.status)
+        return _build_case_workbench_payload(case)
+
+    @fastapi_app.post(
+        "/analyst-workbench/cases/{case_id}/assign",
+        response_model=CaseWorkbenchPayload,
+    )
+    def assign_case_workbench_owner(
+        case_id: str,
+        payload: WorkbenchCaseAssignRequest,
+    ) -> CaseWorkbenchPayload:
+        case = container.case_service.append_case_note(
+            case_id,
+            payload.note or f"案件已分派给 {payload.assigned_to}。",
+            assigned_to=payload.assigned_to,
+        )
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        emit_event(
+            "case_workbench_assigned",
+            case_id=case.case_id,
+            assigned_to=payload.assigned_to,
+            case_status=case.status,
+        )
+        return _build_case_workbench_payload(case)
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1397,6 +1476,60 @@ def _to_case_history_payload(entry: WorkflowCaseHistoryEntry) -> CaseHistoryPayl
     )
 
 
+def _build_case_workbench_payload(case: WorkflowCase) -> CaseWorkbenchPayload:
+    evidence_panel = case.evidence_panel or {}
+    return CaseWorkbenchPayload(
+        generated_at=_utc_now_iso(),
+        case=_to_case_payload(case),
+        evidence_summary=dict(evidence_panel.get("summary", {})),
+        evidence_gaps=[
+            _evidence_gap_payload_from_mapping(item)
+            for item in evidence_panel.get("gaps", [])
+            if isinstance(item, dict)
+        ],
+        citations=[
+            _citation_payload_from_mapping(item)
+            for item in evidence_panel.get("citations", [])
+            if isinstance(item, dict)
+        ],
+        tool_traces=[
+            _tool_trace_payload_from_mapping(item)
+            for item in evidence_panel.get("tool_traces", [])
+            if isinstance(item, dict)
+        ],
+        recommended_actions=_build_case_workbench_recommended_actions(case, evidence_panel),
+        available_actions=_build_case_workbench_actions(case),
+        recent_history=[_to_case_history_payload(item) for item in case.history[-5:]],
+    )
+
+
+def _evidence_gap_payload_from_mapping(item: dict[str, Any]) -> EvidenceGapPayload:
+    return EvidenceGapPayload(
+        gap=str(item.get("gap", "")),
+        source=str(item.get("source", "")),
+        severity=str(item.get("severity", "medium")),
+        next_action=str(item.get("next_action", "")),
+        blocking=bool(item.get("blocking", False)),
+    )
+
+
+def _citation_payload_from_mapping(item: dict[str, Any]) -> CitationPayload:
+    return CitationPayload(
+        doc_id=str(item.get("doc_id", "")),
+        title=str(item.get("title", "")),
+        source_type=str(item.get("source_type", "")),
+        snippet=str(item.get("snippet", "")),
+    )
+
+
+def _tool_trace_payload_from_mapping(item: dict[str, Any]) -> ToolTracePayload:
+    return ToolTracePayload(
+        name=str(item.get("name", "")),
+        status=str(item.get("status", "")),
+        summary=str(item.get("summary", "")),
+    )
+
+
 def _build_action_queue_summaries(
     cases: list[WorkflowCase],
 ) -> List[ActionQueueSummaryPayload]:
@@ -1545,6 +1678,87 @@ def _build_workbench_focus_areas(
             f"有 {evidence_gap_cases} 个案件存在证据缺口，建议补齐调查链路后再推进处置。"
         )
     return focus_areas or ["案件证据和处置状态正常，可按最近更新时间推进处理。"]
+
+
+def _build_case_workbench_recommended_actions(
+    case: WorkflowCase,
+    evidence_panel: dict[str, Any],
+) -> list[str]:
+    actions: list[str] = []
+    for item in case.suggested_actions:
+        if item and item not in actions:
+            actions.append(item)
+    action_plan = _case_action_plan(case)
+    if action_plan is not None:
+        for item in action_plan.next_actions:
+            if item and item not in actions:
+                actions.append(item)
+        if not action_plan.assigned_to:
+            assignment_hint = f"将案件分派给 {action_plan.owner_role}"
+            if assignment_hint not in actions:
+                actions.append(assignment_hint)
+    for gap in evidence_panel.get("gaps", []):
+        if not isinstance(gap, dict):
+            continue
+        next_action = str(gap.get("next_action", "")).strip()
+        if next_action and next_action not in actions:
+            actions.append(next_action)
+    return actions
+
+
+def _build_case_workbench_actions(case: WorkflowCase) -> list[WorkbenchActionPayload]:
+    actions: list[WorkbenchActionPayload] = [
+        WorkbenchActionPayload(
+            action_key="add_note",
+            label="添加备注",
+            description="记录运营跟进、沟通结果或补充上下文。",
+            action_type="note",
+            recommended=True,
+        )
+    ]
+    action_plan = _case_action_plan(case)
+    if action_plan is not None and not action_plan.assigned_to:
+        actions.append(
+            WorkbenchActionPayload(
+                action_key="assign_owner",
+                label="分派负责人",
+                description=f"将案件分派给 {action_plan.owner_role} 角色处理。",
+                action_type="assign",
+                recommended=True,
+            )
+        )
+    if case.status in {"open", "strategy_pending"}:
+        actions.append(
+            WorkbenchActionPayload(
+                action_key="start_review",
+                label="开始复核",
+                description="将案件切换到人工复核处理中。",
+                action_type="status_update",
+                target_status="in_review",
+                recommended=True,
+            )
+        )
+    if case.status != "closed":
+        actions.append(
+            WorkbenchActionPayload(
+                action_key="close_case",
+                label="关闭案件",
+                description="完成处置后关闭案件并结束 action plan。",
+                action_type="status_update",
+                target_status="closed",
+            )
+        )
+    else:
+        actions.append(
+            WorkbenchActionPayload(
+                action_key="reopen_case",
+                label="重新打开",
+                description="需要追加调查时重新进入人工复核。",
+                action_type="status_update",
+                target_status="in_review",
+            )
+        )
+    return actions
 
 
 def _select_action_queue_cases(

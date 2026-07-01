@@ -269,6 +269,54 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(listed_cases[0].case_id, first_case.case_id)
             self.assertEqual(listed_cases[1].case_id, second_case.case_id)
 
+    def test_file_case_store_preserves_completed_action_plan_when_appending_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="file",
+                session_store_path=Path(tmp_dir) / "sessions.json",
+                case_store_backend="file",
+                case_store_path=Path(tmp_dir) / "cases.json",
+            )
+
+            container = build_app_container(config)
+            session_id, _ = container.runtime.execute(
+                "copilot",
+                AgentRequest(
+                    query="请联合分析订单 O10001 和策略 STRAT-001，判断是否存在团伙风险并给出策略建议",
+                    context={"order_id": "O10001", "strategy_id": "STRAT-001", "entity_id": "U10001"},
+                ),
+            )
+            session = container.runtime.get_session(session_id)
+            assert session is not None
+            created_case = container.case_service.create_case_from_session(session)
+            closed_case = container.case_service.update_case_status(
+                created_case.case_id,
+                "closed",
+                note="人工复核完成",
+                assigned_to="risk-reviewer-01",
+                action_outcome="approved_after_review",
+            )
+
+            assert closed_case is not None
+            assert closed_case.risk_decision is not None
+            assert closed_case.risk_decision.action_plan is not None
+            completed_at = closed_case.risk_decision.action_plan.completed_at
+            noted_case = container.case_service.append_case_note(
+                created_case.case_id,
+                "已补充外部沟通记录",
+                assigned_to="risk-reviewer-02",
+            )
+
+            assert noted_case is not None
+            assert noted_case.risk_decision is not None
+            assert noted_case.risk_decision.action_plan is not None
+            self.assertEqual(noted_case.status, "closed")
+            self.assertEqual(noted_case.risk_decision.action_plan.status, "completed")
+            self.assertEqual(noted_case.risk_decision.action_plan.completed_at, completed_at)
+            self.assertEqual(noted_case.risk_decision.action_plan.assigned_to, "risk-reviewer-02")
+            self.assertEqual(noted_case.history[-1].event_type, "note_added")
+            self.assertIn("risk-reviewer-02", noted_case.history[-1].summary)
+
     def test_file_case_store_supports_pagination_and_updated_at_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(

@@ -88,6 +88,16 @@ class CaseService(ABC):
     ) -> WorkflowCase | None:
         """Update case status and append history."""
 
+    @abstractmethod
+    def append_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        assigned_to: str | None = None,
+    ) -> WorkflowCase | None:
+        """Append an operational note without changing the case status."""
+
 
 class InMemoryCaseService(CaseService):
     """Stores workflow cases in memory for lightweight review and follow-up."""
@@ -206,6 +216,19 @@ class InMemoryCaseService(CaseService):
             assigned_to=assigned_to,
             action_outcome=action_outcome,
         )
+        return case
+
+    def append_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        assigned_to: str | None = None,
+    ) -> WorkflowCase | None:
+        case = self._cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_note(case, note, assigned_to=assigned_to)
         return case
 
 
@@ -330,6 +353,21 @@ class FileCaseService(CaseService):
             assigned_to=assigned_to,
             action_outcome=action_outcome,
         )
+        self._save_cases(cases)
+        return case
+
+    def append_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        assigned_to: str | None = None,
+    ) -> WorkflowCase | None:
+        cases = self._load_cases()
+        case = cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_note(case, note, assigned_to=assigned_to)
         self._save_cases(cases)
         return case
 
@@ -592,6 +630,37 @@ class SQLiteCaseService(CaseService):
                 """,
                 (
                     case.status,
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
+    def append_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        assigned_to: str | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_note(case, note, assigned_to=assigned_to)
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = ?, payload_json = ?,
+                    revision = revision + 1
+                WHERE case_id = ?
+                """,
+                (
                     case.updated_at,
                     _case_json(case),
                     case.case_id,
@@ -864,6 +933,37 @@ class PostgresCaseService(CaseService):
             )
         return case
 
+    def append_case_note(
+        self,
+        case_id: str,
+        note: str,
+        *,
+        assigned_to: str | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = %s FOR UPDATE",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_note(case, note, assigned_to=assigned_to)
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = %s, payload_json = %s::jsonb,
+                    revision = revision + 1
+                WHERE case_id = %s
+                """,
+                (
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
 
 def _build_case_from_session(
     session: SessionRecord,
@@ -1058,6 +1158,29 @@ def _append_case_status_update(
             event_type="status_updated",
             status=status,
             summary=note or f"Case 状态更新为 {status}。",
+        )
+    )
+
+
+def _append_case_note(
+    case: WorkflowCase,
+    note: str,
+    *,
+    assigned_to: str | None = None,
+) -> None:
+    updated_at = _current_timestamp()
+    case.updated_at = updated_at
+    action_plan = _case_action_plan(case)
+    if action_plan is not None and assigned_to is not None:
+        action_plan.assigned_to = assigned_to
+    summary = note
+    if assigned_to is not None and assigned_to not in note:
+        summary = f"{note}（负责人：{assigned_to}）"
+    case.history.append(
+        WorkflowCaseHistoryEntry(
+            event_type="note_added",
+            status=case.status,
+            summary=summary,
         )
     )
 
