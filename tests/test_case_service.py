@@ -80,6 +80,11 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(loaded_case.strategy_recommendation.strategy_id, "STRAT-001")
             self.assertEqual(loaded_case.evidence_panel["version"], "v1")
             self.assertGreater(loaded_case.evidence_panel["summary"]["evidence_count"], 0)
+            self.assertEqual(loaded_case.handoff_artifact["version"], "v1")
+            self.assertEqual(loaded_case.handoff_artifact["action_queue"], "manual_review_queue")
+            self.assertEqual(loaded_case.handoff_artifact["operation_context"]["trigger"], "case_created")
+            self.assertEqual(len(loaded_case.operation_log), 1)
+            self.assertEqual(loaded_case.operation_log[0].operation_type, "case_created")
             self.assertIsNotNone(loaded_case.risk_decision)
             assert loaded_case.risk_decision is not None
             self.assertEqual(loaded_case.risk_decision.decision, "escalate_review")
@@ -316,6 +321,10 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(noted_case.risk_decision.action_plan.assigned_to, "risk-reviewer-02")
             self.assertEqual(noted_case.history[-1].event_type, "note_added")
             self.assertIn("risk-reviewer-02", noted_case.history[-1].summary)
+            self.assertEqual(noted_case.operation_log[-1].operation_type, "note_added")
+            self.assertEqual(noted_case.operation_log[-1].assigned_to, "risk-reviewer-02")
+            self.assertEqual(noted_case.handoff_artifact["assigned_to"], "risk-reviewer-02")
+            self.assertEqual(noted_case.handoff_artifact["operation_context"]["trigger"], "note_added")
 
     def test_file_case_store_supports_pagination_and_updated_at_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

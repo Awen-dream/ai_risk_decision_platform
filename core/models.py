@@ -387,6 +387,20 @@ class WorkflowCaseHistoryEntry:
 
 
 @dataclass
+class WorkflowCaseOperationEntry:
+    operation_id: str
+    operation_type: str
+    actor: str
+    status_before: str | None
+    status_after: str
+    summary: str
+    created_at: str
+    assigned_to: str | None = None
+    action_outcome: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class WorkflowCase:
     case_id: str
     session_id: str
@@ -400,8 +414,10 @@ class WorkflowCase:
     context: dict[str, Any] = field(default_factory=dict)
     suggested_actions: list[str] = field(default_factory=list)
     evidence_panel: dict[str, Any] = field(default_factory=dict)
+    handoff_artifact: dict[str, Any] = field(default_factory=dict)
     strategy_recommendation: StrategyRecommendationRecord | None = None
     risk_decision: RiskDecisionRecord | None = None
     history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)
+    operation_log: list[WorkflowCaseOperationEntry] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

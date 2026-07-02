@@ -917,6 +917,9 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["evidence_panel"]["version"], "v1")
         self.assertEqual(payload["evidence_panel"]["scope"], "copilot")
         self.assertGreater(payload["evidence_panel"]["summary"]["evidence_count"], 0)
+        self.assertEqual(payload["handoff_artifact"]["version"], "v1")
+        self.assertEqual(payload["handoff_artifact"]["action_queue"], "manual_review_queue")
+        self.assertEqual(payload["operation_log"][0]["operation_type"], "case_created")
         self.assertEqual(payload["risk_decision"]["decision"], "escalate_review")
         self.assertEqual(payload["risk_decision"]["risk_level"], "high")
         self.assertEqual(
@@ -1298,6 +1301,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail_payload["case"]["case_id"], created_case["case_id"])
         self.assertGreater(detail_payload["case"]["evidence_panel"]["summary"]["evidence_count"], 0)
+        self.assertEqual(detail_payload["handoff_artifact"]["version"], "v1")
+        self.assertEqual(detail_payload["recent_operations"][0]["operation_type"], "case_created")
         self.assertTrue(detail_payload["recommended_actions"])
         self.assertTrue(
             any(item["action_key"] == "assign_owner" for item in detail_payload["available_actions"])
@@ -1310,6 +1315,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(assigned_payload["case"]["status"], created_case["status"])
         self.assertEqual(assigned_payload["recent_history"][-1]["event_type"], "note_added")
         self.assertIn("risk-reviewer-09", assigned_payload["recent_history"][-1]["summary"])
+        self.assertEqual(assigned_payload["recent_operations"][-1]["operation_type"], "note_added")
+        self.assertEqual(assigned_payload["handoff_artifact"]["assigned_to"], "risk-reviewer-09")
         self.assertEqual(noted.status_code, 200)
         self.assertEqual(noted_payload["case"]["status"], created_case["status"])
         self.assertEqual(
@@ -1317,6 +1324,7 @@ class AgentApiTests(unittest.TestCase):
             "risk-reviewer-09",
         )
         self.assertEqual(noted_payload["recent_history"][-1]["summary"], "已同步业务方等待反馈")
+        self.assertEqual(noted_payload["recent_operations"][-1]["operation_type"], "note_added")
         self.assertTrue(
             any(item["action_key"] == "start_review" for item in noted_payload["available_actions"])
         )
@@ -1371,6 +1379,7 @@ class AgentApiTests(unittest.TestCase):
             started_payload["case"]["risk_decision"]["action_plan"]["status"],
             "in_progress",
         )
+        self.assertEqual(started_payload["recent_operations"][-1]["operation_type"], "status_updated")
         self.assertEqual(
             started_payload["case"]["risk_decision"]["action_plan"]["assigned_to"],
             "risk-reviewer-11",
@@ -1386,6 +1395,8 @@ class AgentApiTests(unittest.TestCase):
             "rejected_after_review",
         )
         self.assertEqual(closed_payload["recent_history"][-1]["summary"], "策略风险确认，案件关闭")
+        self.assertEqual(closed_payload["handoff_artifact"]["action_queue"], "manual_review_queue")
+        self.assertEqual(closed_payload["recent_operations"][-1]["action_outcome"], "rejected_after_review")
         self.assertEqual(reopened.status_code, 200)
         self.assertEqual(reopened_payload["case"]["status"], "in_review")
         self.assertEqual(
@@ -1429,6 +1440,8 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(action_payload["case"]["status"], created_case["status"])
         self.assertEqual(action_payload["recent_history"][-1]["event_type"], "note_added")
         self.assertEqual(action_payload["recent_history"][-1]["summary"], "已通知补充设备与账号关联证据")
+        self.assertEqual(action_payload["recent_operations"][-1]["operation_type"], "note_added")
+        self.assertEqual(action_payload["handoff_artifact"]["operation_context"]["trigger"], "note_added")
 
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -14,6 +14,7 @@ from core.models import (
     StrategyRecommendationRecord,
     WorkflowCase,
     WorkflowCaseHistoryEntry,
+    WorkflowCaseOperationEntry,
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
@@ -995,7 +996,7 @@ def _build_case_from_session(
         created_at=timestamp,
         case_status=status,
     )
-    return WorkflowCase(
+    case = WorkflowCase(
         case_id=f"CASE-{uuid4().hex[:8].upper()}",
         session_id=session.session_id,
         turn_index=resolved_turn_index,
@@ -1020,6 +1021,21 @@ def _build_case_from_session(
         created_at=timestamp,
         updated_at=timestamp,
     )
+    _record_case_operation(
+        case,
+        operation_type="case_created",
+        status_before=None,
+        status_after=status,
+        summary=case.history[-1].summary,
+        metadata={
+            "session_id": session.session_id,
+            "turn_index": resolved_turn_index,
+            "source_agent": turn.agent_name,
+            "intent": turn.intent,
+        },
+    )
+    _refresh_case_handoff_artifact(case, trigger="case_created")
+    return case
 
 
 def _filter_cases(
@@ -1143,6 +1159,7 @@ def _append_case_status_update(
     assigned_to: str | None = None,
     action_outcome: str | None = None,
 ) -> None:
+    previous_status = case.status
     case.status = status
     updated_at = _current_timestamp()
     case.updated_at = updated_at
@@ -1160,6 +1177,17 @@ def _append_case_status_update(
             summary=note or f"Case 状态更新为 {status}。",
         )
     )
+    _record_case_operation(
+        case,
+        operation_type="status_updated",
+        status_before=previous_status,
+        status_after=status,
+        summary=case.history[-1].summary,
+        assigned_to=assigned_to,
+        action_outcome=action_outcome,
+        metadata={"event_type": "status_updated"},
+    )
+    _refresh_case_handoff_artifact(case, trigger="status_updated")
 
 
 def _append_case_note(
@@ -1183,6 +1211,106 @@ def _append_case_note(
             summary=summary,
         )
     )
+    _record_case_operation(
+        case,
+        operation_type="note_added",
+        status_before=case.status,
+        status_after=case.status,
+        summary=summary,
+        assigned_to=assigned_to,
+        metadata={"event_type": "note_added"},
+    )
+    _refresh_case_handoff_artifact(case, trigger="note_added")
+
+
+def _record_case_operation(
+    case: WorkflowCase,
+    *,
+    operation_type: str,
+    status_before: str | None,
+    status_after: str,
+    summary: str,
+    assigned_to: str | None = None,
+    action_outcome: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    actor: str = "platform",
+) -> None:
+    case.operation_log.append(
+        WorkflowCaseOperationEntry(
+            operation_id=f"OP-{uuid4().hex[:10].upper()}",
+            operation_type=operation_type,
+            actor=actor,
+            status_before=status_before,
+            status_after=status_after,
+            summary=summary,
+            created_at=case.updated_at or _current_timestamp(),
+            assigned_to=assigned_to,
+            action_outcome=action_outcome,
+            metadata=dict(metadata or {}),
+        )
+    )
+
+
+def _refresh_case_handoff_artifact(
+    case: WorkflowCase,
+    *,
+    trigger: str,
+) -> None:
+    action_plan = _case_action_plan(case)
+    evidence_summary = dict(case.evidence_panel.get("summary", {}))
+    evidence_gaps = [
+        dict(item)
+        for item in case.evidence_panel.get("gaps", [])
+        if isinstance(item, dict)
+    ]
+    next_actions: list[str] = []
+    for item in case.suggested_actions:
+        if item and item not in next_actions:
+            next_actions.append(item)
+    if action_plan is not None:
+        for item in action_plan.next_actions:
+            if item and item not in next_actions:
+                next_actions.append(item)
+    latest_operation = case.operation_log[-1] if case.operation_log else None
+    case.handoff_artifact = {
+        "version": "v1",
+        "case_id": case.case_id,
+        "title": case.title,
+        "status": case.status,
+        "severity": case.severity,
+        "source_agent": case.source_agent,
+        "intent": case.intent,
+        "summary": case.summary,
+        "decision": (
+            case.risk_decision.decision if case.risk_decision is not None else None
+        ),
+        "recommended_action": (
+            case.risk_decision.recommended_action if case.risk_decision is not None else None
+        ),
+        "action_queue": action_plan.queue if action_plan is not None else None,
+        "owner_role": action_plan.owner_role if action_plan is not None else None,
+        "assigned_to": action_plan.assigned_to if action_plan is not None else None,
+        "due_at": action_plan.due_at if action_plan is not None else None,
+        "evidence_summary": evidence_summary,
+        "evidence_gaps": evidence_gaps,
+        "top_evidence": (
+            list(case.risk_decision.evidence[:3])
+            if case.risk_decision is not None
+            else []
+        ),
+        "next_actions": next_actions,
+        "operation_context": {
+            "trigger": trigger,
+            "operation_count": len(case.operation_log),
+            "latest_operation_id": (
+                latest_operation.operation_id if latest_operation is not None else None
+            ),
+            "latest_operation_type": (
+                latest_operation.operation_type if latest_operation is not None else None
+            ),
+        },
+        "updated_at": case.updated_at,
+    }
 
 
 def _extract_strategy_recommendation(
@@ -1395,6 +1523,7 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
         "context": case.context,
         "suggested_actions": case.suggested_actions,
         "evidence_panel": case.evidence_panel,
+        "handoff_artifact": case.handoff_artifact,
         "created_at": case.created_at,
         "updated_at": case.updated_at,
         "strategy_recommendation": (
@@ -1433,6 +1562,21 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
                 "summary": item.summary,
             }
             for item in case.history
+        ],
+        "operation_log": [
+            {
+                "operation_id": item.operation_id,
+                "operation_type": item.operation_type,
+                "actor": item.actor,
+                "status_before": item.status_before,
+                "status_after": item.status_after,
+                "summary": item.summary,
+                "created_at": item.created_at,
+                "assigned_to": item.assigned_to,
+                "action_outcome": item.action_outcome,
+                "metadata": item.metadata,
+            }
+            for item in case.operation_log
         ],
     }
 
@@ -1483,7 +1627,35 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         )
         for entry in item.get("history", [])
     ]
-    return WorkflowCase(
+    operation_log = [
+        WorkflowCaseOperationEntry(
+            operation_id=str(entry["operation_id"]),
+            operation_type=str(entry["operation_type"]),
+            actor=str(entry.get("actor", "platform")),
+            status_before=(
+                str(entry["status_before"])
+                if entry.get("status_before") is not None
+                else None
+            ),
+            status_after=str(entry.get("status_after", item.get("status", ""))),
+            summary=str(entry.get("summary", "")),
+            created_at=str(entry.get("created_at", item.get("updated_at", ""))),
+            assigned_to=(
+                str(entry["assigned_to"])
+                if entry.get("assigned_to") is not None
+                else None
+            ),
+            action_outcome=(
+                str(entry["action_outcome"])
+                if entry.get("action_outcome") is not None
+                else None
+            ),
+            metadata=dict(entry.get("metadata", {})),
+        )
+        for entry in item.get("operation_log", [])
+        if isinstance(entry, dict)
+    ]
+    case = WorkflowCase(
         case_id=str(item["case_id"]),
         session_id=str(item["session_id"]),
         turn_index=int(item["turn_index"]),
@@ -1496,12 +1668,31 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         context=dict(item.get("context", {})),
         suggested_actions=list(item.get("suggested_actions", [])),
         evidence_panel=dict(item.get("evidence_panel", {})),
+        handoff_artifact=dict(item.get("handoff_artifact", {})),
         strategy_recommendation=recommendation,
         risk_decision=risk_decision,
         history=history,
+        operation_log=operation_log,
         created_at=str(item.get("created_at", "")),
         updated_at=str(item.get("updated_at", "")),
     )
+    if not case.operation_log:
+        for history_entry in case.history:
+            case.operation_log.append(
+                WorkflowCaseOperationEntry(
+                    operation_id=f"OP-{uuid4().hex[:10].upper()}",
+                    operation_type=history_entry.event_type,
+                    actor="platform",
+                    status_before=None,
+                    status_after=history_entry.status,
+                    summary=history_entry.summary,
+                    created_at=case.updated_at,
+                    metadata={"legacy_history": True},
+                )
+            )
+    if not case.handoff_artifact:
+        _refresh_case_handoff_artifact(case, trigger="legacy_rebuild")
+    return case
 
 
 def _extract_evidence_panel(turn) -> dict[str, object]:

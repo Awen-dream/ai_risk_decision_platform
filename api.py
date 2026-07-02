@@ -21,6 +21,7 @@ from core.models import (
     StrategyRecommendationRecord,
     WorkflowCase,
     WorkflowCaseHistoryEntry,
+    WorkflowCaseOperationEntry,
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
@@ -393,6 +394,19 @@ class CaseHistoryPayload(BaseModel):
     summary: str
 
 
+class CaseOperationPayload(BaseModel):
+    operation_id: str
+    operation_type: str
+    actor: str
+    status_before: Optional[str] = None
+    status_after: str
+    summary: str
+    created_at: str
+    assigned_to: Optional[str] = None
+    action_outcome: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkflowCasePayload(BaseModel):
     case_id: str
     session_id: str
@@ -406,9 +420,11 @@ class WorkflowCasePayload(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
     suggested_actions: List[str] = Field(default_factory=list)
     evidence_panel: Dict[str, Any] = Field(default_factory=dict)
+    handoff_artifact: Dict[str, Any] = Field(default_factory=dict)
     strategy_recommendation: Optional[StrategyRecommendationPayload] = None
     risk_decision: Optional[RiskDecisionPayload] = None
     history: List[CaseHistoryPayload] = Field(default_factory=list)
+    operation_log: List[CaseOperationPayload] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
@@ -459,6 +475,7 @@ class WorkbenchActionPayload(BaseModel):
 class CaseWorkbenchPayload(BaseModel):
     generated_at: str
     case: WorkflowCasePayload
+    handoff_artifact: Dict[str, Any] = Field(default_factory=dict)
     evidence_summary: Dict[str, Any] = Field(default_factory=dict)
     evidence_gaps: List[EvidenceGapPayload] = Field(default_factory=list)
     citations: List[CitationPayload] = Field(default_factory=list)
@@ -466,6 +483,7 @@ class CaseWorkbenchPayload(BaseModel):
     recommended_actions: List[str] = Field(default_factory=list)
     available_actions: List[WorkbenchActionPayload] = Field(default_factory=list)
     recent_history: List[CaseHistoryPayload] = Field(default_factory=list)
+    recent_operations: List[CaseOperationPayload] = Field(default_factory=list)
 
 
 class ActionQueueAssignRequest(BaseModel):
@@ -1447,11 +1465,13 @@ def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
         context=case.context,
         suggested_actions=case.suggested_actions,
         evidence_panel=case.evidence_panel,
+        handoff_artifact=case.handoff_artifact,
         strategy_recommendation=_to_strategy_recommendation_payload(
             case.strategy_recommendation
         ),
         risk_decision=_to_risk_decision_payload(case.risk_decision),
         history=[_to_case_history_payload(item) for item in case.history],
+        operation_log=[_to_case_operation_payload(item) for item in case.operation_log],
         created_at=case.created_at,
         updated_at=case.updated_at,
     )
@@ -1518,11 +1538,27 @@ def _to_case_history_payload(entry: WorkflowCaseHistoryEntry) -> CaseHistoryPayl
     )
 
 
+def _to_case_operation_payload(entry: WorkflowCaseOperationEntry) -> CaseOperationPayload:
+    return CaseOperationPayload(
+        operation_id=entry.operation_id,
+        operation_type=entry.operation_type,
+        actor=entry.actor,
+        status_before=entry.status_before,
+        status_after=entry.status_after,
+        summary=entry.summary,
+        created_at=entry.created_at,
+        assigned_to=entry.assigned_to,
+        action_outcome=entry.action_outcome,
+        metadata=entry.metadata,
+    )
+
+
 def _build_case_workbench_payload(case: WorkflowCase) -> CaseWorkbenchPayload:
     evidence_panel = case.evidence_panel or {}
     return CaseWorkbenchPayload(
         generated_at=_utc_now_iso(),
         case=_to_case_payload(case),
+        handoff_artifact=case.handoff_artifact,
         evidence_summary=dict(evidence_panel.get("summary", {})),
         evidence_gaps=[
             _evidence_gap_payload_from_mapping(item)
@@ -1542,6 +1578,9 @@ def _build_case_workbench_payload(case: WorkflowCase) -> CaseWorkbenchPayload:
         recommended_actions=_build_case_workbench_recommended_actions(case, evidence_panel),
         available_actions=_build_case_workbench_actions(case),
         recent_history=[_to_case_history_payload(item) for item in case.history[-5:]],
+        recent_operations=[
+            _to_case_operation_payload(item) for item in case.operation_log[-5:]
+        ],
     )
 
 
