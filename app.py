@@ -104,8 +104,8 @@ from services.memory import CaseMemoryProvider
 from services.handoff import (
     AuditOnlyHandoffPublisher,
     CaseHandoffPublisherService,
-    TicketHandoffPublisher,
-    WebhookHandoffPublisher,
+    HttpTicketHandoffPublisher,
+    HttpWebhookHandoffPublisher,
 )
 from services.risk_decision import RiskDecisionPolicy
 from settings import AppConfig
@@ -408,6 +408,7 @@ def build_audit_log(config: AppConfig) -> AuditLog:
 
 def build_handoff_publisher_service(
     *,
+    config: AppConfig,
     case_service: CaseService,
     audit_log: AuditLog,
 ) -> CaseHandoffPublisherService:
@@ -416,8 +417,22 @@ def build_handoff_publisher_service(
         audit_log=audit_log,
         publishers=[
             AuditOnlyHandoffPublisher(),
-            TicketHandoffPublisher(),
-            WebhookHandoffPublisher(),
+            HttpTicketHandoffPublisher(
+                base_url=config.handoff_ticket_base_url,
+                path_template=config.handoff_ticket_path,
+                project_key=config.handoff_ticket_project_key,
+                headers=config.handoff_ticket_headers(),
+                timeout_sec=config.handoff_publish_timeout_sec,
+                retry_attempts=config.handoff_publish_retry_attempts,
+                retry_backoff_sec=config.handoff_publish_retry_backoff_sec,
+            ),
+            HttpWebhookHandoffPublisher(
+                base_url=config.handoff_webhook_base_url,
+                headers=config.handoff_webhook_headers(),
+                timeout_sec=config.handoff_publish_timeout_sec,
+                retry_attempts=config.handoff_publish_retry_attempts,
+                retry_backoff_sec=config.handoff_publish_retry_backoff_sec,
+            ),
         ],
     )
 
@@ -439,6 +454,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
     runtime = AgentRuntime(session_store=build_session_store(config))
     case_service = build_case_service(config)
     handoff_publisher_service = build_handoff_publisher_service(
+        config=config,
         case_service=case_service,
         audit_log=audit_log,
     )

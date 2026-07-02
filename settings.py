@@ -160,6 +160,19 @@ class AppConfig:
     audit_central_auth_header: str = "Authorization"
     audit_central_auth_token: str = ""
     audit_central_auth_token_file: Optional[Path] = None
+    handoff_ticket_base_url: str = "https://handoff.local/tickets"
+    handoff_ticket_path: str = "/projects/{project_key}/cases"
+    handoff_ticket_project_key: str = "risk-ops"
+    handoff_ticket_auth_header: str = "Authorization"
+    handoff_ticket_auth_token: str = ""
+    handoff_ticket_auth_token_file: Optional[Path] = None
+    handoff_webhook_base_url: str = "https://handoff.local/webhooks"
+    handoff_webhook_auth_header: str = "Authorization"
+    handoff_webhook_auth_token: str = ""
+    handoff_webhook_auth_token_file: Optional[Path] = None
+    handoff_publish_timeout_sec: float = 5.0
+    handoff_publish_retry_attempts: int = 1
+    handoff_publish_retry_backoff_sec: float = 0.1
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
@@ -194,6 +207,8 @@ class AppConfig:
         tool_http_auth_token_file = _env_path("AI_RISK_TOOL_HTTP_AUTH_TOKEN_FILE")
         admin_auth_token_file = _env_path("AI_RISK_ADMIN_AUTH_TOKEN_FILE")
         audit_central_auth_token_file = _env_path("AI_RISK_AUDIT_CENTRAL_AUTH_TOKEN_FILE")
+        handoff_ticket_auth_token_file = _env_path("AI_RISK_HANDOFF_TICKET_AUTH_TOKEN_FILE")
+        handoff_webhook_auth_token_file = _env_path("AI_RISK_HANDOFF_WEBHOOK_AUTH_TOKEN_FILE")
         postgres_dsn_file = _env_path("AI_RISK_POSTGRES_DSN_FILE")
         planner_openai_api_key_file = _env_path("AI_RISK_PLANNER_OPENAI_API_KEY_FILE")
         investigation_openai_api_key_file = _env_path("AI_RISK_INVESTIGATION_OPENAI_API_KEY_FILE")
@@ -395,6 +410,49 @@ class AppConfig:
                 audit_central_auth_token_file,
             ),
             audit_central_auth_token_file=audit_central_auth_token_file,
+            handoff_ticket_base_url=os.getenv(
+                "AI_RISK_HANDOFF_TICKET_BASE_URL",
+                "https://handoff.local/tickets",
+            ),
+            handoff_ticket_path=os.getenv(
+                "AI_RISK_HANDOFF_TICKET_PATH",
+                "/projects/{project_key}/cases",
+            ),
+            handoff_ticket_project_key=os.getenv(
+                "AI_RISK_HANDOFF_TICKET_PROJECT_KEY",
+                "risk-ops",
+            ),
+            handoff_ticket_auth_header=os.getenv(
+                "AI_RISK_HANDOFF_TICKET_AUTH_HEADER",
+                "Authorization",
+            ),
+            handoff_ticket_auth_token=_load_secret(
+                os.getenv("AI_RISK_HANDOFF_TICKET_AUTH_TOKEN", ""),
+                handoff_ticket_auth_token_file,
+            ),
+            handoff_ticket_auth_token_file=handoff_ticket_auth_token_file,
+            handoff_webhook_base_url=os.getenv(
+                "AI_RISK_HANDOFF_WEBHOOK_BASE_URL",
+                "https://handoff.local/webhooks",
+            ),
+            handoff_webhook_auth_header=os.getenv(
+                "AI_RISK_HANDOFF_WEBHOOK_AUTH_HEADER",
+                "Authorization",
+            ),
+            handoff_webhook_auth_token=_load_secret(
+                os.getenv("AI_RISK_HANDOFF_WEBHOOK_AUTH_TOKEN", ""),
+                handoff_webhook_auth_token_file,
+            ),
+            handoff_webhook_auth_token_file=handoff_webhook_auth_token_file,
+            handoff_publish_timeout_sec=float(
+                os.getenv("AI_RISK_HANDOFF_PUBLISH_TIMEOUT_SEC", "5.0")
+            ),
+            handoff_publish_retry_attempts=int(
+                os.getenv("AI_RISK_HANDOFF_PUBLISH_RETRY_ATTEMPTS", "1")
+            ),
+            handoff_publish_retry_backoff_sec=float(
+                os.getenv("AI_RISK_HANDOFF_PUBLISH_RETRY_BACKOFF_SEC", "0.1")
+            ),
             tool_http_metric_path=os.getenv(
                 "AI_RISK_TOOL_HTTP_METRIC_PATH",
                 "/metric-snapshots",
@@ -547,6 +605,19 @@ class AppConfig:
             audit_central_auth_header="Authorization",
             audit_central_auth_token="",
             audit_central_auth_token_file=None,
+            handoff_ticket_base_url="https://handoff.local/tickets",
+            handoff_ticket_path="/projects/{project_key}/cases",
+            handoff_ticket_project_key="risk-ops",
+            handoff_ticket_auth_header="Authorization",
+            handoff_ticket_auth_token="",
+            handoff_ticket_auth_token_file=None,
+            handoff_webhook_base_url="https://handoff.local/webhooks",
+            handoff_webhook_auth_header="Authorization",
+            handoff_webhook_auth_token="",
+            handoff_webhook_auth_token_file=None,
+            handoff_publish_timeout_sec=5.0,
+            handoff_publish_retry_attempts=1,
+            handoff_publish_retry_backoff_sec=0.1,
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",
@@ -607,6 +678,30 @@ class AppConfig:
         if self.audit_central_auth_token_file is not None:
             return "file"
         if self.audit_central_auth_token:
+            return "env"
+        return "none"
+
+    def handoff_ticket_headers(self) -> Dict[str, str]:
+        if not self.handoff_ticket_auth_token:
+            return {}
+        return {self.handoff_ticket_auth_header: self.handoff_ticket_auth_token}
+
+    def handoff_ticket_auth_token_source(self) -> str:
+        if self.handoff_ticket_auth_token_file is not None:
+            return "file"
+        if self.handoff_ticket_auth_token:
+            return "env"
+        return "none"
+
+    def handoff_webhook_headers(self) -> Dict[str, str]:
+        if not self.handoff_webhook_auth_token:
+            return {}
+        return {self.handoff_webhook_auth_header: self.handoff_webhook_auth_token}
+
+    def handoff_webhook_auth_token_source(self) -> str:
+        if self.handoff_webhook_auth_token_file is not None:
+            return "file"
+        if self.handoff_webhook_auth_token:
             return "env"
         return "none"
 

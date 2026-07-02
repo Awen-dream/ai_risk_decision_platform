@@ -266,6 +266,42 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.audit_central_headers(), {"X-Audit-Token": "central-secret"})
         self.assertEqual(config.audit_central_auth_token_source(), "file")
 
+    def test_handoff_publisher_settings_load_secret_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ticket_token_path = Path(tmp_dir) / "ticket-token"
+            webhook_token_path = Path(tmp_dir) / "webhook-token"
+            ticket_token_path.write_text("ticket-secret\n", encoding="utf-8")
+            webhook_token_path.write_text("webhook-secret\n", encoding="utf-8")
+            with patch.dict(
+                "os.environ",
+                {
+                    "AI_RISK_HANDOFF_TICKET_BASE_URL": "https://tickets.example.com",
+                    "AI_RISK_HANDOFF_TICKET_PATH": "/api/projects/{project_key}/handoffs",
+                    "AI_RISK_HANDOFF_TICKET_PROJECT_KEY": "fraud-core",
+                    "AI_RISK_HANDOFF_TICKET_AUTH_HEADER": "X-Ticket-Token",
+                    "AI_RISK_HANDOFF_TICKET_AUTH_TOKEN_FILE": str(ticket_token_path),
+                    "AI_RISK_HANDOFF_WEBHOOK_BASE_URL": "https://hooks.example.com/risk",
+                    "AI_RISK_HANDOFF_WEBHOOK_AUTH_HEADER": "X-Webhook-Token",
+                    "AI_RISK_HANDOFF_WEBHOOK_AUTH_TOKEN_FILE": str(webhook_token_path),
+                    "AI_RISK_HANDOFF_PUBLISH_TIMEOUT_SEC": "8.5",
+                    "AI_RISK_HANDOFF_PUBLISH_RETRY_ATTEMPTS": "3",
+                    "AI_RISK_HANDOFF_PUBLISH_RETRY_BACKOFF_SEC": "0.25",
+                },
+            ):
+                config = AppConfig.from_env()
+
+        self.assertEqual(config.handoff_ticket_base_url, "https://tickets.example.com")
+        self.assertEqual(config.handoff_ticket_path, "/api/projects/{project_key}/handoffs")
+        self.assertEqual(config.handoff_ticket_project_key, "fraud-core")
+        self.assertEqual(config.handoff_ticket_headers(), {"X-Ticket-Token": "ticket-secret"})
+        self.assertEqual(config.handoff_ticket_auth_token_source(), "file")
+        self.assertEqual(config.handoff_webhook_base_url, "https://hooks.example.com/risk")
+        self.assertEqual(config.handoff_webhook_headers(), {"X-Webhook-Token": "webhook-secret"})
+        self.assertEqual(config.handoff_webhook_auth_token_source(), "file")
+        self.assertEqual(config.handoff_publish_timeout_sec, 8.5)
+        self.assertEqual(config.handoff_publish_retry_attempts, 3)
+        self.assertEqual(config.handoff_publish_retry_backoff_sec, 0.25)
+
     def test_sqlite_persistence_settings_load_from_environment(self) -> None:
         with patch.dict(
             "os.environ",

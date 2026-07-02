@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass, field
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from typing import Any, Protocol
 from uuid import uuid4
 
 from core.models import WorkflowCase, WorkflowCaseOperationEntry
 from services.audit import AuditLog, build_upstream_audit_event
 from services.case_service import CaseService
+from services.observability import current_headers
 
 
 @dataclass(frozen=True)
@@ -73,44 +78,102 @@ class AuditOnlyHandoffPublisher:
 
 
 @dataclass(frozen=True)
-class TicketHandoffPublisher:
+class HttpTicketHandoffPublisher:
     publisher_type: str = "ticket"
+    base_url: str = "https://handoff.local/tickets"
+    path_template: str = "/projects/{project_key}/cases"
     project_key: str = "risk-ops"
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout_sec: float = 5.0
+    retry_attempts: int = 1
+    retry_backoff_sec: float = 0.1
 
     def supports(self, destination_type: str) -> bool:
         return destination_type == "ticket"
 
     def publish(self, export: HandoffExportEnvelope) -> HandoffPublishReceipt:
+        target_ref = (
+            f"{self.base_url.rstrip('/')}"
+            f"{self.path_template.format(project_key=self.project_key)}"
+        )
+        payload = {
+            "external_case_key": export.destination.destination_key,
+            "summary": export.case.summary,
+            "severity": export.case.severity,
+            "status": export.case.status,
+            "source_agent": export.case.source_agent,
+            "handoff_artifact": export.handoff_artifact,
+            "operation_log": [_operation_to_mapping(item) for item in export.operation_log],
+        }
+        response_status = _post_json_with_retry(
+            url=target_ref,
+            payload=payload,
+            headers=self.headers,
+            timeout_sec=self.timeout_sec,
+            retry_attempts=self.retry_attempts,
+            retry_backoff_sec=self.retry_backoff_sec,
+        )
         return HandoffPublishReceipt(
             receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
             status="published",
             published_at=export.exported_at,
             publisher_type=self.publisher_type,
-            target_ref=f"ticket://{self.project_key}/{export.destination.destination_key}",
+            target_ref=target_ref,
             metadata={
                 "project_key": self.project_key,
                 "case_status": export.case.status,
                 "case_severity": export.case.severity,
+                "http_status": response_status,
             },
         )
 
 
 @dataclass(frozen=True)
-class WebhookHandoffPublisher:
+class HttpWebhookHandoffPublisher:
     publisher_type: str = "webhook"
     base_url: str = "https://handoff.local/webhooks"
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout_sec: float = 5.0
+    retry_attempts: int = 1
+    retry_backoff_sec: float = 0.1
 
     def supports(self, destination_type: str) -> bool:
         return destination_type == "webhook"
 
     def publish(self, export: HandoffExportEnvelope) -> HandoffPublishReceipt:
+        target_ref = f"{self.base_url.rstrip('/')}/{export.destination.destination_key}"
+        payload = {
+            "event": "case_handoff",
+            "export_id": export.export_id,
+            "schema_version": export.schema_version,
+            "exported_at": export.exported_at,
+            "destination": {
+                "destination_type": export.destination.destination_type,
+                "destination_key": export.destination.destination_key,
+            },
+            "case": {
+                "case_id": export.case.case_id,
+                "status": export.case.status,
+                "severity": export.case.severity,
+                "summary": export.case.summary,
+            },
+            "handoff_artifact": export.handoff_artifact,
+        }
+        response_status = _post_json_with_retry(
+            url=target_ref,
+            payload=payload,
+            headers=self.headers,
+            timeout_sec=self.timeout_sec,
+            retry_attempts=self.retry_attempts,
+            retry_backoff_sec=self.retry_backoff_sec,
+        )
         return HandoffPublishReceipt(
             receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
             status="published",
             published_at=export.exported_at,
             publisher_type=self.publisher_type,
-            target_ref=f"{self.base_url.rstrip('/')}/{export.destination.destination_key}",
-            metadata={"method": "POST"},
+            target_ref=target_ref,
+            metadata={"method": "POST", "http_status": response_status},
         )
 
 
@@ -153,12 +216,7 @@ class CaseHandoffPublisherService:
         note: str | None,
         published_at: str,
     ) -> HandoffPublishResult | None:
-        case = self._case_service.publish_case_handoff(
-            case_id,
-            destination_type=destination_type,
-            destination_key=destination_key,
-            note=note,
-        )
+        case = self._case_service.get_case(case_id)
         if case is None:
             return None
         export = self._build_export(
@@ -169,11 +227,25 @@ class CaseHandoffPublisherService:
         )
         publisher = self._publisher_for(destination_type)
         receipt = publisher.publish(export)
-        audit_event = self._build_audit_event(case, export, receipt)
+        updated_case = self._case_service.publish_case_handoff(
+            case_id,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            note=note,
+        )
+        if updated_case is None:
+            return None
+        updated_export = self._build_export(
+            updated_case,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            exported_at=published_at,
+        )
+        audit_event = self._build_audit_event(updated_case, updated_export, receipt)
         self._audit_log.record(audit_event)
         return HandoffPublishResult(
-            case=case,
-            export=export,
+            case=updated_case,
+            export=updated_export,
             receipt=receipt,
             audit_event=audit_event,
         )
@@ -237,3 +309,52 @@ class CaseHandoffPublisherService:
         event["case_status"] = case.status
         event["case_severity"] = case.severity
         return event
+
+
+def _operation_to_mapping(entry: WorkflowCaseOperationEntry) -> dict[str, Any]:
+    return {
+        "operation_id": entry.operation_id,
+        "operation_type": entry.operation_type,
+        "actor": entry.actor,
+        "status_before": entry.status_before,
+        "status_after": entry.status_after,
+        "summary": entry.summary,
+        "created_at": entry.created_at,
+        "assigned_to": entry.assigned_to,
+        "action_outcome": entry.action_outcome,
+        "metadata": entry.metadata,
+    }
+
+
+def _post_json_with_retry(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout_sec: float,
+    retry_attempts: int,
+    retry_backoff_sec: float,
+) -> int:
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    merged_headers = {
+        "Content-Type": "application/json",
+        **headers,
+        **current_headers(),
+    }
+    attempts = retry_attempts + 1
+    for attempt in range(1, attempts + 1):
+        request = Request(url, data=body, headers=merged_headers, method="POST")
+        try:
+            with urlopen(request, timeout=timeout_sec) as response:
+                return int(getattr(response, "status", 200))
+        except HTTPError as exc:
+            if exc.code < 500 and exc.code not in {408, 425, 429}:
+                raise
+            if attempt == attempts:
+                raise
+        except (URLError, TimeoutError):
+            if attempt == attempts:
+                raise
+        if retry_backoff_sec > 0:
+            time.sleep(retry_backoff_sec * (2 ** (attempt - 1)))
+    raise RuntimeError("handoff publish failed after retries")

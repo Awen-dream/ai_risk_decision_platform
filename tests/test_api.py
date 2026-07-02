@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,20 @@ from services.audit import JsonLinesAuditLog, build_upstream_audit_event
 from services.observability import LOGGER_NAME
 from settings import AppConfig
 from tools.registry import ToolRegistry
+
+
+class _FakeHandoffResponse:
+    def __init__(self, status: int = 202) -> None:
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def read(self, *args, **kwargs):
+        return b"{}"
 
 
 class AgentApiTests(unittest.TestCase):
@@ -1462,14 +1477,15 @@ class AgentApiTests(unittest.TestCase):
                 f"/analyst-workbench/cases/{created_case['case_id']}/handoff-export",
                 params={"destination_type": "ticket", "destination_key": "strategy-shadow"},
             )
-            published = client.post(
-                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
-                json={
-                    "destination_type": "ticket",
-                    "destination_key": "strategy-shadow",
-                    "note": "已推送到策略实验工单",
-                },
-            )
+            with patch("services.handoff.urlopen", return_value=_FakeHandoffResponse(201)):
+                published = client.post(
+                    f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                    json={
+                        "destination_type": "ticket",
+                        "destination_key": "strategy-shadow",
+                        "note": "已推送到策略实验工单",
+                    },
+                )
             audit_events = client.get(
                 "/admin/audit-events",
                 params={"upstream_client": "CaseHandoffPublisher"},
@@ -1492,9 +1508,10 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(published_payload["publisher_type"], "ticket")
         self.assertEqual(
             published_payload["target_ref"],
-            "ticket://risk-ops/strategy-shadow",
+            "https://handoff.local/tickets/projects/risk-ops/cases",
         )
         self.assertEqual(published_payload["metadata"]["project_key"], "risk-ops")
+        self.assertEqual(published_payload["metadata"]["http_status"], 201)
         self.assertEqual(
             published_payload["export"]["case"]["operation_log"][-1]["operation_type"],
             "handoff_published",
@@ -1510,6 +1527,39 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(audit_payload[0]["method"], "PUBLISH")
         self.assertEqual(audit_payload[0]["status_code"], 202)
         self.assertEqual(published_payload["audit_event_id"], audit_payload[0]["event_id"])
+
+    def test_case_handoff_publish_supports_webhook_destination(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 U10001 是否属于团伙网络",
+                "context": {"user_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        with patch("services.handoff.urlopen", return_value=_FakeHandoffResponse(202)):
+            response = client.post(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                json={
+                    "destination_type": "webhook",
+                    "destination_key": "ops-sync",
+                    "note": "推送到 webhook",
+                },
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["publisher_type"], "webhook")
+        self.assertEqual(payload["target_ref"], "https://handoff.local/webhooks/ops-sync")
+        self.assertEqual(payload["metadata"]["http_status"], 202)
+        self.assertEqual(
+            payload["export"]["case"]["operation_log"][-1]["operation_type"],
+            "handoff_published",
+        )
 
     def test_case_handoff_publish_rejects_unknown_destination_type(self) -> None:
         client = TestClient(create_app())
