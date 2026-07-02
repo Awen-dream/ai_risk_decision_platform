@@ -552,6 +552,27 @@ class HandoffDeliveryListResponse(BaseModel):
     deliveries: List[HandoffDeliveryPayload] = Field(default_factory=list)
 
 
+class HandoffRetryRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class HandoffRetryBatchRequest(BaseModel):
+    limit: int = Field(default=20, ge=1, le=200)
+    case_id: Optional[str] = None
+    destination_type: Optional[str] = None
+    publisher_type: Optional[str] = None
+    note: Optional[str] = None
+
+
+class HandoffRetryBatchResponse(BaseModel):
+    generated_at: str
+    requested_count: int
+    success_count: int
+    failed_count: int
+    results: List[HandoffPublishResponse] = Field(default_factory=list)
+    failures: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class ActionQueueAssignRequest(BaseModel):
     assigned_to: str = Field(..., min_length=1)
     case_ids: List[str] = Field(default_factory=list)
@@ -1089,6 +1110,15 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except HandoffPublishError as exc:
             result = exc.result
+            emit_event(
+                "case_handoff_publish_failed",
+                case_id=case_id,
+                destination_type=payload.destination_type,
+                destination_key=payload.destination_key,
+                publisher_type=result.receipt.publisher_type,
+                error_type=result.receipt.error_type,
+                audit_event_id=result.audit_event["event_id"],
+            )
             raise HTTPException(
                 status_code=502,
                 detail={
@@ -1117,20 +1147,7 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             destination_key=payload.destination_key,
             audit_event_id=result.audit_event["event_id"],
         )
-        return HandoffPublishResponse(
-            receipt_id=result.receipt.receipt_id,
-            status=result.receipt.status,
-            published_at=result.receipt.published_at,
-            audit_event_id=str(result.audit_event["event_id"]),
-            publisher_type=result.receipt.publisher_type,
-            target_ref=result.receipt.target_ref,
-            metadata=result.receipt.metadata,
-            destination=HandoffDestinationPayload(
-                destination_type=result.export.destination.destination_type,
-                destination_key=result.export.destination.destination_key,
-            ),
-            export=_to_handoff_export_payload(result.export),
-        )
+        return _to_handoff_publish_response(result)
 
     @fastapi_app.get(
         "/analyst-workbench/cases/{case_id}/handoff-deliveries",
@@ -1141,6 +1158,86 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         if case is None:
             raise HTTPException(status_code=404, detail="Case not found")
         return _build_handoff_delivery_list_response(case.handoff_deliveries)
+
+    @fastapi_app.post(
+        "/analyst-workbench/cases/{case_id}/handoff-deliveries/{delivery_id}/retry",
+        response_model=HandoffPublishResponse,
+    )
+    def retry_case_handoff_delivery(
+        case_id: str,
+        delivery_id: str,
+        payload: HandoffRetryRequest,
+    ) -> HandoffPublishResponse:
+        delivery = _find_case_handoff_delivery(container, case_id, delivery_id)
+        if delivery is None:
+            raise HTTPException(status_code=404, detail="Handoff delivery not found")
+        if delivery.status == "published":
+            raise HTTPException(
+                status_code=400,
+                detail="Only failed handoff deliveries can be retried",
+            )
+        emit_event(
+            "case_handoff_retry_requested",
+            case_id=case_id,
+            delivery_id=delivery.delivery_id,
+            destination_type=delivery.destination_type,
+            destination_key=delivery.destination_key,
+            publisher_type=delivery.publisher_type,
+        )
+        try:
+            result = container.handoff_publisher_service.publish_case_handoff(
+                case_id,
+                destination_type=delivery.destination_type,
+                destination_key=delivery.destination_key,
+                note=payload.note or f"重试投递 {delivery.delivery_id}",
+                published_at=_utc_now_iso(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HandoffPublishError as exc:
+            result = exc.result
+            emit_event(
+                "case_handoff_retry_failed",
+                case_id=case_id,
+                delivery_id=delivery.delivery_id,
+                destination_type=delivery.destination_type,
+                destination_key=delivery.destination_key,
+                publisher_type=result.receipt.publisher_type,
+                error_type=result.receipt.error_type,
+                audit_event_id=result.audit_event["event_id"],
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": "Failed to retry case handoff",
+                    "delivery_id": delivery.delivery_id,
+                    "receipt_id": result.receipt.receipt_id,
+                    "status": result.receipt.status,
+                    "published_at": result.receipt.published_at,
+                    "audit_event_id": str(result.audit_event["event_id"]),
+                    "publisher_type": result.receipt.publisher_type,
+                    "target_ref": result.receipt.target_ref,
+                    "error_type": result.receipt.error_type,
+                    "error_message": result.receipt.error_message,
+                    "metadata": result.receipt.metadata,
+                    "destination": {
+                        "destination_type": result.export.destination.destination_type,
+                        "destination_key": result.export.destination.destination_key,
+                    },
+                },
+            ) from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        emit_event(
+            "case_handoff_retry_completed",
+            case_id=result.case.case_id,
+            delivery_id=delivery.delivery_id,
+            destination_type=delivery.destination_type,
+            destination_key=delivery.destination_key,
+            publisher_type=result.receipt.publisher_type,
+            audit_event_id=result.audit_event["event_id"],
+        )
+        return _to_handoff_publish_response(result)
 
     @fastapi_app.get(
         "/analyst-workbench/handoff-deliveries",
@@ -1182,6 +1279,108 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             limit=limit,
         )
         return _build_handoff_delivery_list_response(deliveries)
+
+    @fastapi_app.post(
+        "/analyst-workbench/handoff-dead-letter/retry",
+        response_model=HandoffRetryBatchResponse,
+    )
+    def retry_handoff_dead_letter(
+        payload: HandoffRetryBatchRequest,
+    ) -> HandoffRetryBatchResponse:
+        deliveries = _list_handoff_deliveries(
+            container.case_service.list_cases(limit=None),
+            case_id=payload.case_id,
+            status="failed",
+            destination_type=payload.destination_type,
+            publisher_type=payload.publisher_type,
+            limit=payload.limit,
+        )
+        results: list[HandoffPublishResponse] = []
+        failures: list[dict[str, Any]] = []
+        for delivery in deliveries:
+            retry_note = payload.note or f"批量重试投递 {delivery.delivery_id}"
+            emit_event(
+                "case_handoff_retry_requested",
+                case_id=_case_id_for_delivery(container, delivery.delivery_id),
+                delivery_id=delivery.delivery_id,
+                destination_type=delivery.destination_type,
+                destination_key=delivery.destination_key,
+                publisher_type=delivery.publisher_type,
+            )
+            try:
+                owner_case = _find_case_by_handoff_delivery(container, delivery.delivery_id)
+                if owner_case is None:
+                    failures.append(
+                        {
+                            "delivery_id": delivery.delivery_id,
+                            "message": "Handoff delivery owner case not found",
+                        }
+                    )
+                    continue
+                result = container.handoff_publisher_service.publish_case_handoff(
+                    owner_case.case_id,
+                    destination_type=delivery.destination_type,
+                    destination_key=delivery.destination_key,
+                    note=retry_note,
+                    published_at=_utc_now_iso(),
+                )
+            except ValueError as exc:
+                failures.append(
+                    {
+                        "delivery_id": delivery.delivery_id,
+                        "message": str(exc),
+                    }
+                )
+                continue
+            except HandoffPublishError as exc:
+                result = exc.result
+                emit_event(
+                    "case_handoff_retry_failed",
+                    case_id=result.case.case_id,
+                    delivery_id=delivery.delivery_id,
+                    destination_type=delivery.destination_type,
+                    destination_key=delivery.destination_key,
+                    publisher_type=result.receipt.publisher_type,
+                    error_type=result.receipt.error_type,
+                    audit_event_id=result.audit_event["event_id"],
+                )
+                failures.append(
+                    {
+                        "delivery_id": delivery.delivery_id,
+                        "case_id": result.case.case_id,
+                        "message": result.receipt.error_message,
+                        "publisher_type": result.receipt.publisher_type,
+                        "target_ref": result.receipt.target_ref,
+                        "error_type": result.receipt.error_type,
+                    }
+                )
+                continue
+            if result is None:
+                failures.append(
+                    {
+                        "delivery_id": delivery.delivery_id,
+                        "message": "Case not found",
+                    }
+                )
+                continue
+            emit_event(
+                "case_handoff_retry_completed",
+                case_id=result.case.case_id,
+                delivery_id=delivery.delivery_id,
+                destination_type=delivery.destination_type,
+                destination_key=delivery.destination_key,
+                publisher_type=result.receipt.publisher_type,
+                audit_event_id=result.audit_event["event_id"],
+            )
+            results.append(_to_handoff_publish_response(result))
+        return HandoffRetryBatchResponse(
+            generated_at=_utc_now_iso(),
+            requested_count=len(deliveries),
+            success_count=len(results),
+            failed_count=len(failures),
+            results=results,
+            failures=failures,
+        )
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1711,6 +1910,23 @@ def _build_handoff_delivery_list_response(
     )
 
 
+def _to_handoff_publish_response(result) -> HandoffPublishResponse:
+    return HandoffPublishResponse(
+        receipt_id=result.receipt.receipt_id,
+        status=result.receipt.status,
+        published_at=result.receipt.published_at,
+        audit_event_id=str(result.audit_event["event_id"]),
+        publisher_type=result.receipt.publisher_type,
+        target_ref=result.receipt.target_ref,
+        metadata=result.receipt.metadata,
+        destination=HandoffDestinationPayload(
+            destination_type=result.export.destination.destination_type,
+            destination_key=result.export.destination.destination_key,
+        ),
+        export=_to_handoff_export_payload(result.export),
+    )
+
+
 def _list_handoff_deliveries(
     cases: list[WorkflowCase],
     *,
@@ -1737,6 +1953,38 @@ def _list_handoff_deliveries(
             deliveries.append(delivery)
     deliveries.sort(key=lambda item: item.created_at, reverse=True)
     return deliveries[:limit]
+
+
+def _find_case_handoff_delivery(
+    container,
+    case_id: str,
+    delivery_id: str,
+) -> WorkflowCaseHandoffDeliveryEntry | None:
+    case = container.case_service.get_case(case_id)
+    if case is None:
+        return None
+    for delivery in case.handoff_deliveries:
+        if delivery.delivery_id == delivery_id:
+            return delivery
+    return None
+
+
+def _find_case_by_handoff_delivery(
+    container,
+    delivery_id: str,
+) -> WorkflowCase | None:
+    for case in container.case_service.list_cases(limit=None):
+        for delivery in case.handoff_deliveries:
+            if delivery.delivery_id == delivery_id:
+                return case
+    return None
+
+
+def _case_id_for_delivery(container, delivery_id: str) -> str | None:
+    case = _find_case_by_handoff_delivery(container, delivery_id)
+    if case is None:
+        return None
+    return case.case_id
 
 
 def _to_strategy_recommendation_payload(
@@ -2231,6 +2479,9 @@ def _build_case_gauges(container) -> Dict[str, int]:
         gauges[f"cases.severity.{severity}"] = 0
     gauges["cases.action_plan.total"] = 0
     gauges["cases.action_plan.overdue"] = 0
+    gauges["cases.handoff.deliveries.total"] = 0
+    gauges["cases.handoff.deliveries.failed"] = 0
+    gauges["cases.handoff.dead_letter_cases"] = 0
     for action_status in ("queued", "in_progress", "completed"):
         gauges[f"cases.action_plan.status.{action_status}"] = 0
     for case in cases:
@@ -2242,6 +2493,28 @@ def _build_case_gauges(container) -> Dict[str, int]:
             f"cases.severity.{case.severity}",
             0,
         ) + 1
+        gauges["cases.handoff.deliveries.total"] += len(case.handoff_deliveries)
+        failed_deliveries = [item for item in case.handoff_deliveries if item.status != "published"]
+        gauges["cases.handoff.deliveries.failed"] += len(failed_deliveries)
+        if failed_deliveries:
+            gauges["cases.handoff.dead_letter_cases"] += 1
+        for delivery in case.handoff_deliveries:
+            gauges[f"cases.handoff.deliveries.status.{delivery.status}"] = gauges.get(
+                f"cases.handoff.deliveries.status.{delivery.status}",
+                0,
+            ) + 1
+            gauges[
+                f"cases.handoff.deliveries.destination.{delivery.destination_type}"
+            ] = gauges.get(
+                f"cases.handoff.deliveries.destination.{delivery.destination_type}",
+                0,
+            ) + 1
+            gauges[
+                f"cases.handoff.deliveries.publisher.{delivery.publisher_type}"
+            ] = gauges.get(
+                f"cases.handoff.deliveries.publisher.{delivery.publisher_type}",
+                0,
+            ) + 1
         if case.risk_decision is None or case.risk_decision.action_plan is None:
             continue
         action_plan = case.risk_decision.action_plan

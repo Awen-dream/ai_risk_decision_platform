@@ -185,6 +185,22 @@ def _increment_metrics(event: str, fields: dict[str, Any]) -> None:
         metric_names.append("cases.created")
     if event == "case_status_updated":
         metric_names.append("cases.status_updated")
+    if event.startswith("case_handoff_"):
+        metric_names.append(f"cases.handoff.{event.removeprefix('case_handoff_')}")
+        if event in {"case_handoff_published", "case_handoff_publish_failed"}:
+            metric_names.append("cases.handoff.publish.total")
+        if event in {"case_handoff_retry_requested", "case_handoff_retry_completed", "case_handoff_retry_failed"}:
+            metric_names.append("cases.handoff.retry.total")
+        destination_type = fields.get("destination_type")
+        if destination_type:
+            metric_names.append(
+                f"cases.handoff.destinations.{destination_type}.{event.removeprefix('case_handoff_')}"
+            )
+        publisher_type = fields.get("publisher_type")
+        if publisher_type:
+            metric_names.append(
+                f"cases.handoff.publishers.{publisher_type}.{event.removeprefix('case_handoff_')}"
+            )
     if event == "agent_request_failed":
         metric_names.append("agent.requests.failed")
         if agent_name:
