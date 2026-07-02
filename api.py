@@ -20,11 +20,13 @@ from core.models import (
     RiskDecisionRecord,
     StrategyRecommendationRecord,
     WorkflowCase,
+    WorkflowCaseHandoffDeliveryEntry,
     WorkflowCaseHistoryEntry,
     WorkflowCaseOperationEntry,
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
+from services.handoff import HandoffPublishError
 from services.case_service import ALLOWED_CASE_STATUSES, is_risk_action_plan_overdue
 from services.observability import (
     REQUEST_ID_HEADER,
@@ -414,6 +416,22 @@ class CaseOperationPayload(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class HandoffDeliveryPayload(BaseModel):
+    delivery_id: str
+    export_id: str
+    destination_type: str
+    destination_key: str
+    publisher_type: str
+    target_ref: str
+    status: str
+    summary: str
+    created_at: str
+    published_at: Optional[str] = None
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkflowCasePayload(BaseModel):
     case_id: str
     session_id: str
@@ -432,6 +450,7 @@ class WorkflowCasePayload(BaseModel):
     risk_decision: Optional[RiskDecisionPayload] = None
     history: List[CaseHistoryPayload] = Field(default_factory=list)
     operation_log: List[CaseOperationPayload] = Field(default_factory=list)
+    handoff_deliveries: List[HandoffDeliveryPayload] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
@@ -524,6 +543,13 @@ class HandoffPublishResponse(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     destination: HandoffDestinationPayload
     export: HandoffExportPayload
+
+
+class HandoffDeliveryListResponse(BaseModel):
+    generated_at: str
+    total_count: int
+    failed_count: int
+    deliveries: List[HandoffDeliveryPayload] = Field(default_factory=list)
 
 
 class ActionQueueAssignRequest(BaseModel):
@@ -1061,6 +1087,27 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HandoffPublishError as exc:
+            result = exc.result
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": "Failed to publish case handoff",
+                    "receipt_id": result.receipt.receipt_id,
+                    "status": result.receipt.status,
+                    "published_at": result.receipt.published_at,
+                    "audit_event_id": str(result.audit_event["event_id"]),
+                    "publisher_type": result.receipt.publisher_type,
+                    "target_ref": result.receipt.target_ref,
+                    "error_type": result.receipt.error_type,
+                    "error_message": result.receipt.error_message,
+                    "metadata": result.receipt.metadata,
+                    "destination": {
+                        "destination_type": result.export.destination.destination_type,
+                        "destination_key": result.export.destination.destination_key,
+                    },
+                },
+            ) from exc
         if result is None:
             raise HTTPException(status_code=404, detail="Case not found")
         emit_event(
@@ -1084,6 +1131,57 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             ),
             export=_to_handoff_export_payload(result.export),
         )
+
+    @fastapi_app.get(
+        "/analyst-workbench/cases/{case_id}/handoff-deliveries",
+        response_model=HandoffDeliveryListResponse,
+    )
+    def get_case_handoff_deliveries(case_id: str) -> HandoffDeliveryListResponse:
+        case = container.case_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return _build_handoff_delivery_list_response(case.handoff_deliveries)
+
+    @fastapi_app.get(
+        "/analyst-workbench/handoff-deliveries",
+        response_model=HandoffDeliveryListResponse,
+    )
+    def list_handoff_deliveries(
+        case_id: Optional[str] = None,
+        status: Optional[str] = None,
+        destination_type: Optional[str] = None,
+        publisher_type: Optional[str] = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> HandoffDeliveryListResponse:
+        deliveries = _list_handoff_deliveries(
+            container.case_service.list_cases(limit=None),
+            case_id=case_id,
+            status=status,
+            destination_type=destination_type,
+            publisher_type=publisher_type,
+            limit=limit,
+        )
+        return _build_handoff_delivery_list_response(deliveries)
+
+    @fastapi_app.get(
+        "/analyst-workbench/handoff-dead-letter",
+        response_model=HandoffDeliveryListResponse,
+    )
+    def list_handoff_dead_letter(
+        case_id: Optional[str] = None,
+        destination_type: Optional[str] = None,
+        publisher_type: Optional[str] = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> HandoffDeliveryListResponse:
+        deliveries = _list_handoff_deliveries(
+            container.case_service.list_cases(limit=None),
+            case_id=case_id,
+            status="failed",
+            destination_type=destination_type,
+            publisher_type=publisher_type,
+            limit=limit,
+        )
+        return _build_handoff_delivery_list_response(deliveries)
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1573,9 +1671,72 @@ def _to_case_payload(case: WorkflowCase) -> WorkflowCasePayload:
         risk_decision=_to_risk_decision_payload(case.risk_decision),
         history=[_to_case_history_payload(item) for item in case.history],
         operation_log=[_to_case_operation_payload(item) for item in case.operation_log],
+        handoff_deliveries=[
+            _to_handoff_delivery_payload(item) for item in case.handoff_deliveries
+        ],
         created_at=case.created_at,
         updated_at=case.updated_at,
     )
+
+
+def _to_handoff_delivery_payload(
+    delivery: WorkflowCaseHandoffDeliveryEntry,
+) -> HandoffDeliveryPayload:
+    return HandoffDeliveryPayload(
+        delivery_id=delivery.delivery_id,
+        export_id=delivery.export_id,
+        destination_type=delivery.destination_type,
+        destination_key=delivery.destination_key,
+        publisher_type=delivery.publisher_type,
+        target_ref=delivery.target_ref,
+        status=delivery.status,
+        summary=delivery.summary,
+        created_at=delivery.created_at,
+        published_at=delivery.published_at,
+        error_type=delivery.error_type,
+        error_message=delivery.error_message,
+        metadata=dict(delivery.metadata),
+    )
+
+
+def _build_handoff_delivery_list_response(
+    deliveries: list[WorkflowCaseHandoffDeliveryEntry],
+) -> HandoffDeliveryListResponse:
+    failed_count = sum(1 for item in deliveries if item.status != "published")
+    return HandoffDeliveryListResponse(
+        generated_at=_utc_now_iso(),
+        total_count=len(deliveries),
+        failed_count=failed_count,
+        deliveries=[_to_handoff_delivery_payload(item) for item in deliveries],
+    )
+
+
+def _list_handoff_deliveries(
+    cases: list[WorkflowCase],
+    *,
+    case_id: str | None = None,
+    status: str | None = None,
+    destination_type: str | None = None,
+    publisher_type: str | None = None,
+    limit: int = 100,
+) -> list[WorkflowCaseHandoffDeliveryEntry]:
+    deliveries: list[WorkflowCaseHandoffDeliveryEntry] = []
+    for case in cases:
+        if case_id is not None and case.case_id != case_id:
+            continue
+        for delivery in case.handoff_deliveries:
+            if status is not None and delivery.status != status:
+                continue
+            if (
+                destination_type is not None
+                and delivery.destination_type != destination_type
+            ):
+                continue
+            if publisher_type is not None and delivery.publisher_type != publisher_type:
+                continue
+            deliveries.append(delivery)
+    deliveries.sort(key=lambda item: item.created_at, reverse=True)
+    return deliveries[:limit]
 
 
 def _to_strategy_recommendation_payload(

@@ -377,6 +377,57 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(reloaded_case.operation_log[-1].operation_type, "handoff_published")
             self.assertEqual(reloaded_case.history[-1].summary, "已推送到策略实验工单")
 
+    def test_file_case_store_persists_handoff_delivery_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="file",
+                session_store_path=Path(tmp_dir) / "sessions.json",
+                case_store_backend="file",
+                case_store_path=Path(tmp_dir) / "cases.json",
+            )
+
+            container = build_app_container(config)
+            session_id, _ = container.runtime.execute(
+                "graph",
+                AgentRequest(
+                    query="请分析用户 U10001 是否属于团伙网络",
+                    context={"user_id": "U10001"},
+                ),
+            )
+            session = container.runtime.get_session(session_id)
+            assert session is not None
+            created_case = container.case_service.create_case_from_session(session)
+
+            updated_case = container.case_service.record_case_handoff_delivery(
+                created_case.case_id,
+                export_id="HEX-DELIVERY-001",
+                destination_type="webhook",
+                destination_key="ops-sync",
+                publisher_type="webhook",
+                target_ref="https://handoff.local/webhooks/ops-sync",
+                status="failed",
+                summary="推送 webhook 失败",
+                created_at="2026-07-02T00:30:00Z",
+                published_at="2026-07-02T00:30:00Z",
+                error_type="URLError",
+                error_message="handoff offline",
+                metadata={"method": "POST"},
+            )
+
+            assert updated_case is not None
+            self.assertEqual(updated_case.handoff_deliveries[-1].status, "failed")
+            self.assertEqual(
+                updated_case.handoff_artifact["handoff_delivery_summary"]["failed_attempts"],
+                1,
+            )
+
+            rebuilt = build_app_container(config)
+            reloaded_case = rebuilt.case_service.get_case(created_case.case_id)
+            self.assertIsNotNone(reloaded_case)
+            assert reloaded_case is not None
+            self.assertEqual(reloaded_case.handoff_deliveries[-1].publisher_type, "webhook")
+            self.assertEqual(reloaded_case.handoff_deliveries[-1].error_type, "URLError")
+
     def test_file_case_store_supports_pagination_and_updated_at_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(

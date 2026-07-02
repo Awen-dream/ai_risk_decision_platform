@@ -13,6 +13,7 @@ from core.models import (
     SessionRecord,
     StrategyRecommendationRecord,
     WorkflowCase,
+    WorkflowCaseHandoffDeliveryEntry,
     WorkflowCaseHistoryEntry,
     WorkflowCaseOperationEntry,
 )
@@ -109,6 +110,26 @@ class CaseService(ABC):
         note: str | None = None,
     ) -> WorkflowCase | None:
         """Record that a case handoff package has been published."""
+
+    @abstractmethod
+    def record_case_handoff_delivery(
+        self,
+        case_id: str,
+        *,
+        export_id: str,
+        destination_type: str,
+        destination_key: str,
+        publisher_type: str,
+        target_ref: str,
+        status: str,
+        summary: str,
+        created_at: str,
+        published_at: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCase | None:
+        """Append a handoff delivery ledger entry to the case."""
 
 
 class InMemoryCaseService(CaseService):
@@ -259,6 +280,43 @@ class InMemoryCaseService(CaseService):
             destination_type=destination_type,
             destination_key=destination_key,
             note=note,
+        )
+        return case
+
+    def record_case_handoff_delivery(
+        self,
+        case_id: str,
+        *,
+        export_id: str,
+        destination_type: str,
+        destination_key: str,
+        publisher_type: str,
+        target_ref: str,
+        status: str,
+        summary: str,
+        created_at: str,
+        published_at: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCase | None:
+        case = self._cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_handoff_delivery(
+            case,
+            export_id=export_id,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            publisher_type=publisher_type,
+            target_ref=target_ref,
+            status=status,
+            summary=summary,
+            created_at=created_at,
+            published_at=published_at,
+            error_type=error_type,
+            error_message=error_message,
+            metadata=metadata,
         )
         return case
 
@@ -419,6 +477,45 @@ class FileCaseService(CaseService):
             destination_type=destination_type,
             destination_key=destination_key,
             note=note,
+        )
+        self._save_cases(cases)
+        return case
+
+    def record_case_handoff_delivery(
+        self,
+        case_id: str,
+        *,
+        export_id: str,
+        destination_type: str,
+        destination_key: str,
+        publisher_type: str,
+        target_ref: str,
+        status: str,
+        summary: str,
+        created_at: str,
+        published_at: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCase | None:
+        cases = self._load_cases()
+        case = cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_handoff_delivery(
+            case,
+            export_id=export_id,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            publisher_type=publisher_type,
+            target_ref=target_ref,
+            status=status,
+            summary=summary,
+            created_at=created_at,
+            published_at=published_at,
+            error_type=error_type,
+            error_message=error_message,
+            metadata=metadata,
         )
         self._save_cases(cases)
         return case
@@ -741,6 +838,61 @@ class SQLiteCaseService(CaseService):
                 destination_type=destination_type,
                 destination_key=destination_key,
                 note=note,
+            )
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = ?, payload_json = ?,
+                    revision = revision + 1
+                WHERE case_id = ?
+                """,
+                (
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
+    def record_case_handoff_delivery(
+        self,
+        case_id: str,
+        *,
+        export_id: str,
+        destination_type: str,
+        destination_key: str,
+        publisher_type: str,
+        target_ref: str,
+        status: str,
+        summary: str,
+        created_at: str,
+        published_at: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_handoff_delivery(
+                case,
+                export_id=export_id,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                publisher_type=publisher_type,
+                target_ref=target_ref,
+                status=status,
+                summary=summary,
+                created_at=created_at,
+                published_at=published_at,
+                error_type=error_type,
+                error_message=error_message,
+                metadata=metadata,
             )
             connection.execute(
                 """
@@ -1090,6 +1242,61 @@ class PostgresCaseService(CaseService):
             )
         return case
 
+    def record_case_handoff_delivery(
+        self,
+        case_id: str,
+        *,
+        export_id: str,
+        destination_type: str,
+        destination_key: str,
+        publisher_type: str,
+        target_ref: str,
+        status: str,
+        summary: str,
+        created_at: str,
+        published_at: str | None = None,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = %s FOR UPDATE",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_handoff_delivery(
+                case,
+                export_id=export_id,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                publisher_type=publisher_type,
+                target_ref=target_ref,
+                status=status,
+                summary=summary,
+                created_at=created_at,
+                published_at=published_at,
+                error_type=error_type,
+                error_message=error_message,
+                metadata=metadata,
+            )
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = %s, payload_json = %s::jsonb,
+                    revision = revision + 1
+                WHERE case_id = %s
+                """,
+                (
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
 
 def _build_case_from_session(
     session: SessionRecord,
@@ -1380,6 +1587,72 @@ def _append_case_handoff_publication(
     _refresh_case_handoff_artifact(case, trigger="handoff_published")
 
 
+def _append_case_handoff_delivery(
+    case: WorkflowCase,
+    *,
+    export_id: str,
+    destination_type: str,
+    destination_key: str,
+    publisher_type: str,
+    target_ref: str,
+    status: str,
+    summary: str,
+    created_at: str,
+    published_at: str | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    case.updated_at = created_at or _current_timestamp()
+    case.handoff_deliveries.append(
+        WorkflowCaseHandoffDeliveryEntry(
+            delivery_id=f"DLV-{uuid4().hex[:10].upper()}",
+            export_id=export_id,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            publisher_type=publisher_type,
+            target_ref=target_ref,
+            status=status,
+            summary=summary,
+            created_at=case.updated_at,
+            published_at=published_at,
+            error_type=error_type,
+            error_message=error_message,
+            metadata=dict(metadata or {}),
+        )
+    )
+    operation_type = "handoff_delivery_recorded"
+    event_type = "handoff_delivery_recorded"
+    if status != "published":
+        operation_type = "handoff_publish_failed"
+        event_type = "handoff_publish_failed"
+    case.history.append(
+        WorkflowCaseHistoryEntry(
+            event_type=event_type,
+            status=case.status,
+            summary=summary,
+        )
+    )
+    _record_case_operation(
+        case,
+        operation_type=operation_type,
+        status_before=case.status,
+        status_after=case.status,
+        summary=summary,
+        metadata={
+            "event_type": event_type,
+            "delivery_status": status,
+            "destination_type": destination_type,
+            "destination_key": destination_key,
+            "publisher_type": publisher_type,
+            "target_ref": target_ref,
+            "export_id": export_id,
+            "error_type": error_type,
+        },
+    )
+    _refresh_case_handoff_artifact(case, trigger=event_type)
+
+
 def _record_case_operation(
     case: WorkflowCase,
     *,
@@ -1429,6 +1702,10 @@ def _refresh_case_handoff_artifact(
             if item and item not in next_actions:
                 next_actions.append(item)
     latest_operation = case.operation_log[-1] if case.operation_log else None
+    latest_delivery = case.handoff_deliveries[-1] if case.handoff_deliveries else None
+    failed_delivery_count = sum(
+        1 for entry in case.handoff_deliveries if entry.status != "published"
+    )
     case.handoff_artifact = {
         "version": "v1",
         "case_id": case.case_id,
@@ -1455,6 +1732,25 @@ def _refresh_case_handoff_artifact(
             if case.risk_decision is not None
             else []
         ),
+        "handoff_delivery_summary": {
+            "total_attempts": len(case.handoff_deliveries),
+            "failed_attempts": failed_delivery_count,
+            "last_status": (
+                latest_delivery.status if latest_delivery is not None else None
+            ),
+            "last_destination_type": (
+                latest_delivery.destination_type if latest_delivery is not None else None
+            ),
+            "last_destination_key": (
+                latest_delivery.destination_key if latest_delivery is not None else None
+            ),
+            "last_publisher_type": (
+                latest_delivery.publisher_type if latest_delivery is not None else None
+            ),
+            "last_published_at": (
+                latest_delivery.published_at if latest_delivery is not None else None
+            ),
+        },
         "next_actions": next_actions,
         "operation_context": {
             "trigger": trigger,
@@ -1735,6 +2031,24 @@ def _serialize_case(case: WorkflowCase) -> dict[str, object]:
             }
             for item in case.operation_log
         ],
+        "handoff_deliveries": [
+            {
+                "delivery_id": item.delivery_id,
+                "export_id": item.export_id,
+                "destination_type": item.destination_type,
+                "destination_key": item.destination_key,
+                "publisher_type": item.publisher_type,
+                "target_ref": item.target_ref,
+                "status": item.status,
+                "summary": item.summary,
+                "created_at": item.created_at,
+                "published_at": item.published_at,
+                "error_type": item.error_type,
+                "error_message": item.error_message,
+                "metadata": item.metadata,
+            }
+            for item in case.handoff_deliveries
+        ],
     }
 
 
@@ -1812,6 +2126,37 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         for entry in item.get("operation_log", [])
         if isinstance(entry, dict)
     ]
+    handoff_deliveries = [
+        WorkflowCaseHandoffDeliveryEntry(
+            delivery_id=str(entry["delivery_id"]),
+            export_id=str(entry["export_id"]),
+            destination_type=str(entry["destination_type"]),
+            destination_key=str(entry["destination_key"]),
+            publisher_type=str(entry.get("publisher_type", "unknown")),
+            target_ref=str(entry.get("target_ref", "")),
+            status=str(entry.get("status", "published")),
+            summary=str(entry.get("summary", "")),
+            created_at=str(entry.get("created_at", item.get("updated_at", ""))),
+            published_at=(
+                str(entry["published_at"])
+                if entry.get("published_at") is not None
+                else None
+            ),
+            error_type=(
+                str(entry["error_type"])
+                if entry.get("error_type") is not None
+                else None
+            ),
+            error_message=(
+                str(entry["error_message"])
+                if entry.get("error_message") is not None
+                else None
+            ),
+            metadata=dict(entry.get("metadata", {})),
+        )
+        for entry in item.get("handoff_deliveries", [])
+        if isinstance(entry, dict)
+    ]
     case = WorkflowCase(
         case_id=str(item["case_id"]),
         session_id=str(item["session_id"]),
@@ -1830,6 +2175,7 @@ def _deserialize_case(payload: dict[str, object]) -> WorkflowCase:
         risk_decision=risk_decision,
         history=history,
         operation_log=operation_log,
+        handoff_deliveries=handoff_deliveries,
         created_at=str(item.get("created_at", "")),
         updated_at=str(item.get("updated_at", "")),
     )

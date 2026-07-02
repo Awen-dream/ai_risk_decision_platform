@@ -38,6 +38,9 @@ class HandoffPublishReceipt:
     published_at: str
     publisher_type: str
     target_ref: str
+    summary: str = ""
+    error_type: str | None = None
+    error_message: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -47,6 +50,30 @@ class HandoffPublishResult:
     export: HandoffExportEnvelope
     receipt: HandoffPublishReceipt
     audit_event: dict[str, Any]
+
+
+class HandoffDeliveryPublishError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        publisher_type: str,
+        target_ref: str,
+        error_type: str,
+        error_message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(error_message)
+        self.publisher_type = publisher_type
+        self.target_ref = target_ref
+        self.error_type = error_type
+        self.error_message = error_message
+        self.metadata = dict(metadata or {})
+
+
+class HandoffPublishError(RuntimeError):
+    def __init__(self, result: HandoffPublishResult) -> None:
+        super().__init__(result.receipt.error_message or result.receipt.summary)
+        self.result = result
 
 
 class HandoffPublisher(Protocol):
@@ -73,6 +100,7 @@ class AuditOnlyHandoffPublisher:
             published_at=export.exported_at,
             publisher_type=self.publisher_type,
             target_ref=f"audit://{export.destination.destination_key}",
+            summary=f"案件交接已归档到 audit-only:{export.destination.destination_key}。",
             metadata={"delivery_mode": "audit_only"},
         )
 
@@ -105,20 +133,34 @@ class HttpTicketHandoffPublisher:
             "handoff_artifact": export.handoff_artifact,
             "operation_log": [_operation_to_mapping(item) for item in export.operation_log],
         }
-        response_status = _post_json_with_retry(
-            url=target_ref,
-            payload=payload,
-            headers=self.headers,
-            timeout_sec=self.timeout_sec,
-            retry_attempts=self.retry_attempts,
-            retry_backoff_sec=self.retry_backoff_sec,
-        )
+        try:
+            response_status = _post_json_with_retry(
+                url=target_ref,
+                payload=payload,
+                headers=self.headers,
+                timeout_sec=self.timeout_sec,
+                retry_attempts=self.retry_attempts,
+                retry_backoff_sec=self.retry_backoff_sec,
+            )
+        except Exception as exc:
+            raise HandoffDeliveryPublishError(
+                publisher_type=self.publisher_type,
+                target_ref=target_ref,
+                error_type=type(exc).__name__,
+                error_message=str(exc) or "Ticket handoff publish failed",
+                metadata={
+                    "project_key": self.project_key,
+                    "case_status": export.case.status,
+                    "case_severity": export.case.severity,
+                },
+            ) from exc
         return HandoffPublishReceipt(
             receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
             status="published",
             published_at=export.exported_at,
             publisher_type=self.publisher_type,
             target_ref=target_ref,
+            summary=f"案件交接已发布到工单系统 {self.project_key}。",
             metadata={
                 "project_key": self.project_key,
                 "case_status": export.case.status,
@@ -159,20 +201,30 @@ class HttpWebhookHandoffPublisher:
             },
             "handoff_artifact": export.handoff_artifact,
         }
-        response_status = _post_json_with_retry(
-            url=target_ref,
-            payload=payload,
-            headers=self.headers,
-            timeout_sec=self.timeout_sec,
-            retry_attempts=self.retry_attempts,
-            retry_backoff_sec=self.retry_backoff_sec,
-        )
+        try:
+            response_status = _post_json_with_retry(
+                url=target_ref,
+                payload=payload,
+                headers=self.headers,
+                timeout_sec=self.timeout_sec,
+                retry_attempts=self.retry_attempts,
+                retry_backoff_sec=self.retry_backoff_sec,
+            )
+        except Exception as exc:
+            raise HandoffDeliveryPublishError(
+                publisher_type=self.publisher_type,
+                target_ref=target_ref,
+                error_type=type(exc).__name__,
+                error_message=str(exc) or "Webhook handoff publish failed",
+                metadata={"method": "POST"},
+            ) from exc
         return HandoffPublishReceipt(
             receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
             status="published",
             published_at=export.exported_at,
             publisher_type=self.publisher_type,
             target_ref=target_ref,
+            summary=f"案件交接已推送到 webhook:{export.destination.destination_key}。",
             metadata={"method": "POST", "http_status": response_status},
         )
 
@@ -226,7 +278,68 @@ class CaseHandoffPublisherService:
             exported_at=published_at,
         )
         publisher = self._publisher_for(destination_type)
-        receipt = publisher.publish(export)
+        try:
+            receipt = publisher.publish(export)
+        except HandoffDeliveryPublishError as exc:
+            failed_receipt = HandoffPublishReceipt(
+                receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
+                status="failed",
+                published_at=published_at,
+                publisher_type=exc.publisher_type,
+                target_ref=exc.target_ref,
+                summary=note or f"案件交接发布失败到 {destination_type}:{destination_key}。",
+                error_type=exc.error_type,
+                error_message=exc.error_message,
+                metadata=exc.metadata,
+            )
+            failed_case = self._case_service.record_case_handoff_delivery(
+                case_id,
+                export_id=export.export_id,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                publisher_type=failed_receipt.publisher_type,
+                target_ref=failed_receipt.target_ref,
+                status=failed_receipt.status,
+                summary=failed_receipt.summary,
+                created_at=published_at,
+                published_at=failed_receipt.published_at,
+                error_type=failed_receipt.error_type,
+                error_message=failed_receipt.error_message,
+                metadata=failed_receipt.metadata,
+            )
+            result_case = failed_case or case
+            failed_export = self._build_export(
+                result_case,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                exported_at=published_at,
+            )
+            audit_event = self._build_audit_event(result_case, failed_export, failed_receipt)
+            self._audit_log.record(audit_event)
+            raise HandoffPublishError(
+                HandoffPublishResult(
+                    case=result_case,
+                    export=failed_export,
+                    receipt=failed_receipt,
+                    audit_event=audit_event,
+                )
+            ) from exc
+
+        delivered_case = self._case_service.record_case_handoff_delivery(
+            case_id,
+            export_id=export.export_id,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            publisher_type=receipt.publisher_type,
+            target_ref=receipt.target_ref,
+            status=receipt.status,
+            summary=receipt.summary or (note or "案件交接已发布。"),
+            created_at=published_at,
+            published_at=receipt.published_at,
+            metadata=receipt.metadata,
+        )
+        if delivered_case is None:
+            return None
         updated_case = self._case_service.publish_case_handoff(
             case_id,
             destination_type=destination_type,
@@ -292,10 +405,10 @@ class CaseHandoffPublisherService:
             upstream_client="CaseHandoffPublisher",
             method="PUBLISH",
             url=receipt.target_ref,
-            outcome="success",
+            outcome="success" if receipt.status == "published" else "error",
             attempt=1,
             total_attempts=1,
-            status_code=202,
+            status_code=_receipt_status_code(receipt),
             request_header_names=["X-Request-Id", "X-Trace-Id"],
         )
         event["event_type"] = "case_handoff_publish"
@@ -308,6 +421,8 @@ class CaseHandoffPublisherService:
         event["target_ref"] = receipt.target_ref
         event["case_status"] = case.status
         event["case_severity"] = case.severity
+        if receipt.error_type is not None:
+            event["error_type"] = receipt.error_type
         return event
 
 
@@ -358,3 +473,12 @@ def _post_json_with_retry(
         if retry_backoff_sec > 0:
             time.sleep(retry_backoff_sec * (2 ** (attempt - 1)))
     raise RuntimeError("handoff publish failed after retries")
+
+
+def _receipt_status_code(receipt: HandoffPublishReceipt) -> int:
+    status_code = receipt.metadata.get("http_status")
+    if isinstance(status_code, int):
+        return status_code
+    if receipt.status == "published":
+        return 202
+    return 502

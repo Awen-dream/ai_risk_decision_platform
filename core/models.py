@@ -401,6 +401,23 @@ class WorkflowCaseOperationEntry:
 
 
 @dataclass
+class WorkflowCaseHandoffDeliveryEntry:
+    delivery_id: str
+    export_id: str
+    destination_type: str
+    destination_key: str
+    publisher_type: str
+    target_ref: str
+    status: str
+    summary: str
+    created_at: str
+    published_at: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class WorkflowCase:
     case_id: str
     session_id: str
@@ -419,5 +436,6 @@ class WorkflowCase:
     risk_decision: RiskDecisionRecord | None = None
     history: list[WorkflowCaseHistoryEntry] = field(default_factory=list)
     operation_log: list[WorkflowCaseOperationEntry] = field(default_factory=list)
+    handoff_deliveries: list[WorkflowCaseHandoffDeliveryEntry] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""

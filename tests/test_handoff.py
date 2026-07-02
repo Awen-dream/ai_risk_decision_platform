@@ -3,10 +3,11 @@ from __future__ import annotations
 import unittest
 from io import BytesIO
 from unittest.mock import patch
+from urllib.error import URLError
 
 from app import build_app_container, build_handoff_publisher_service
 from core.models import AgentRequest
-from services.handoff import CaseHandoffPublisherService
+from services.handoff import CaseHandoffPublisherService, HandoffPublishError
 from settings import AppConfig
 
 
@@ -103,7 +104,48 @@ class HandoffPublisherTests(unittest.TestCase):
             audit_only_result.audit_event["publisher_type"],
             "audit-only",
         )
+        self.assertEqual(ticket_result.case.handoff_deliveries[-1].status, "published")
+        self.assertTrue(
+            any(
+                item.publisher_type == "webhook"
+                for item in webhook_result.case.handoff_deliveries
+            )
+        )
         self.assertEqual(mocked.call_count, 2)
+
+    def test_publish_failure_records_dead_letter_and_audit_event(self) -> None:
+        session_id, _ = self.runtime.execute(
+            "root_cause",
+            AgentRequest(
+                query="请分析巴西信用卡支付失败率升高的根因并给出排序",
+                context={"country": "BR", "channel": "credit_card"},
+            ),
+        )
+        session = self.runtime.get_session(session_id)
+        assert session is not None
+        case = self.case_service.create_case_from_session(session)
+
+        with patch("services.handoff.urlopen", side_effect=URLError("handoff offline")):
+            with self.assertRaises(HandoffPublishError) as captured:
+                self.service.publish_case_handoff(
+                    case.case_id,
+                    destination_type="ticket",
+                    destination_key="shadow-exp-2",
+                    note="推送失败",
+                    published_at="2026-07-02T00:20:00Z",
+                )
+
+        result = captured.exception.result
+        self.assertEqual(result.receipt.status, "failed")
+        self.assertEqual(result.receipt.publisher_type, "ticket")
+        self.assertEqual(result.receipt.error_type, "URLError")
+        self.assertEqual(result.case.handoff_deliveries[-1].status, "failed")
+        self.assertEqual(
+            result.case.handoff_deliveries[-1].destination_key,
+            "shadow-exp-2",
+        )
+        self.assertEqual(result.audit_event["outcome"], "error")
+        self.assertEqual(result.audit_event["status_code"], 502)
 
     def test_publish_rejects_unknown_destination_type(self) -> None:
         session_id, _ = self.runtime.execute(

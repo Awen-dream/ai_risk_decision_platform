@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import URLError
 
 from fastapi.testclient import TestClient
 
@@ -1490,10 +1491,14 @@ class AgentApiTests(unittest.TestCase):
                 "/admin/audit-events",
                 params={"upstream_client": "CaseHandoffPublisher"},
             )
+            deliveries = client.get(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries",
+            )
 
         exported_payload = exported.json()
         published_payload = published.json()
         audit_payload = audit_events.json()
+        deliveries_payload = deliveries.json()
         self.assertEqual(exported.status_code, 200)
         self.assertEqual(exported_payload["schema_version"], "case-handoff.v1")
         self.assertEqual(exported_payload["destination"]["destination_type"], "ticket")
@@ -1525,8 +1530,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(audit_payload[0]["event_type"], "case_handoff_publish")
         self.assertEqual(audit_payload[0]["upstream_client"], "CaseHandoffPublisher")
         self.assertEqual(audit_payload[0]["method"], "PUBLISH")
-        self.assertEqual(audit_payload[0]["status_code"], 202)
+        self.assertEqual(audit_payload[0]["status_code"], 201)
         self.assertEqual(published_payload["audit_event_id"], audit_payload[0]["event_id"])
+        self.assertEqual(deliveries.status_code, 200)
+        self.assertEqual(deliveries_payload["total_count"], 1)
+        self.assertEqual(deliveries_payload["failed_count"], 0)
+        self.assertEqual(deliveries_payload["deliveries"][0]["status"], "published")
 
     def test_case_handoff_publish_supports_webhook_destination(self) -> None:
         client = TestClient(create_app())
@@ -1560,6 +1569,60 @@ class AgentApiTests(unittest.TestCase):
             payload["export"]["case"]["operation_log"][-1]["operation_type"],
             "handoff_published",
         )
+
+    def test_case_handoff_publish_failure_returns_dead_letter_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_path = Path(tmp_dir) / "audit.jsonl"
+            client = TestClient(create_app(AppConfig(tool_http_audit_path=audit_path)))
+            session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/root_cause",
+                json={
+                    "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                    "context": {"country": "BR", "channel": "credit_card"},
+                    "session_id": session_id,
+                },
+            )
+            created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+            with patch("services.handoff.urlopen", side_effect=URLError("handoff offline")):
+                published = client.post(
+                    f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                    json={
+                        "destination_type": "ticket",
+                        "destination_key": "strategy-shadow",
+                        "note": "投递失败",
+                    },
+                )
+            case_deliveries = client.get(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries",
+            )
+            dead_letter = client.get("/analyst-workbench/handoff-dead-letter")
+            audit_events = client.get(
+                "/admin/audit-events",
+                params={"upstream_client": "CaseHandoffPublisher"},
+            )
+
+        published_payload = published.json()
+        case_deliveries_payload = case_deliveries.json()
+        dead_letter_payload = dead_letter.json()
+        audit_payload = audit_events.json()
+        self.assertEqual(published.status_code, 502)
+        self.assertEqual(published_payload["detail"]["status"], "failed")
+        self.assertEqual(published_payload["detail"]["publisher_type"], "ticket")
+        self.assertEqual(published_payload["detail"]["error_type"], "URLError")
+        self.assertEqual(case_deliveries.status_code, 200)
+        self.assertEqual(case_deliveries_payload["failed_count"], 1)
+        self.assertEqual(case_deliveries_payload["deliveries"][0]["status"], "failed")
+        self.assertEqual(dead_letter.status_code, 200)
+        self.assertEqual(dead_letter_payload["total_count"], 1)
+        self.assertEqual(
+            dead_letter_payload["deliveries"][0]["destination_key"],
+            "strategy-shadow",
+        )
+        self.assertEqual(audit_events.status_code, 200)
+        self.assertEqual(audit_payload[0]["outcome"], "error")
+        self.assertEqual(audit_payload[0]["status_code"], 502)
 
     def test_case_handoff_publish_rejects_unknown_destination_type(self) -> None:
         client = TestClient(create_app())
