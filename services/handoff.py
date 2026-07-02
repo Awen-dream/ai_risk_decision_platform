@@ -3,12 +3,17 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from typing import Any, Protocol
 from uuid import uuid4
 
-from core.models import WorkflowCase, WorkflowCaseOperationEntry
+from core.models import (
+    WorkflowCase,
+    WorkflowCaseHandoffDeliveryEntry,
+    WorkflowCaseOperationEntry,
+)
 from services.audit import AuditLog, build_upstream_audit_event
 from services.case_service import CaseService
 from services.observability import current_headers
@@ -50,6 +55,22 @@ class HandoffPublishResult:
     export: HandoffExportEnvelope
     receipt: HandoffPublishReceipt
     audit_event: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class HandoffRetryPolicy:
+    max_attempts: int
+    min_retry_interval_sec: float = 0.0
+
+
+@dataclass(frozen=True)
+class HandoffRetryDecision:
+    eligible: bool
+    reason: str | None
+    retry_after: str | None
+    attempt_count: int
+    max_attempts: int
+    remaining_attempts: int
 
 
 class HandoffDeliveryPublishError(RuntimeError):
@@ -236,10 +257,12 @@ class CaseHandoffPublisherService:
         case_service: CaseService,
         audit_log: AuditLog,
         publishers: list[HandoffPublisher],
+        retry_policies: dict[str, HandoffRetryPolicy] | None = None,
     ) -> None:
         self._case_service = case_service
         self._audit_log = audit_log
         self._publishers = publishers
+        self._retry_policies = dict(retry_policies or {})
 
     def export_case_handoff(
         self,
@@ -363,6 +386,109 @@ class CaseHandoffPublisherService:
             audit_event=audit_event,
         )
 
+    def retry_policy_for(self, destination_type: str) -> HandoffRetryPolicy:
+        return self._retry_policies.get(
+            destination_type,
+            HandoffRetryPolicy(max_attempts=3, min_retry_interval_sec=0.0),
+        )
+
+    def evaluate_delivery_retry(
+        self,
+        case: WorkflowCase,
+        delivery: WorkflowCaseHandoffDeliveryEntry,
+        *,
+        evaluated_at: str,
+    ) -> HandoffRetryDecision:
+        policy = self.retry_policy_for(delivery.destination_type)
+        related = self._related_deliveries(case, delivery)
+        related.sort(key=lambda item: item.created_at)
+        if delivery.status == "published":
+            return HandoffRetryDecision(
+                eligible=False,
+                reason="delivery_already_published",
+                retry_after=None,
+                attempt_count=len(related),
+                max_attempts=policy.max_attempts,
+                remaining_attempts=0,
+            )
+        attempt_count = len(related)
+        if related and related[-1].delivery_id != delivery.delivery_id:
+            return HandoffRetryDecision(
+                eligible=False,
+                reason="delivery_superseded_by_newer_attempt",
+                retry_after=None,
+                attempt_count=attempt_count,
+                max_attempts=policy.max_attempts,
+                remaining_attempts=max(0, policy.max_attempts - attempt_count),
+            )
+        if attempt_count >= policy.max_attempts:
+            return HandoffRetryDecision(
+                eligible=False,
+                reason="retry_attempt_limit_reached",
+                retry_after=None,
+                attempt_count=attempt_count,
+                max_attempts=policy.max_attempts,
+                remaining_attempts=0,
+            )
+        retry_after = None
+        if policy.min_retry_interval_sec > 0:
+            retry_after_dt = _parse_timestamp(delivery.created_at) + timedelta(
+                seconds=policy.min_retry_interval_sec
+            )
+            retry_after = _format_timestamp(retry_after_dt)
+            if _parse_timestamp(evaluated_at) < retry_after_dt:
+                return HandoffRetryDecision(
+                    eligible=False,
+                    reason="retry_cooldown_active",
+                    retry_after=retry_after,
+                    attempt_count=attempt_count,
+                    max_attempts=policy.max_attempts,
+                    remaining_attempts=max(0, policy.max_attempts - attempt_count),
+                )
+        return HandoffRetryDecision(
+            eligible=True,
+            reason=None,
+            retry_after=retry_after,
+            attempt_count=attempt_count,
+            max_attempts=policy.max_attempts,
+            remaining_attempts=max(0, policy.max_attempts - attempt_count),
+        )
+
+    def list_retry_candidates(
+        self,
+        cases: list[WorkflowCase],
+        *,
+        evaluated_at: str,
+        case_id: str | None = None,
+        destination_type: str | None = None,
+        publisher_type: str | None = None,
+        limit: int = 50,
+    ) -> list[tuple[WorkflowCase, WorkflowCaseHandoffDeliveryEntry, HandoffRetryDecision]]:
+        candidates: list[
+            tuple[WorkflowCase, WorkflowCaseHandoffDeliveryEntry, HandoffRetryDecision]
+        ] = []
+        for case in cases:
+            if case_id is not None and case.case_id != case_id:
+                continue
+            for delivery in case.handoff_deliveries:
+                if delivery.status == "published":
+                    continue
+                if (
+                    destination_type is not None
+                    and delivery.destination_type != destination_type
+                ):
+                    continue
+                if publisher_type is not None and delivery.publisher_type != publisher_type:
+                    continue
+                decision = self.evaluate_delivery_retry(
+                    case,
+                    delivery,
+                    evaluated_at=evaluated_at,
+                )
+                candidates.append((case, delivery, decision))
+        candidates.sort(key=lambda item: item[1].created_at, reverse=True)
+        return candidates[:limit]
+
     def _build_export(
         self,
         case: WorkflowCase,
@@ -388,6 +514,19 @@ class CaseHandoffPublisherService:
             },
             operation_log=list(case.operation_log[-10:]),
         )
+
+    def _related_deliveries(
+        self,
+        case: WorkflowCase,
+        delivery: WorkflowCaseHandoffDeliveryEntry,
+    ) -> list[WorkflowCaseHandoffDeliveryEntry]:
+        return [
+            item
+            for item in case.handoff_deliveries
+            if item.destination_type == delivery.destination_type
+            and item.destination_key == delivery.destination_key
+            and item.publisher_type == delivery.publisher_type
+        ]
 
     def _publisher_for(self, destination_type: str) -> HandoffPublisher:
         for publisher in self._publishers:
@@ -482,3 +621,12 @@ def _receipt_status_code(receipt: HandoffPublishReceipt) -> int:
     if receipt.status == "published":
         return 202
     return 502
+
+
+def _parse_timestamp(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+
+
+def _format_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

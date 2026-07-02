@@ -1667,6 +1667,82 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(deliveries_after["failed_count"], 1)
         self.assertEqual(deliveries_after["deliveries"][-1]["status"], "published")
 
+    def test_case_handoff_dead_letter_retry_respects_cooldown(self) -> None:
+        client = TestClient(create_app(AppConfig(handoff_ticket_retry_cooldown_sec=300.0)))
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        with patch("services.handoff.urlopen", side_effect=URLError("handoff offline")):
+            client.post(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                json={
+                    "destination_type": "ticket",
+                    "destination_key": "strategy-shadow",
+                },
+            )
+
+        delivery_payload = client.get(
+            f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries",
+        ).json()["deliveries"][0]
+        retried = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries/{delivery_payload['delivery_id']}/retry",
+            json={"note": "立即重试"},
+        )
+
+        self.assertFalse(delivery_payload["retry_eligible"])
+        self.assertEqual(delivery_payload["retry_reason"], "retry_cooldown_active")
+        self.assertEqual(retried.status_code, 409)
+        self.assertEqual(
+            retried.json()["detail"]["retry_reason"],
+            "retry_cooldown_active",
+        )
+
+    def test_case_handoff_dead_letter_retry_respects_attempt_limit(self) -> None:
+        client = TestClient(create_app(AppConfig(handoff_ticket_max_attempts=1)))
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        with patch("services.handoff.urlopen", side_effect=URLError("handoff offline")):
+            client.post(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                json={
+                    "destination_type": "ticket",
+                    "destination_key": "strategy-shadow",
+                },
+            )
+
+        delivery_payload = client.get(
+            f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries",
+        ).json()["deliveries"][0]
+        retried = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/handoff-deliveries/{delivery_payload['delivery_id']}/retry",
+            json={"note": "尝试重试"},
+        )
+
+        self.assertFalse(delivery_payload["retry_eligible"])
+        self.assertEqual(delivery_payload["retry_reason"], "retry_attempt_limit_reached")
+        self.assertEqual(retried.status_code, 409)
+        self.assertEqual(
+            retried.json()["detail"]["retry_reason"],
+            "retry_attempt_limit_reached",
+        )
+
     def test_handoff_dead_letter_bulk_retry_returns_mixed_results(self) -> None:
         client = TestClient(create_app())
         session_id = client.post("/sessions").json()["session_id"]
@@ -1715,8 +1791,47 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(payload["requested_count"], 2)
         self.assertEqual(payload["success_count"], 1)
         self.assertEqual(payload["failed_count"], 1)
+        self.assertEqual(payload["skipped_count"], 0)
         self.assertEqual(payload["results"][0]["status"], "published")
         self.assertEqual(payload["failures"][0]["error_type"], "URLError")
+
+    def test_handoff_dead_letter_sweep_skips_non_retryable_deliveries(self) -> None:
+        client = TestClient(create_app(AppConfig(handoff_ticket_retry_cooldown_sec=300.0)))
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/root_cause",
+            json={
+                "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                "context": {"country": "BR", "channel": "credit_card"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        with patch("services.handoff.urlopen", side_effect=URLError("handoff offline")):
+            client.post(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                json={
+                    "destination_type": "ticket",
+                    "destination_key": "strategy-shadow",
+                },
+            )
+
+        response = client.post(
+            "/analyst-workbench/handoff-dead-letter/sweep",
+            json={"limit": 10},
+        )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["requested_count"], 1)
+        self.assertEqual(payload["success_count"], 0)
+        self.assertEqual(payload["failed_count"], 0)
+        self.assertEqual(payload["skipped_count"], 1)
+        self.assertEqual(
+            payload["skipped"][0]["retry_reason"],
+            "retry_cooldown_active",
+        )
 
     def test_case_handoff_publish_rejects_unknown_destination_type(self) -> None:
         client = TestClient(create_app())
@@ -2009,6 +2124,7 @@ class AgentApiTests(unittest.TestCase):
         self.assertGreaterEqual(payload["gauges"]["cases.handoff.deliveries.total"], 2)
         self.assertGreaterEqual(payload["gauges"]["cases.handoff.deliveries.failed"], 1)
         self.assertGreaterEqual(payload["gauges"]["cases.handoff.dead_letter_cases"], 1)
+        self.assertIn("cases.handoff.deliveries.retryable", payload["gauges"])
 
 
 if __name__ == "__main__":

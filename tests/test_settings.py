@@ -286,6 +286,11 @@ class SettingsTests(unittest.TestCase):
                     "AI_RISK_HANDOFF_PUBLISH_TIMEOUT_SEC": "8.5",
                     "AI_RISK_HANDOFF_PUBLISH_RETRY_ATTEMPTS": "3",
                     "AI_RISK_HANDOFF_PUBLISH_RETRY_BACKOFF_SEC": "0.25",
+                    "AI_RISK_HANDOFF_TICKET_MAX_ATTEMPTS": "5",
+                    "AI_RISK_HANDOFF_TICKET_RETRY_COOLDOWN_SEC": "120",
+                    "AI_RISK_HANDOFF_WEBHOOK_MAX_ATTEMPTS": "4",
+                    "AI_RISK_HANDOFF_WEBHOOK_RETRY_COOLDOWN_SEC": "30",
+                    "AI_RISK_HANDOFF_RETRY_SWEEP_LIMIT": "80",
                 },
             ):
                 config = AppConfig.from_env()
@@ -301,6 +306,11 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(config.handoff_publish_timeout_sec, 8.5)
         self.assertEqual(config.handoff_publish_retry_attempts, 3)
         self.assertEqual(config.handoff_publish_retry_backoff_sec, 0.25)
+        self.assertEqual(config.handoff_ticket_max_attempts, 5)
+        self.assertEqual(config.handoff_ticket_retry_cooldown_sec, 120.0)
+        self.assertEqual(config.handoff_webhook_max_attempts, 4)
+        self.assertEqual(config.handoff_webhook_retry_cooldown_sec, 30.0)
+        self.assertEqual(config.handoff_retry_sweep_limit, 80)
 
     def test_sqlite_persistence_settings_load_from_environment(self) -> None:
         with patch.dict(

@@ -173,6 +173,11 @@ class AppConfig:
     handoff_publish_timeout_sec: float = 5.0
     handoff_publish_retry_attempts: int = 1
     handoff_publish_retry_backoff_sec: float = 0.1
+    handoff_ticket_max_attempts: int = 3
+    handoff_ticket_retry_cooldown_sec: float = 0.0
+    handoff_webhook_max_attempts: int = 3
+    handoff_webhook_retry_cooldown_sec: float = 0.0
+    handoff_retry_sweep_limit: int = 50
     tool_http_metric_path: str = "/metric-snapshots"
     tool_http_case_path: str = "/case-records"
     tool_http_order_path_template: str = "/order-profiles/{order_id}"
@@ -453,6 +458,21 @@ class AppConfig:
             handoff_publish_retry_backoff_sec=float(
                 os.getenv("AI_RISK_HANDOFF_PUBLISH_RETRY_BACKOFF_SEC", "0.1")
             ),
+            handoff_ticket_max_attempts=int(
+                os.getenv("AI_RISK_HANDOFF_TICKET_MAX_ATTEMPTS", "3")
+            ),
+            handoff_ticket_retry_cooldown_sec=float(
+                os.getenv("AI_RISK_HANDOFF_TICKET_RETRY_COOLDOWN_SEC", "0.0")
+            ),
+            handoff_webhook_max_attempts=int(
+                os.getenv("AI_RISK_HANDOFF_WEBHOOK_MAX_ATTEMPTS", "3")
+            ),
+            handoff_webhook_retry_cooldown_sec=float(
+                os.getenv("AI_RISK_HANDOFF_WEBHOOK_RETRY_COOLDOWN_SEC", "0.0")
+            ),
+            handoff_retry_sweep_limit=int(
+                os.getenv("AI_RISK_HANDOFF_RETRY_SWEEP_LIMIT", "50")
+            ),
             tool_http_metric_path=os.getenv(
                 "AI_RISK_TOOL_HTTP_METRIC_PATH",
                 "/metric-snapshots",
@@ -618,6 +638,11 @@ class AppConfig:
             handoff_publish_timeout_sec=5.0,
             handoff_publish_retry_attempts=1,
             handoff_publish_retry_backoff_sec=0.1,
+            handoff_ticket_max_attempts=3,
+            handoff_ticket_retry_cooldown_sec=0.0,
+            handoff_webhook_max_attempts=3,
+            handoff_webhook_retry_cooldown_sec=0.0,
+            handoff_retry_sweep_limit=50,
             tool_http_metric_path="/metric-snapshots",
             tool_http_case_path="/case-records",
             tool_http_order_path_template="/order-profiles/{order_id}",

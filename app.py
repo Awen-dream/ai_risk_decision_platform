@@ -104,6 +104,7 @@ from services.memory import CaseMemoryProvider
 from services.handoff import (
     AuditOnlyHandoffPublisher,
     CaseHandoffPublisherService,
+    HandoffRetryPolicy,
     HttpTicketHandoffPublisher,
     HttpWebhookHandoffPublisher,
 )
@@ -434,6 +435,17 @@ def build_handoff_publisher_service(
                 retry_backoff_sec=config.handoff_publish_retry_backoff_sec,
             ),
         ],
+        retry_policies={
+            "ticket": HandoffRetryPolicy(
+                max_attempts=config.handoff_ticket_max_attempts,
+                min_retry_interval_sec=config.handoff_ticket_retry_cooldown_sec,
+            ),
+            "webhook": HandoffRetryPolicy(
+                max_attempts=config.handoff_webhook_max_attempts,
+                min_retry_interval_sec=config.handoff_webhook_retry_cooldown_sec,
+            ),
+            "audit-only": HandoffRetryPolicy(max_attempts=1, min_retry_interval_sec=0.0),
+        },
     )
 
 

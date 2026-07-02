@@ -147,6 +147,94 @@ class HandoffPublisherTests(unittest.TestCase):
         self.assertEqual(result.audit_event["outcome"], "error")
         self.assertEqual(result.audit_event["status_code"], 502)
 
+    def test_retry_policy_blocks_latest_failure_when_attempt_limit_reached(self) -> None:
+        config = AppConfig(handoff_ticket_max_attempts=1)
+        container = build_app_container(config)
+        service = build_handoff_publisher_service(
+            config=config,
+            case_service=container.case_service,
+            audit_log=container.audit_log,
+        )
+        session_id, _ = container.runtime.execute(
+            "graph",
+            AgentRequest(
+                query="请分析用户 U10001 是否属于团伙网络",
+                context={"user_id": "U10001"},
+            ),
+        )
+        session = container.runtime.get_session(session_id)
+        assert session is not None
+        case = container.case_service.create_case_from_session(session)
+        updated_case = container.case_service.record_case_handoff_delivery(
+            case.case_id,
+            export_id="HEX-FAIL-001",
+            destination_type="ticket",
+            destination_key="strategy-shadow",
+            publisher_type="ticket",
+            target_ref="https://handoff.local/tickets/projects/risk-ops/cases",
+            status="failed",
+            summary="首次投递失败",
+            created_at="2026-07-02T00:00:00Z",
+            published_at="2026-07-02T00:00:00Z",
+            error_type="URLError",
+            error_message="offline",
+        )
+        assert updated_case is not None
+
+        decision = service.evaluate_delivery_retry(
+            updated_case,
+            updated_case.handoff_deliveries[-1],
+            evaluated_at="2026-07-02T00:10:00Z",
+        )
+
+        self.assertFalse(decision.eligible)
+        self.assertEqual(decision.reason, "retry_attempt_limit_reached")
+        self.assertEqual(decision.max_attempts, 1)
+
+    def test_retry_policy_respects_cooldown_window(self) -> None:
+        config = AppConfig(handoff_webhook_retry_cooldown_sec=300.0)
+        container = build_app_container(config)
+        service = build_handoff_publisher_service(
+            config=config,
+            case_service=container.case_service,
+            audit_log=container.audit_log,
+        )
+        session_id, _ = container.runtime.execute(
+            "graph",
+            AgentRequest(
+                query="请分析用户 U10001 是否属于团伙网络",
+                context={"user_id": "U10001"},
+            ),
+        )
+        session = container.runtime.get_session(session_id)
+        assert session is not None
+        case = container.case_service.create_case_from_session(session)
+        updated_case = container.case_service.record_case_handoff_delivery(
+            case.case_id,
+            export_id="HEX-FAIL-002",
+            destination_type="webhook",
+            destination_key="ops-sync",
+            publisher_type="webhook",
+            target_ref="https://handoff.local/webhooks/ops-sync",
+            status="failed",
+            summary="webhook 投递失败",
+            created_at="2026-07-02T00:00:00Z",
+            published_at="2026-07-02T00:00:00Z",
+            error_type="URLError",
+            error_message="offline",
+        )
+        assert updated_case is not None
+
+        decision = service.evaluate_delivery_retry(
+            updated_case,
+            updated_case.handoff_deliveries[-1],
+            evaluated_at="2026-07-02T00:03:00Z",
+        )
+
+        self.assertFalse(decision.eligible)
+        self.assertEqual(decision.reason, "retry_cooldown_active")
+        self.assertEqual(decision.retry_after, "2026-07-02T00:05:00Z")
+
     def test_publish_rejects_unknown_destination_type(self) -> None:
         session_id, _ = self.runtime.execute(
             "graph",
