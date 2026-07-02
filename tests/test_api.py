@@ -1443,6 +1443,68 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(action_payload["recent_operations"][-1]["operation_type"], "note_added")
         self.assertEqual(action_payload["handoff_artifact"]["operation_context"]["trigger"], "note_added")
 
+    def test_case_handoff_export_and_publish_record_audit_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            audit_path = Path(tmp_dir) / "audit.jsonl"
+            client = TestClient(create_app(AppConfig(tool_http_audit_path=audit_path)))
+            session_id = client.post("/sessions").json()["session_id"]
+            client.post(
+                "/agents/root_cause",
+                json={
+                    "query": "请分析巴西信用卡支付失败率升高的根因并给出排序",
+                    "context": {"country": "BR", "channel": "credit_card"},
+                    "session_id": session_id,
+                },
+            )
+            created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+            exported = client.get(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-export",
+                params={"destination_type": "ticket", "destination_key": "strategy-shadow"},
+            )
+            published = client.post(
+                f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+                json={
+                    "destination_type": "ticket",
+                    "destination_key": "strategy-shadow",
+                    "note": "已推送到策略实验工单",
+                },
+            )
+            audit_events = client.get(
+                "/admin/audit-events",
+                params={"upstream_client": "CaseHandoffPublisher"},
+            )
+
+        exported_payload = exported.json()
+        published_payload = published.json()
+        audit_payload = audit_events.json()
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(exported_payload["schema_version"], "case-handoff.v1")
+        self.assertEqual(exported_payload["destination"]["destination_type"], "ticket")
+        self.assertEqual(exported_payload["destination"]["destination_key"], "strategy-shadow")
+        self.assertEqual(
+            exported_payload["handoff_artifact"]["destination_key"],
+            "strategy-shadow",
+        )
+        self.assertTrue(exported_payload["operation_log"])
+        self.assertEqual(published.status_code, 200)
+        self.assertEqual(published_payload["status"], "published")
+        self.assertEqual(
+            published_payload["export"]["case"]["operation_log"][-1]["operation_type"],
+            "handoff_published",
+        )
+        self.assertEqual(
+            published_payload["export"]["handoff_artifact"]["operation_context"]["trigger"],
+            "handoff_published",
+        )
+        self.assertEqual(audit_events.status_code, 200)
+        self.assertEqual(len(audit_payload), 1)
+        self.assertEqual(audit_payload[0]["event_type"], "case_handoff_publish")
+        self.assertEqual(audit_payload[0]["upstream_client"], "CaseHandoffPublisher")
+        self.assertEqual(audit_payload[0]["method"], "PUBLISH")
+        self.assertEqual(audit_payload[0]["status_code"], 202)
+        self.assertEqual(published_payload["audit_event_id"], audit_payload[0]["event_id"])
+
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             policy_path = Path(tmp_dir) / "risk-decision-policy.json"

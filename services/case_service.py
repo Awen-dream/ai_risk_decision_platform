@@ -99,6 +99,17 @@ class CaseService(ABC):
     ) -> WorkflowCase | None:
         """Append an operational note without changing the case status."""
 
+    @abstractmethod
+    def publish_case_handoff(
+        self,
+        case_id: str,
+        *,
+        destination_type: str,
+        destination_key: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        """Record that a case handoff package has been published."""
+
 
 class InMemoryCaseService(CaseService):
     """Stores workflow cases in memory for lightweight review and follow-up."""
@@ -230,6 +241,25 @@ class InMemoryCaseService(CaseService):
         if case is None:
             return None
         _append_case_note(case, note, assigned_to=assigned_to)
+        return case
+
+    def publish_case_handoff(
+        self,
+        case_id: str,
+        *,
+        destination_type: str,
+        destination_key: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        case = self._cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_handoff_publication(
+            case,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            note=note,
+        )
         return case
 
 
@@ -369,6 +399,27 @@ class FileCaseService(CaseService):
         if case is None:
             return None
         _append_case_note(case, note, assigned_to=assigned_to)
+        self._save_cases(cases)
+        return case
+
+    def publish_case_handoff(
+        self,
+        case_id: str,
+        *,
+        destination_type: str,
+        destination_key: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        cases = self._load_cases()
+        case = cases.get(case_id)
+        if case is None:
+            return None
+        _append_case_handoff_publication(
+            case,
+            destination_type=destination_type,
+            destination_key=destination_key,
+            note=note,
+        )
         self._save_cases(cases)
         return case
 
@@ -654,6 +705,43 @@ class SQLiteCaseService(CaseService):
             if case is None:
                 return None
             _append_case_note(case, note, assigned_to=assigned_to)
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = ?, payload_json = ?,
+                    revision = revision + 1
+                WHERE case_id = ?
+                """,
+                (
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
+    def publish_case_handoff(
+        self,
+        case_id: str,
+        *,
+        destination_type: str,
+        destination_key: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = ?",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_handoff_publication(
+                case,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                note=note,
+            )
             connection.execute(
                 """
                 UPDATE workflow_cases
@@ -965,6 +1053,43 @@ class PostgresCaseService(CaseService):
             )
         return case
 
+    def publish_case_handoff(
+        self,
+        case_id: str,
+        *,
+        destination_type: str,
+        destination_key: str,
+        note: str | None = None,
+    ) -> WorkflowCase | None:
+        with self._database.transaction() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM workflow_cases WHERE case_id = %s FOR UPDATE",
+                (case_id,),
+            ).fetchone()
+            case = _case_from_row(row)
+            if case is None:
+                return None
+            _append_case_handoff_publication(
+                case,
+                destination_type=destination_type,
+                destination_key=destination_key,
+                note=note,
+            )
+            connection.execute(
+                """
+                UPDATE workflow_cases
+                SET updated_at = %s, payload_json = %s::jsonb,
+                    revision = revision + 1
+                WHERE case_id = %s
+                """,
+                (
+                    case.updated_at,
+                    _case_json(case),
+                    case.case_id,
+                ),
+            )
+        return case
+
 
 def _build_case_from_session(
     session: SessionRecord,
@@ -1221,6 +1346,38 @@ def _append_case_note(
         metadata={"event_type": "note_added"},
     )
     _refresh_case_handoff_artifact(case, trigger="note_added")
+
+
+def _append_case_handoff_publication(
+    case: WorkflowCase,
+    *,
+    destination_type: str,
+    destination_key: str,
+    note: str | None,
+) -> None:
+    updated_at = _current_timestamp()
+    case.updated_at = updated_at
+    summary = note or f"案件交接已发布到 {destination_type}:{destination_key}。"
+    case.history.append(
+        WorkflowCaseHistoryEntry(
+            event_type="handoff_published",
+            status=case.status,
+            summary=summary,
+        )
+    )
+    _record_case_operation(
+        case,
+        operation_type="handoff_published",
+        status_before=case.status,
+        status_after=case.status,
+        summary=summary,
+        metadata={
+            "event_type": "handoff_published",
+            "destination_type": destination_type,
+            "destination_key": destination_key,
+        },
+    )
+    _refresh_case_handoff_artifact(case, trigger="handoff_published")
 
 
 def _record_case_operation(

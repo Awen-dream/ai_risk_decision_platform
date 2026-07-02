@@ -326,6 +326,57 @@ class CaseServiceTests(unittest.TestCase):
             self.assertEqual(noted_case.handoff_artifact["assigned_to"], "risk-reviewer-02")
             self.assertEqual(noted_case.handoff_artifact["operation_context"]["trigger"], "note_added")
 
+    def test_file_case_store_persists_handoff_publication_operation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = AppConfig(
+                session_store_backend="file",
+                session_store_path=Path(tmp_dir) / "sessions.json",
+                case_store_backend="file",
+                case_store_path=Path(tmp_dir) / "cases.json",
+            )
+
+            container = build_app_container(config)
+            session_id, _ = container.runtime.execute(
+                "root_cause",
+                AgentRequest(
+                    query="请分析巴西信用卡支付失败率升高的根因并给出排序",
+                    context={"country": "BR", "channel": "credit_card"},
+                ),
+            )
+            session = container.runtime.get_session(session_id)
+            assert session is not None
+            created_case = container.case_service.create_case_from_session(session)
+
+            published_case = container.case_service.publish_case_handoff(
+                created_case.case_id,
+                destination_type="ticket",
+                destination_key="strategy-shadow",
+                note="已推送到策略实验工单",
+            )
+
+            assert published_case is not None
+            self.assertEqual(published_case.history[-1].event_type, "handoff_published")
+            self.assertEqual(published_case.operation_log[-1].operation_type, "handoff_published")
+            self.assertEqual(
+                published_case.operation_log[-1].metadata["destination_type"],
+                "ticket",
+            )
+            self.assertEqual(
+                published_case.operation_log[-1].metadata["destination_key"],
+                "strategy-shadow",
+            )
+            self.assertEqual(
+                published_case.handoff_artifact["operation_context"]["trigger"],
+                "handoff_published",
+            )
+
+            rebuilt = build_app_container(config)
+            reloaded_case = rebuilt.case_service.get_case(created_case.case_id)
+            self.assertIsNotNone(reloaded_case)
+            assert reloaded_case is not None
+            self.assertEqual(reloaded_case.operation_log[-1].operation_type, "handoff_published")
+            self.assertEqual(reloaded_case.history[-1].summary, "已推送到策略实验工单")
+
     def test_file_case_store_supports_pagination_and_updated_at_filters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = AppConfig(

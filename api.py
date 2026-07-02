@@ -25,6 +25,7 @@ from core.models import (
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
+from services.audit import build_upstream_audit_event
 from services.case_service import ALLOWED_CASE_STATUSES, is_risk_action_plan_overdue
 from services.observability import (
     REQUEST_ID_HEADER,
@@ -484,6 +485,36 @@ class CaseWorkbenchPayload(BaseModel):
     available_actions: List[WorkbenchActionPayload] = Field(default_factory=list)
     recent_history: List[CaseHistoryPayload] = Field(default_factory=list)
     recent_operations: List[CaseOperationPayload] = Field(default_factory=list)
+
+
+class HandoffDestinationPayload(BaseModel):
+    destination_type: str
+    destination_key: str
+
+
+class HandoffExportPayload(BaseModel):
+    export_id: str
+    schema_version: str
+    exported_at: str
+    destination: HandoffDestinationPayload
+    case: WorkflowCasePayload
+    handoff_artifact: Dict[str, Any] = Field(default_factory=dict)
+    operation_log: List[CaseOperationPayload] = Field(default_factory=list)
+
+
+class HandoffPublishRequest(BaseModel):
+    destination_type: str = Field(..., min_length=1)
+    destination_key: str = Field(..., min_length=1)
+    note: Optional[str] = None
+
+
+class HandoffPublishResponse(BaseModel):
+    receipt_id: str
+    status: str
+    published_at: str
+    audit_event_id: str
+    destination: HandoffDestinationPayload
+    export: HandoffExportPayload
 
 
 class ActionQueueAssignRequest(BaseModel):
@@ -983,6 +1014,66 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
             case_status=updated_case.status,
         )
         return _build_case_workbench_payload(updated_case)
+
+    @fastapi_app.get(
+        "/analyst-workbench/cases/{case_id}/handoff-export",
+        response_model=HandoffExportPayload,
+    )
+    def export_case_handoff(
+        case_id: str,
+        destination_type: str = Query(default="generic", min_length=1),
+        destination_key: str = Query(default="default", min_length=1),
+    ) -> HandoffExportPayload:
+        case = container.case_service.get_case(case_id)
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return _build_case_handoff_export(
+            case,
+            destination_type=destination_type,
+            destination_key=destination_key,
+        )
+
+    @fastapi_app.post(
+        "/analyst-workbench/cases/{case_id}/handoff-publish",
+        response_model=HandoffPublishResponse,
+    )
+    def publish_case_handoff(
+        case_id: str,
+        payload: HandoffPublishRequest,
+    ) -> HandoffPublishResponse:
+        case = container.case_service.publish_case_handoff(
+            case_id,
+            destination_type=payload.destination_type,
+            destination_key=payload.destination_key,
+            note=payload.note,
+        )
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        export_payload = _build_case_handoff_export(
+            case,
+            destination_type=payload.destination_type,
+            destination_key=payload.destination_key,
+        )
+        audit_event = _build_case_handoff_audit_event(
+            case,
+            export_payload,
+        )
+        container.audit_log.record(audit_event)
+        emit_event(
+            "case_handoff_published",
+            case_id=case.case_id,
+            destination_type=payload.destination_type,
+            destination_key=payload.destination_key,
+            audit_event_id=audit_event["event_id"],
+        )
+        return HandoffPublishResponse(
+            receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
+            status="published",
+            published_at=export_payload.exported_at,
+            audit_event_id=str(audit_event["event_id"]),
+            destination=export_payload.destination,
+            export=export_payload,
+        )
 
     @fastapi_app.get(
         "/cases/action-queues/{queue}/cases",
@@ -1582,6 +1673,60 @@ def _build_case_workbench_payload(case: WorkflowCase) -> CaseWorkbenchPayload:
             _to_case_operation_payload(item) for item in case.operation_log[-5:]
         ],
     )
+
+
+def _build_case_handoff_export(
+    case: WorkflowCase,
+    *,
+    destination_type: str,
+    destination_key: str,
+) -> HandoffExportPayload:
+    exported_at = _utc_now_iso()
+    return HandoffExportPayload(
+        export_id=f"HEX-{uuid4().hex[:12].upper()}",
+        schema_version="case-handoff.v1",
+        exported_at=exported_at,
+        destination=HandoffDestinationPayload(
+            destination_type=destination_type,
+            destination_key=destination_key,
+        ),
+        case=_to_case_payload(case),
+        handoff_artifact={
+            **case.handoff_artifact,
+            "destination_type": destination_type,
+            "destination_key": destination_key,
+            "exported_at": exported_at,
+        },
+        operation_log=[_to_case_operation_payload(item) for item in case.operation_log[-10:]],
+    )
+
+
+def _build_case_handoff_audit_event(
+    case: WorkflowCase,
+    export_payload: HandoffExportPayload,
+) -> dict[str, Any]:
+    event = build_upstream_audit_event(
+        upstream_client="CaseHandoffPublisher",
+        method="PUBLISH",
+        url=(
+            f"https://handoff.local/{export_payload.destination.destination_type}/"
+            f"{export_payload.destination.destination_key}/cases/{case.case_id}"
+        ),
+        outcome="success",
+        attempt=1,
+        total_attempts=1,
+        status_code=202,
+        request_header_names=["X-Request-Id", "X-Trace-Id"],
+    )
+    event["event_type"] = "case_handoff_publish"
+    event["case_id"] = case.case_id
+    event["handoff_export_id"] = export_payload.export_id
+    event["handoff_schema_version"] = export_payload.schema_version
+    event["destination_type"] = export_payload.destination.destination_type
+    event["destination_key"] = export_payload.destination.destination_key
+    event["case_status"] = case.status
+    event["case_severity"] = case.severity
+    return event
 
 
 def _evidence_gap_payload_from_mapping(item: dict[str, Any]) -> EvidenceGapPayload:
