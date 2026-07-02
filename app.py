@@ -101,6 +101,12 @@ from services.audit import (
 from retrieval.file_source import DirectoryKnowledgeSource
 from services.knowledge_sync import KnowledgeSyncService
 from services.memory import CaseMemoryProvider
+from services.handoff import (
+    AuditOnlyHandoffPublisher,
+    CaseHandoffPublisherService,
+    TicketHandoffPublisher,
+    WebhookHandoffPublisher,
+)
 from services.risk_decision import RiskDecisionPolicy
 from settings import AppConfig
 from tools.registry import ToolRegistry
@@ -115,6 +121,7 @@ class AppContainer:
     knowledge_sync_service: KnowledgeSyncService
     case_service: CaseService
     audit_log: AuditLog
+    handoff_publisher_service: CaseHandoffPublisherService
 
 
 def build_knowledge_sources(config: AppConfig) -> list[KnowledgeSource]:
@@ -399,6 +406,22 @@ def build_audit_log(config: AppConfig) -> AuditLog:
     return NoopAuditLog()
 
 
+def build_handoff_publisher_service(
+    *,
+    case_service: CaseService,
+    audit_log: AuditLog,
+) -> CaseHandoffPublisherService:
+    return CaseHandoffPublisherService(
+        case_service=case_service,
+        audit_log=audit_log,
+        publishers=[
+            AuditOnlyHandoffPublisher(),
+            TicketHandoffPublisher(),
+            WebhookHandoffPublisher(),
+        ],
+    )
+
+
 def build_app_container(config: AppConfig | None = None) -> AppContainer:
     """Create the application container using the configured backends."""
     config = config or AppConfig.from_env()
@@ -415,6 +438,10 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
 
     runtime = AgentRuntime(session_store=build_session_store(config))
     case_service = build_case_service(config)
+    handoff_publisher_service = build_handoff_publisher_service(
+        case_service=case_service,
+        audit_log=audit_log,
+    )
     knowledge_agent = KnowledgeAgent(retrieval)
     investigation_agent = InvestigationAgent(
         tools,
@@ -460,6 +487,7 @@ def build_app_container(config: AppConfig | None = None) -> AppContainer:
         knowledge_sync_service=KnowledgeSyncService(retrieval, knowledge_sources),
         case_service=case_service,
         audit_log=audit_log,
+        handoff_publisher_service=handoff_publisher_service,
     )
 
 

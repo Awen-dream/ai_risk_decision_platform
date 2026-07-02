@@ -1489,6 +1489,12 @@ class AgentApiTests(unittest.TestCase):
         self.assertTrue(exported_payload["operation_log"])
         self.assertEqual(published.status_code, 200)
         self.assertEqual(published_payload["status"], "published")
+        self.assertEqual(published_payload["publisher_type"], "ticket")
+        self.assertEqual(
+            published_payload["target_ref"],
+            "ticket://risk-ops/strategy-shadow",
+        )
+        self.assertEqual(published_payload["metadata"]["project_key"], "risk-ops")
         self.assertEqual(
             published_payload["export"]["case"]["operation_log"][-1]["operation_type"],
             "handoff_published",
@@ -1504,6 +1510,30 @@ class AgentApiTests(unittest.TestCase):
         self.assertEqual(audit_payload[0]["method"], "PUBLISH")
         self.assertEqual(audit_payload[0]["status_code"], 202)
         self.assertEqual(published_payload["audit_event_id"], audit_payload[0]["event_id"])
+
+    def test_case_handoff_publish_rejects_unknown_destination_type(self) -> None:
+        client = TestClient(create_app())
+        session_id = client.post("/sessions").json()["session_id"]
+        client.post(
+            "/agents/graph",
+            json={
+                "query": "请分析用户 U10001 是否属于团伙网络",
+                "context": {"user_id": "U10001"},
+                "session_id": session_id,
+            },
+        )
+        created_case = client.post(f"/cases/from-session/{session_id}").json()
+
+        response = client.post(
+            f"/analyst-workbench/cases/{created_case['case_id']}/handoff-publish",
+            json={
+                "destination_type": "unknown",
+                "destination_key": "noop",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unsupported handoff destination type", response.json()["detail"])
 
     def test_action_queue_cases_can_be_listed_and_assigned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -25,7 +25,6 @@ from core.models import (
 )
 from persistence.postgres import PostgresDatabase
 from persistence.sqlite import SQLiteDatabase
-from services.audit import build_upstream_audit_event
 from services.case_service import ALLOWED_CASE_STATUSES, is_risk_action_plan_overdue
 from services.observability import (
     REQUEST_ID_HEADER,
@@ -338,6 +337,13 @@ class UpstreamAuditEventPayload(BaseModel):
     session_id: Optional[str] = None
     agent_name: Optional[str] = None
     request_header_names: List[str] = Field(default_factory=list)
+    case_id: Optional[str] = None
+    handoff_export_id: Optional[str] = None
+    handoff_schema_version: Optional[str] = None
+    destination_type: Optional[str] = None
+    destination_key: Optional[str] = None
+    publisher_type: Optional[str] = None
+    target_ref: Optional[str] = None
     audit_previous_hash: Optional[str] = None
     audit_hash: Optional[str] = None
 
@@ -513,6 +519,9 @@ class HandoffPublishResponse(BaseModel):
     status: str
     published_at: str
     audit_event_id: str
+    publisher_type: str
+    target_ref: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     destination: HandoffDestinationPayload
     export: HandoffExportPayload
 
@@ -1024,14 +1033,15 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         destination_type: str = Query(default="generic", min_length=1),
         destination_key: str = Query(default="default", min_length=1),
     ) -> HandoffExportPayload:
-        case = container.case_service.get_case(case_id)
-        if case is None:
-            raise HTTPException(status_code=404, detail="Case not found")
-        return _build_case_handoff_export(
-            case,
+        export_payload = container.handoff_publisher_service.export_case_handoff(
+            case_id,
             destination_type=destination_type,
             destination_key=destination_key,
+            exported_at=_utc_now_iso(),
         )
+        if export_payload is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return _to_handoff_export_payload(export_payload)
 
     @fastapi_app.post(
         "/analyst-workbench/cases/{case_id}/handoff-publish",
@@ -1041,38 +1051,38 @@ def create_app(config: Optional[AppConfig] = None) -> FastAPI:
         case_id: str,
         payload: HandoffPublishRequest,
     ) -> HandoffPublishResponse:
-        case = container.case_service.publish_case_handoff(
-            case_id,
-            destination_type=payload.destination_type,
-            destination_key=payload.destination_key,
-            note=payload.note,
-        )
-        if case is None:
+        try:
+            result = container.handoff_publisher_service.publish_case_handoff(
+                case_id,
+                destination_type=payload.destination_type,
+                destination_key=payload.destination_key,
+                note=payload.note,
+                published_at=_utc_now_iso(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if result is None:
             raise HTTPException(status_code=404, detail="Case not found")
-        export_payload = _build_case_handoff_export(
-            case,
-            destination_type=payload.destination_type,
-            destination_key=payload.destination_key,
-        )
-        audit_event = _build_case_handoff_audit_event(
-            case,
-            export_payload,
-        )
-        container.audit_log.record(audit_event)
         emit_event(
             "case_handoff_published",
-            case_id=case.case_id,
+            case_id=result.case.case_id,
             destination_type=payload.destination_type,
             destination_key=payload.destination_key,
-            audit_event_id=audit_event["event_id"],
+            audit_event_id=result.audit_event["event_id"],
         )
         return HandoffPublishResponse(
-            receipt_id=f"HANDOFF-{uuid4().hex[:10].upper()}",
-            status="published",
-            published_at=export_payload.exported_at,
-            audit_event_id=str(audit_event["event_id"]),
-            destination=export_payload.destination,
-            export=export_payload,
+            receipt_id=result.receipt.receipt_id,
+            status=result.receipt.status,
+            published_at=result.receipt.published_at,
+            audit_event_id=str(result.audit_event["event_id"]),
+            publisher_type=result.receipt.publisher_type,
+            target_ref=result.receipt.target_ref,
+            metadata=result.receipt.metadata,
+            destination=HandoffDestinationPayload(
+                destination_type=result.export.destination.destination_type,
+                destination_key=result.export.destination.destination_key,
+            ),
+            export=_to_handoff_export_payload(result.export),
         )
 
     @fastapi_app.get(
@@ -1675,58 +1685,19 @@ def _build_case_workbench_payload(case: WorkflowCase) -> CaseWorkbenchPayload:
     )
 
 
-def _build_case_handoff_export(
-    case: WorkflowCase,
-    *,
-    destination_type: str,
-    destination_key: str,
-) -> HandoffExportPayload:
-    exported_at = _utc_now_iso()
+def _to_handoff_export_payload(export) -> HandoffExportPayload:
     return HandoffExportPayload(
-        export_id=f"HEX-{uuid4().hex[:12].upper()}",
-        schema_version="case-handoff.v1",
-        exported_at=exported_at,
+        export_id=export.export_id,
+        schema_version=export.schema_version,
+        exported_at=export.exported_at,
         destination=HandoffDestinationPayload(
-            destination_type=destination_type,
-            destination_key=destination_key,
+            destination_type=export.destination.destination_type,
+            destination_key=export.destination.destination_key,
         ),
-        case=_to_case_payload(case),
-        handoff_artifact={
-            **case.handoff_artifact,
-            "destination_type": destination_type,
-            "destination_key": destination_key,
-            "exported_at": exported_at,
-        },
-        operation_log=[_to_case_operation_payload(item) for item in case.operation_log[-10:]],
+        case=_to_case_payload(export.case),
+        handoff_artifact=export.handoff_artifact,
+        operation_log=[_to_case_operation_payload(item) for item in export.operation_log],
     )
-
-
-def _build_case_handoff_audit_event(
-    case: WorkflowCase,
-    export_payload: HandoffExportPayload,
-) -> dict[str, Any]:
-    event = build_upstream_audit_event(
-        upstream_client="CaseHandoffPublisher",
-        method="PUBLISH",
-        url=(
-            f"https://handoff.local/{export_payload.destination.destination_type}/"
-            f"{export_payload.destination.destination_key}/cases/{case.case_id}"
-        ),
-        outcome="success",
-        attempt=1,
-        total_attempts=1,
-        status_code=202,
-        request_header_names=["X-Request-Id", "X-Trace-Id"],
-    )
-    event["event_type"] = "case_handoff_publish"
-    event["case_id"] = case.case_id
-    event["handoff_export_id"] = export_payload.export_id
-    event["handoff_schema_version"] = export_payload.schema_version
-    event["destination_type"] = export_payload.destination.destination_type
-    event["destination_key"] = export_payload.destination.destination_key
-    event["case_status"] = case.status
-    event["case_severity"] = case.severity
-    return event
 
 
 def _evidence_gap_payload_from_mapping(item: dict[str, Any]) -> EvidenceGapPayload:
